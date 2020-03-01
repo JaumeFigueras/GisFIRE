@@ -1,9 +1,10 @@
 # GisFIRE
 
-GisFire is a plugin for QGIS that implements a wildfire spread simulator and
+GisFIRE is a plugin for QGIS that implements a wildfire spread simulator and
 other tools related to wildfire management. It is part of a PhD and implements
-a FARSITE software port to python integrated into QGIS. It is also an intent
-to be a framework to develop and test other spread simulation algorithms
+a [FARSITE](https://www.firelab.org/project/farsite) [software](https://github.com/firelab/farsite)
+port to python integrated into [QGIS](https://qgis.org/en/site/). It is also an
+intent to be a framework to develop and test other spread simulation algorithms
 different from the ones implemented in FARSITE or other management tools.
 
 ## Getting Started
@@ -31,21 +32,22 @@ No test developed by the moment
 
 ## Contributing
 
-Please read [CONTRIBUTING.md](https://gist.github.com/PurpleBooth/b24679402957c63ec426) for details on our code of conduct, and the process for submitting pull requests to us.
+Please read [CONTRIBUTING.md](CONTRIBUTING.md) for details on our code of
+conduct, and the process for submitting pull requests to us.
 
 ## Authors
 
 * **Jaume Figueras** - *GisFIRE Plugin behaviour* - [JaumeFigueras](https://github.com/JaumeFigueras)
 * **Jaume Figueras** - *FARSITE port* - [JaumeFigueras](https://github.com/JaumeFigueras)
 
-See also the list of [contributors](https://github.com/your/project/contributors) who participated in this project.
+See also the list of [contributors](https://github.com/your/project/contributors)
+who participated in this project.
 
 ## License
 
-This project is licensed under the GNU GPLv3 License - see the [COPYING](COPYING) file for details
+This project is licensed under the GNU GPLv3 License - see the [COPYING](COPYING)
+file for details
 
 ## Acknowledgments
 
-* Hat tip to anyone whose code was used
-* Inspiration
-* etc
+* FireLab
