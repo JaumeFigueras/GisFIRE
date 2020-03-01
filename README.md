@@ -40,7 +40,7 @@ conduct, and the process for submitting pull requests to us.
 * **Jaume Figueras** - *GisFIRE Plugin behaviour* - [JaumeFigueras](https://github.com/JaumeFigueras)
 * **Jaume Figueras** - *FARSITE port* - [JaumeFigueras](https://github.com/JaumeFigueras)
 
-See also the list of [contributors](https://github.com/your/project/contributors)
+See also the list of [contributors](https://github.com/JaumeFigueras/GisFIRE/contributors)
 who participated in this project.
 
 ## License
