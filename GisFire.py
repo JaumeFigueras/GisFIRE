@@ -16,7 +16,7 @@
  *                                                                         *
  *   This program is free software; you can redistribute it and/or modify  *
  *   it under the terms of the GNU General Public License as published by  *
- *   the Free Software Foundation; either version 2 of the License, or     *
+ *   the Free Software Foundation; either version 3 of the License, or     *
  *   (at your option) any later version.                                   *
  *                                                                         *
  ***************************************************************************/
@@ -30,7 +30,6 @@ from PyQt5.QtWidgets import QMenu
 from PyQt5.QtWidgets import QWidgetAction
 from PyQt5.QtWidgets import QDialog
 # Initialize Qt resources from file resources.py
-from .resources import *
 from qgis.gui import QgsMapToolEmitPoint
 from qgis.core import QgsProject
 from qgis.core import QgsExpressionContextUtils
@@ -39,12 +38,13 @@ from qgis.core import QgsGeometry
 from qgis.core import QgsFeature
 from qgis.core import QgsPointXY
 # Import the code for the DockWidget
+from .resources import *
 from .GisFireSettings import GisFIRESettings
 from .GisFireUi import DlgIgnitionPoint
 from .GisFireUi import DockControl
 from .Helper.Layers import CreateIgnitionPointLayer
 from .Helper.Layers import CreatePerimeterLayer
-from .Helper.Layers import SaveLayerToGeoPackage
+from .Helper.Layers import LayerToGeoPackage
 
 import os.path
 
@@ -90,7 +90,6 @@ class GisFIRE:
         if (project is not None):
             project.readProject.connect(self.onReadProject)
             project.projectSaved.connect(self.onSavedProject)
-
 
     # noinspection PyMethodMayBeStatic
     def tr(self, message):
@@ -252,6 +251,8 @@ class GisFIRE:
         self.addMenuActions()
         # Create relations with existing menus and buttons
         self.addRelations()
+        # To initial state
+        self.disableMenusAndToolbars()
 
     def disableMenusAndToolbars(self):
         self.toolbarActions['gisfire'].setEnabled(False)
@@ -330,6 +331,7 @@ class GisFIRE:
             if (project is not None):
                 scope = QgsExpressionContextUtils.projectScope(project)
                 self.prepareProject(project, scope)
+                self.enableMenusAndToolbars()
         else:
             self.enableConvertProject()
 
@@ -364,7 +366,7 @@ class GisFIRE:
         project = QgsProject.instance()
         if (project is not None):
             scope = QgsExpressionContextUtils.projectScope(project)
-            if (scope.hasVariable('gis_fire_version')):
+            if (scope.hasVariable(GisFIRESettings.VERSION_VARIABLE_NAME)):
                 return True
             else:
                 return False
@@ -374,10 +376,9 @@ class GisFIRE:
         project_location = scope.variable('project_home')
         self.geo_package = project_location + '/' + project_name + '.gpkg'
         ignition_layer = CreateIgnitionPointLayer(self.iface, project, self.geo_package)
-        self.layers['ignition_layer'] = ignition_layer
+        self.layers[GisFIRESettings.IGNITION_LAYER_ID] = ignition_layer
         perimeter_layer = CreatePerimeterLayer(self.iface, project, self.geo_package)
-        self.layers['perimeter_layer'] = perimeter_layer
-        self.enableMenusAndToolbars()
+        self.layers[GisFIRESettings.PERIMETER_LAYER_ID] = perimeter_layer
         #scope.addVariable(QgsExpressionContextScope.StaticVariable("gis_fire_version", "0.11", True, True, "GisFIRE version"))
         #scope.setVariable("gis_fire_version", "0.11")
 
@@ -388,11 +389,13 @@ class GisFIRE:
             project = QgsProject.instance()
             QgsExpressionContextUtils.removeProjectVariable(project, GisFIRESettings.VERSION_VARIABLE_NAME)
             self.disableMenusAndToolbars()
+            self.enableConvertProject()
         else:
             project = QgsProject.instance()
             scope = QgsExpressionContextUtils.projectScope(project)
             QgsExpressionContextUtils.setProjectVariable(project, GisFIRESettings.VERSION_VARIABLE_NAME, GisFIRESettings.VERSION)
             self.prepareProject(project, scope)
+            self.enableMenusAndToolbars()
 
     #--------------------------------------------------------------------------
 
@@ -403,7 +406,6 @@ class GisFIRE:
         self.pointTool = QgsMapToolEmitPoint(canvas)
         self.pointTool.canvasClicked.connect(self.setIgnitionPointCallback)
         canvas.setMapTool(self.pointTool)
-        print("onSetIgnitionPoint")
 
     def setIgnitionPointCallback(self, point, mouse_button):
         self.pointTool.canvasClicked.disconnect()
@@ -419,7 +421,7 @@ class GisFIRE:
                 (res, outFeats) = self.layers['ignition_layer'].dataProvider().addFeatures([feat])
                 self.layers['ignition_layer'].updateExtents()
                 self.layers['ignition_layer'].triggerRepaint()
-                SaveLayerToGeoPackage(self.layers['ignition_layer'], self.geo_package)
+                LayerToGeoPackage(self.layers['ignition_layer'], self.geo_package)
 
     #--------------------------------------------------------------------------
 

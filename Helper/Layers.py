@@ -6,6 +6,8 @@ from qgis.core import QgsMarkerSymbol
 
 from PyQt5.QtCore import QVariant
 
+from gisfire.GisFireSettings import GisFIRESettings
+
 from os import path
 
 def CreateLayer(type, name, attributes, crs):
@@ -21,7 +23,7 @@ def CreateLayer(type, name, attributes, crs):
     vl.updateExtents()
     return vl
 
-def SaveLayerToGeoPackage(layer, geo_package):
+def LayerToGeoPackage(layer, geo_package):
     options = QgsVectorFileWriter.SaveVectorOptions()
     if not path.exists(geo_package):
         options.actionOnExistingFile = QgsVectorFileWriter.CreateOrOverwriteFile
@@ -51,19 +53,27 @@ def AddLayerInPosition(project, layer, position):
     parent.removeChildNode(node_layer)
 
 def CreateIgnitionPointLayer(iface, project, geo_package):
-    attributes = [QgsField('date',  QVariant.String)]
-    ignition_layer = CreateLayer('Point', 'Ignition Points', attributes, project.crs())
-    SaveLayerToGeoPackage(ignition_layer, geo_package)
-    ignition_layer = LoadLayer('Ignition Points', geo_package)
-    symbol = QgsMarkerSymbol.createSimple({'name': 'circle', 'color': 'red', 'size_unit': 'MM', 'size':'2'})
-    ignition_layer.renderer().setSymbol(symbol)
-    AddLayerInPosition(project, ignition_layer, 0)
+    if len(project.mapLayersByName(GisFIRESettings.IGNITION_LAYER_NAME)) == 0:
+        attributes = [QgsField('date',  QVariant.String)]
+        ignition_layer = CreateLayer('Point', GisFIRESettings.IGNITION_LAYER_NAME, attributes, project.crs())
+        LayerToGeoPackage(ignition_layer, geo_package)
+        ignition_layer = LoadLayer(GisFIRESettings.IGNITION_LAYER_NAME, geo_package)
+        symbol = QgsMarkerSymbol.createSimple({'name': 'circle', 'color': 'red', 'size_unit': 'MM', 'size':'2'})
+        ignition_layer.renderer().setSymbol(symbol)
+        AddLayerInPosition(project, ignition_layer, 0)
+    else:
+        ignition_layer = project.instance().mapLayersByName(GisFIRESettings.IGNITION_LAYER_NAME)[0]
+        LayerToGeoPackage(ignition_layer, geo_package)
     return ignition_layer
 
 def CreatePerimeterLayer(iface, project, geo_package):
-    attributes = [QgsField('date',  QVariant.String)]
-    perimeter_layer = CreateLayer('Multipolygon', 'Fire Perimeter', attributes, project.crs())
-    SaveLayerToGeoPackage(perimeter_layer, geo_package)
-    perimeter_layer = LoadLayer('Fire Perimeter', geo_package)
-    AddLayerInPosition(project, perimeter_layer, 2)
+    if len(project.mapLayersByName(GisFIRESettings.PERIMETER_LAYER_NAME)) == 0:
+        attributes = [QgsField('date',  QVariant.String)]
+        perimeter_layer = CreateLayer('Multipolygon', GisFIRESettings.PERIMETER_LAYER_NAME, attributes, project.crs())
+        LayerToGeoPackage(perimeter_layer, geo_package)
+        perimeter_layer = LoadLayer(GisFIRESettings.PERIMETER_LAYER_NAME, geo_package)
+        AddLayerInPosition(project, perimeter_layer, 2)
+    else:
+        perimeter_layer = project.instance().mapLayersByName(GisFIRESettings.PERIMETER_LAYER_NAME)[0]
+        LayerToGeoPackage(perimeter_layer, geo_package)
     return perimeter_layer

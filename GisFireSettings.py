@@ -2,3 +2,7 @@ class GisFIRESettings:
     VARIABLE_PRE = 'gis_fire_'
     VERSION = '0.1'
     VERSION_VARIABLE_NAME = VARIABLE_PRE + 'version'
+    IGNITION_LAYER_NAME = 'Ignition Points'
+    IGNITION_LAYER_ID = 'ignition_layer'
+    PERIMETER_LAYER_NAME = 'Fire Perimeter'
+    PERIMETER_LAYER_ID = 'perimeter_layer'
