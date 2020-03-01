@@ -42,7 +42,7 @@ See also the list of [contributors](https://github.com/your/project/contributors
 
 ## License
 
-This project is licensed under the GNU GPLv3 License - see the [COPYING.md](COPYING.md) file for details
+This project is licensed under the GNU GPLv3 License - see the [COPYING](COPYING) file for details
 
 ## Acknowledgments
 
