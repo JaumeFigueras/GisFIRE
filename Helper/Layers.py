@@ -54,7 +54,7 @@ def AddLayerInPosition(project, layer, position):
 
 def CreateIgnitionPointLayer(iface, project, geo_package):
     if len(project.mapLayersByName(GisFIRESettings.IGNITION_LAYER_NAME)) == 0:
-        attributes = [QgsField('date',  QVariant.String)]
+        attributes = [QgsField('date',  QVariant.String), QgsField('type',  QVariant.String), QgsField('burned',  QVariant.Int)]
         ignition_layer = CreateLayer('Point', GisFIRESettings.IGNITION_LAYER_NAME, attributes, project.crs())
         LayerToGeoPackage(ignition_layer, geo_package)
         ignition_layer = LoadLayer(GisFIRESettings.IGNITION_LAYER_NAME, geo_package)

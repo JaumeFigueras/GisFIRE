@@ -45,6 +45,9 @@ from .GisFireUi import DockControl
 from .Helper.Layers import CreateIgnitionPointLayer
 from .Helper.Layers import CreatePerimeterLayer
 from .Helper.Layers import LayerToGeoPackage
+# Import simulation
+from .SpreadSimulation import Simulator
+
 
 import os.path
 
@@ -417,6 +420,8 @@ class GisFIRE:
             if result == QDialog.Accepted:
                 feat = QgsFeature(self.layers['ignition_layer'].fields())
                 feat.setAttribute('date', dlg.getDateTime())
+                feat.setAttribute('type', 0)
+                feat.setAttribute('burned', 0)
                 feat.setGeometry(QgsGeometry.fromPointXY(point))
                 (res, outFeats) = self.layers['ignition_layer'].dataProvider().addFeatures([feat])
                 self.layers['ignition_layer'].updateExtents()
@@ -429,7 +434,11 @@ class GisFIRE:
         pass
 
     def onStepSimulation(self):
-        pass
+        self._simulator = Simulator.SpreadSimulator()
+        self._simulator.ignitionLayer = self.layers['ignition_layer']
+        self._simulator.perimeterLayer = self.layers[GisFIRESettings.PERIMETER_LAYER_ID]
+        self._simulator.initilizeSimulation()
+        self._simulator.step()
 
     def onPauseSimulation(self):
         pass

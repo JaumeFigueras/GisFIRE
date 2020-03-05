@@ -30,8 +30,7 @@ class DlgIgnitionPoint(QDialog, FORM_CLASS):
 
     def getDateTime(self):
         qDate = self.mDateTimeEdit.dateTime()
-        print(qDate.toString(Qt.ISODate))
-        return datetime.strptime(qDate.toString(Qt.ISODate), '%Y-%m-%dT%H:%M:%S')
+        return qDate.toString(Qt.ISODate)
 
 FORM_CLASS = get_ui_class(os.path.dirname(__file__), 'dock_control.ui')
 class DockControl(QDockWidget, FORM_CLASS):

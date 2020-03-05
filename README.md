@@ -28,7 +28,7 @@ Give the example
 
 ## Running the tests
 
-No test developed by the moment
+No test developed at the moment
 
 ## Contributing
 
