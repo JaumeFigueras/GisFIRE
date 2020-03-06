@@ -2,8 +2,14 @@ from qgis.core import QgsFeature
 from qgis.core import QgsPointXY
 from qgis.core import QgsGeometry
 
+from .ROS import ros
+from .Ellipse import Alexander
+
 from datetime import datetime
 from datetime import timedelta
+from numpy import arange
+from numpy import sin, cos
+import numpy
 
 def ceilToTimeStep(dt, delta):
     return dt + (datetime.min - dt) % timedelta(seconds=delta)
@@ -67,6 +73,7 @@ class SpreadSimulator:
 
     def __init__(self):
         self._timeStep = 30
+        self._initialSampling = 400
         self._ignition_layer = None
         self._perimeter_layer = None
         self._ignition_points = []
@@ -113,15 +120,14 @@ class SpreadSimulator:
         # get points from layer
         points = list(self._ignition_layer.getFeatures())
         # Convert points to Ignition Point, ceil time to interval and then sort
-        self._ignition_points = [IgnitionPoint(feat.geometry().asPoint().x(), feat.geometry().asPoint().x(), ceilToTimeStep(datetime.strptime(feat.attributes()[1], '%Y-%m-%dT%H:%M:%S'), self._timeStep)) for feat in points]
+        self._ignition_points = [IgnitionPoint(feat.geometry().asPoint().x(), feat.geometry().asPoint().y(), ceilToTimeStep(datetime.strptime(feat.attributes()[1], '%Y-%m-%dT%H:%M:%S'), self._timeStep)) for feat in points]
         self._ignition_points.sort()
         # Initialize simulation time
-        print(self._ignition_points)
-        self._tnow = self._ignition_points[0].dt + timedelta(seconds=self._timeStep)
+        self._tnow = self._ignition_points[0].dt
 
     def ignitePoints(self):
         # get ignition points to ignite now and udtae list
-        points_to_ignite = [pt for pt in self._ignition_points if pt.dt <= self._tnow]
+        points_to_ignite = [pt for pt in self._ignition_points if pt.dt = self._tnow]
         self._ignition_points = [pt for pt in self._ignition_points if pt.dt > self._tnow]
         for pt in points_to_ignite:
             perimeter = self.computeElipseFromPoint(pt)
@@ -129,11 +135,8 @@ class SpreadSimulator:
 
     def addPerimeterToLayer(self, perimeter):
         feat = QgsFeature(self._perimeter_layer.fields())
-        feat.setAttribute('date', self._tnow.strftime('%Y-%m-%dT%H:%M:%S'))
+        feat.setAttribute('date', (self._tnow + timedelta(seconds=self._timeStep)).strftime('%Y-%m-%dT%H:%M:%S'))
         points = [QgsPointXY(pt[0], pt[1]) for pt in perimeter]
-        print(perimeter[0])
-        print(points)
-        print(points[0])
         feat.setGeometry(QgsGeometry.fromPolygonXY([points]))
         (res, outFeats) = self._perimeter_layer.dataProvider().addFeatures([feat])
         self._perimeter_layer.updateExtents()
@@ -141,17 +144,25 @@ class SpreadSimulator:
 
 
     def computeElipseFromPoint(self, pt):
-        points = list()
-        points.append([pt.x + 100, pt.y + 100])
-        points.append([pt.x - 100, pt.y + 100])
-        points.append([pt.x - 100, pt.y - 100])
-        points.append([pt.x + 100, pt.y - 100])
+        (rate, alpha, Ue) = ros(1, [[0.03,0.03,0.03],[0.45,0.82]], [1, numpy.radians(-30)], 0)
+        (a, b, c) = Alexander(rate / 60, Ue)
+        dt = self._timeStep
+        ds = numpy.pi / self._initialSampling
+        ids = arange(0, 2 * numpy.pi, ds)
+        points = [(dt * a * cos(ids), dt * b * sin(ids) + dt * c) for ids in arange(0, 2 * numpy.pi, ds)]
+        points = [(p[0] * cos(alpha) - p[1] * sin(alpha), p[0] * sin(alpha) + p[1] * cos(alpha)) for p in points]
+        points = [(p[0] + pt.x, p[1] + pt.y) for p in points]
         return points
 
+    def ignitePerimeter(self):
+        perimeters = self._perimeter_layer.getFeatures()
+        perimeter_features = [f for f in perimeters if f.attributes()[1] == self._tnow.strftime('%Y-%m-%dT%H:%M:%S')]
+        for perimeter_feature in perimeter_features:
+            geom = perimeter_feature.geomety()
+            #TODO
+
     def step(self):
-        #Check if there is an ignition/s
-        if self._ignition_points[0].dt <= self._tnow:
-            self.ignitePoints()
-        #TODO: Convert to layers
+        self.ignitePoints()
+        self.ignitePerimeter()
         #Time increment
         self._tnow += timedelta(seconds=self._timeStep)
