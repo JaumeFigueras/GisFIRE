@@ -15,10 +15,8 @@ def get_ui_class(plugin_dir, ui_file_name):
 
     ui_file_path = plugin_dir + '/ui/' + ui_file_name
     if os.path.exists(ui_file_path):
-        print("ignition point UI created")
         return uic.loadUiType(ui_file_path)[0]
     else:
-        print ("File not found: " + ui_file_path)
         return None
 
 

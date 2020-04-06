@@ -23,6 +23,7 @@
 """
 from PyQt5.QtCore import QSettings, QTranslator, qVersion, QCoreApplication
 from PyQt5.QtCore import Qt
+from PyQt5.QtCore import QVariant
 from PyQt5.QtGui import QIcon
 from PyQt5.QtWidgets import QAction
 from PyQt5.QtWidgets import QActionGroup
@@ -37,14 +38,14 @@ from qgis.core import QgsExpressionContextScope
 from qgis.core import QgsGeometry
 from qgis.core import QgsFeature
 from qgis.core import QgsPointXY
+from qgis.core import QgsApplication
 # Import the code for the DockWidget
 from .resources import *
 from .GisFireSettings import GisFIRESettings
 from .GisFireUi import DlgIgnitionPoint
 from .GisFireUi import DockControl
-from .Helper.Layers import CreateIgnitionPointLayer
-from .Helper.Layers import CreatePerimeterLayer
-from .Helper.Layers import LayerToGeoPackage
+from .Helper import Layers
+from .Helper import Utils
 # Import simulation
 from .SpreadSimulation import Simulator
 
@@ -65,10 +66,10 @@ class GisFIRE:
         # Save reference to the QGIS interface
         self.iface = iface
 
-        # initialize plugin directory
+        # Save location where the plugin directory is located
         self.plugin_dir = os.path.dirname(__file__)
 
-        # initialize locale
+        # Initialize locale
         locale = QSettings().value('locale/userLocale')[0:2]
         locale_path = os.path.join(
             self.plugin_dir,
@@ -82,12 +83,21 @@ class GisFIRE:
             if qVersion() > '4.3.3':
                 QCoreApplication.installTranslator(self.translator)
 
-        # Declare instance attributes
+        # Initialization of UI references
         self.toolbarActions = {}
         self.menuActions = {}
+        # Initialization of GisFIRE data layers
         self.layers = {}
+        # Initialization of simulator structure
+        self._simulator = {}
+        self._simulator["init"] = False
+        self._simulator["simulator"] = None
+        # UI elements
+        self._pointTool = None
+        self._previousTool = None
 
-        # Load Project
+        # Connect to project signals to allow plugin interacton when a new
+        # project is created or loaded
         self.iface.newProjectCreated.connect(self.onNewProject)
         project = QgsProject.instance()
         if (project is not None):
@@ -109,7 +119,7 @@ class GisFIRE:
         # noinspection PyTypeChecker,PyArgumentList,PyCallByClass
         return QCoreApplication.translate('GisFIRE', message)
 
-    def addToolbarActions(self):
+    def _addToolbarActions(self):
         """Create the toolbar buttons that GisFIRE uses as shortcuts."""
         # Toggle GisFIRE Pane
         action = QAction(QIcon(':/plugins/GisFire/gisfire.png'), self.tr('GisFIRE'), None)
@@ -177,7 +187,7 @@ class GisFIRE:
         self.toolbar.addAction(action)
         self.toolbarActions['stop_simulation'] = action
 
-    def addMenuActions(self):
+    def _addMenuActions(self):
         """Create the menu entries that allow GisFIRE procedures."""
         # Toggle GisFIRE Pane
         action = self.menu.addAction(self.tr('Toggle GisFIRE Pane'))
@@ -224,7 +234,7 @@ class GisFIRE:
         action.triggered.connect(self.onStopSimulation)
         self.menuActions['stop_simulation'] = action
 
-    def addRelations(self):
+    def _addRelations(self):
         """Create mutually exclusive relations between toolbar buttons."""
         # Get the nav toolbar actions
         actions = self.iface.mapNavToolToolBar().actions()
@@ -235,29 +245,8 @@ class GisFIRE:
             group.addAction(action)
         group.addAction(self.toolbarActions['ignition_point'])
 
-    def initGui(self):
-        """Initializes the QGIS GUI for the GisFIRE plugin."""
-        # setup the menu
-        self.menu = QMenu(self.tr(u'Gis&FIRE'), self.iface.mainWindow().menuBar())
-        actions = self.iface.mainWindow().menuBar().actions()
-        lastAction = actions[-1]
-        self.iface.mainWindow().menuBar().insertMenu(lastAction, self.menu)
-        #setup the toolbar
-        self.toolbar = self.iface.addToolBar(u'GisFIRE')
-        self.toolbar.setObjectName(u'GisFIRE')
-        #setup the GisFire pane
-        self.dockwidget = None
-
-        # Add toolbar buttons
-        self.addToolbarActions()
-        # Add menu entries
-        self.addMenuActions()
-        # Create relations with existing menus and buttons
-        self.addRelations()
-        # To initial state
-        self.disableMenusAndToolbars()
-
-    def disableMenusAndToolbars(self):
+    def _disableMenusAndToolbars(self):
+        """Disables all menu items and toolbar buttons of the GisFIRE UI"""
         self.toolbarActions['gisfire'].setEnabled(False)
         self.toolbarActions['convert_project'].setEnabled(False)
         self.toolbarActions['ignition_point'].setEnabled(False)
@@ -274,10 +263,14 @@ class GisFIRE:
         self.menuActions['stop_simulation'].setEnabled(False)
 
     def disableConvertProject(self):
+        """Disables the convert project (from and to GisFIRE) menu items and
+        toolbar buttons of the GisFIRE UI
+        """
         self.toolbarActions['convert_project'].setEnabled(False)
         self.menuActions['convert_project'].setEnabled(False)
 
-    def enableMenusAndToolbars(self):
+    def _enableMenusAndToolbars(self):
+        """Enables all menu items and toolbar buttons of the GisFIRE UI"""
         self.toolbarActions['gisfire'].setEnabled(True)
         self.toolbarActions['convert_project'].setEnabled(True)
         self.toolbarActions['ignition_point'].setEnabled(True)
@@ -293,9 +286,44 @@ class GisFIRE:
         self.menuActions['pause_simulation'].setEnabled(True)
         self.menuActions['stop_simulation'].setEnabled(True)
 
-    def enableConvertProject(self):
+    def _enableConvertProject(self):
+        """Disables the convert project (from and to GisFIRE) menu items and
+        toolbar buttons of the GisFIRE UI
+        """
         self.toolbarActions['convert_project'].setEnabled(True)
         self.menuActions['convert_project'].setEnabled(True)
+
+    def initGui(self):
+        """Initializes the QGIS GUI for the GisFIRE plugin."""
+        # setup the menu
+        self.menu = QMenu(self.tr(u'Gis&FIRE'), self.iface.mainWindow().menuBar())
+        actions = self.iface.mainWindow().menuBar().actions()
+        lastAction = actions[-1]
+        self.iface.mainWindow().menuBar().insertMenu(lastAction, self.menu)
+        #setup the toolbar
+        self.toolbar = self.iface.addToolBar(u'GisFIRE')
+        self.toolbar.setObjectName(u'GisFIRE')
+        #setup the GisFire pane
+        self.dockwidget = None
+
+        # Add toolbar buttons
+        self._addToolbarActions()
+        # Add menu entries
+        self._addMenuActions()
+        # Create relations with existing menus and buttons
+        self._addRelations()
+        # If there is an open project (that has been already saved) check if it
+        # is a GisFIRE project and enable toolbar buttons and menus
+        project_name = Utils.getProjectVariable(QgsProject.instance(), 'project_basename')
+        if not type(project_name) is str:
+            self._disableMenusAndToolbars()
+        else:
+            if Utils.isAGisFireProject(QgsProject.instance()):
+                self._enableMenusAndToolbars()
+                self._prepareProject()
+            else:
+                self._disableMenusAndToolbars()
+                self._enableConvertProject()
 
     #--------------------------------------------------------------------------
 
@@ -329,20 +357,26 @@ class GisFIRE:
     #--------------------------------------------------------------------------
 
     def onReadProject(self):
-        if self.isAGisFireProject():
-            project = QgsProject.instance()
-            if (project is not None):
-                scope = QgsExpressionContextUtils.projectScope(project)
-                self.prepareProject(project, scope)
-                self.enableMenusAndToolbars()
+        """Slot connection for the Read Project signal. It checks if the loadaed
+        project is a GisFIRE project and updates the GisFIRE UI agordingly"""
+        if Utils.isAGisFireProject(QgsProject.instance()):
+            self._prepareProject()
+            self._enableMenusAndToolbars()
         else:
-            self.enableConvertProject()
+            self._enableConvertProject()
 
     def onNewProject(self):
-        self.disableMenusAndToolbars()
+        """Slot connection for the New Project signal. It disables all the
+        GisFIRE UI because the project has to be saved to be converted to a
+        GisFIRE project"""
+        self._disableMenusAndToolbars()
 
     def onSavedProject(self):
-        self.enableConvertProject()
+        """Slot connection for the Save Project signal. It enables convert
+        project UI because once the project is saved it can be converted to a
+        GisFIRE project"""
+        if not Utils.isAGisFireProject(QgsProject.instance()):
+            self._enableConvertProject()
 
     #--------------------------------------------------------------------------
 
@@ -365,68 +399,81 @@ class GisFIRE:
 
     #--------------------------------------------------------------------------
 
-    def isAGisFireProject(self):
-        project = QgsProject.instance()
-        if (project is not None):
-            scope = QgsExpressionContextUtils.projectScope(project)
-            if (scope.hasVariable(GisFIRESettings.VERSION_VARIABLE_NAME)):
-                return True
-            else:
-                return False
-
-    def prepareProject(self, project, scope):
-        project_name = scope.variable('project_basename')
-        project_location = scope.variable('project_home')
+    def _prepareProject(self):
+        """Set up of the different layers and storage (in a geopackage file) to
+        manage all the information needed by the project"""
+        # Set up the geopackage
+        project_name = Utils.getProjectVariable(QgsProject.instance(), 'project_basename')
+        project_location = Utils.getProjectVariable(QgsProject.instance(), 'project_home')
         self.geo_package = project_location + '/' + project_name + '.gpkg'
-        ignition_layer = CreateIgnitionPointLayer(self.iface, project, self.geo_package)
+        # Set up the layers
+        ignition_layer = Layers.CreateIgnitionPointLayer(self.iface, QgsProject.instance(), self.geo_package)
         self.layers[GisFIRESettings.IGNITION_LAYER_ID] = ignition_layer
-        perimeter_layer = CreatePerimeterLayer(self.iface, project, self.geo_package)
+        perimeter_layer = Layers.CreatePerimeterLayer(self.iface, QgsProject.instance(), self.geo_package)
         self.layers[GisFIRESettings.PERIMETER_LAYER_ID] = perimeter_layer
-        #scope.addVariable(QgsExpressionContextScope.StaticVariable("gis_fire_version", "0.11", True, True, "GisFIRE version"))
-        #scope.setVariable("gis_fire_version", "0.11")
+        models_layer = Layers.CreateModelsLayer(self.iface, QgsProject.instance(), self.geo_package)
+        self.layers[GisFIRESettings.FIREMODELS_LAYER_ID] = models_layer
 
     def onConvertProject(self):
-        """Event listener to convert a project to a GisFire Compliant project or
-        back to a standard QGIS project"""
-        if self.isAGisFireProject():
-            project = QgsProject.instance()
-            QgsExpressionContextUtils.removeProjectVariable(project, GisFIRESettings.VERSION_VARIABLE_NAME)
-            self.disableMenusAndToolbars()
-            self.enableConvertProject()
+        """Slot of the convert button signal to convert a project to a GisFire
+        Compliant project or back to a standard QGIS project"""
+        if Utils.isAGisFireProject(QgsProject.instance()):
+            # Remove the information of the GisFIRE project
+            Utils.removeProjectVariable(QgsProject.instance(), GisFIRESettings.VERSION_VARIABLE_NAME)
+            self._disableMenusAndToolbars()
+            self._enableConvertProject()
         else:
-            project = QgsProject.instance()
-            scope = QgsExpressionContextUtils.projectScope(project)
-            QgsExpressionContextUtils.setProjectVariable(project, GisFIRESettings.VERSION_VARIABLE_NAME, GisFIRESettings.VERSION)
-            self.prepareProject(project, scope)
-            self.enableMenusAndToolbars()
+            # Add the project variables and layers of a valid GisFIRE project
+            Utils.setProjectVariable(QgsProject.instance(), GisFIRESettings.VERSION_VARIABLE_NAME, GisFIRESettings.VERSION)
+            self._prepareProject()
+            self._enableMenusAndToolbars()
 
     #--------------------------------------------------------------------------
 
     def onSetIgnitionPoint(self):
-        project = QgsProject.instance()
+        """Slot of the ignition point button signal to set an ignition point for
+        a wildfire. This procedure sets a new slot to the onClick signal when
+        the user clicks on the map canvas"""
+        # Clean in case other point creation was aborted
+        if not (self._pointTool is None):
+            self._pointTool.canvasClicked.disconnect()
+            del(self._pointTool)
+            self._previousTool = None
+            self._pointTool = None
+        # Store the previous tool in use b the user
         canvas = self.iface.mapCanvas()
-        self.previousTool = canvas.mapTool()
-        self.pointTool = QgsMapToolEmitPoint(canvas)
-        self.pointTool.canvasClicked.connect(self.setIgnitionPointCallback)
-        canvas.setMapTool(self.pointTool)
+        self._previousTool = canvas.mapTool()
+        # Set the tool and onClick callback
+        self._pointTool = QgsMapToolEmitPoint(canvas)
+        self._pointTool.canvasClicked.connect(self._setIgnitionPointCallback)
+        canvas.setMapTool(self._pointTool)
+        print("Click: set point")
 
-    def setIgnitionPointCallback(self, point, mouse_button):
-        self.pointTool.canvasClicked.disconnect()
-        canvas = self.iface.mapCanvas()
-        canvas.setMapTool(self.previousTool)
+    def _setIgnitionPointCallback(self, point, mouse_button):
+        """Slot callback for the onClick signal on the map canvas when a new
+        ignition point is assigned
+
+        :param point: Point in map units where the mouse has been clicked
+        :type point: QgsPointXY
+
+        :param mouse_button: Characteristics of the clicked mouse button
+        :type mouse_button: Qt.MouseButton
+        """
+        # Clean the signal, slot and mouse icon created before
+        self._pointTool.canvasClicked.disconnect()
+        print("Click: set point CALLBACK")
         if mouse_button == Qt.LeftButton:
+            # Create the dialog in charge of collecting needed data
             dlg = DlgIgnitionPoint(self.iface.mainWindow())
             result = dlg.exec_()
             if result == QDialog.Accepted:
-                feat = QgsFeature(self.layers['ignition_layer'].fields())
-                feat.setAttribute('date', dlg.getDateTime())
-                feat.setAttribute('type', 0)
-                feat.setAttribute('burned', 0)
-                feat.setGeometry(QgsGeometry.fromPointXY(point))
-                (res, outFeats) = self.layers['ignition_layer'].dataProvider().addFeatures([feat])
-                self.layers['ignition_layer'].updateExtents()
-                self.layers['ignition_layer'].triggerRepaint()
-                LayerToGeoPackage(self.layers['ignition_layer'], self.geo_package)
+                Layers.AddIgnitionPoint(self.layers[GisFIRESettings.IGNITION_LAYER_ID], QgsGeometry.fromPointXY(point), dlg.getDateTime(), 0, 0)
+                Layers.LayerToGeoPackage(self.layers[GisFIRESettings.IGNITION_LAYER_ID], self.geo_package)
+        canvas = self.iface.mapCanvas()
+        canvas.setMapTool(self._previousTool)
+        del(self._pointTool)
+        self._previousTool = None
+        self._pointTool = None
 
     #--------------------------------------------------------------------------
 
@@ -434,11 +481,25 @@ class GisFIRE:
         pass
 
     def onStepSimulation(self):
-        self._simulator = Simulator.SpreadSimulator()
-        self._simulator.ignitionLayer = self.layers['ignition_layer']
-        self._simulator.perimeterLayer = self.layers[GisFIRESettings.PERIMETER_LAYER_ID]
-        self._simulator.initilizeSimulation()
-        self._simulator.step()
+        for i in range(0, 1):#24*60*2):
+            if self._simulator['simulator'] is None:
+                simulator = Simulator.SpreadSimulator()
+                simulator.ignitionLayer = self.layers[GisFIRESettings.IGNITION_LAYER_ID]
+                simulator.perimeterLayer = self.layers[GisFIRESettings.PERIMETER_LAYER_ID]
+                simulator.fuelLayer = self.layers[GisFIRESettings.FIREMODELS_LAYER_ID]
+                self._simulator['simulator'] = simulator
+                self._simulator['init'] = False
+            if not self._simulator['init']:
+                self._simulator['init'] = True
+                self._simulator['simulator'].initilizeSimulation()
+            self._simulator['simulator'].step()
+            if self.iface.mapCanvas().isCachingEnabled():
+                self.layers[GisFIRESettings.IGNITION_LAYER_ID].triggerRepaint()
+                self.layers[GisFIRESettings.PERIMETER_LAYER_ID].triggerRepaint()
+            else:
+                self.iface.mapCanvas().refresh()
+            QCoreApplication.processEvents()
+            QgsApplication.processEvents()
 
     def onPauseSimulation(self):
         pass

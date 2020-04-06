@@ -1,4 +1,5 @@
 from qgis.core import QgsVectorLayer
+from qgis.core import QgsFeature
 from qgis.core import QgsField
 from qgis.core import QgsVectorFileWriter
 from qgis.core import QgsLayerTreeLayer
@@ -69,7 +70,7 @@ def CreateIgnitionPointLayer(iface, project, geo_package):
 def CreatePerimeterLayer(iface, project, geo_package):
     if len(project.mapLayersByName(GisFIRESettings.PERIMETER_LAYER_NAME)) == 0:
         attributes = [QgsField('date',  QVariant.String)]
-        perimeter_layer = CreateLayer('Multipolygon', GisFIRESettings.PERIMETER_LAYER_NAME, attributes, project.crs())
+        perimeter_layer = CreateLayer('Polygon', GisFIRESettings.PERIMETER_LAYER_NAME, attributes, project.crs())
         LayerToGeoPackage(perimeter_layer, geo_package)
         perimeter_layer = LoadLayer(GisFIRESettings.PERIMETER_LAYER_NAME, geo_package)
         AddLayerInPosition(project, perimeter_layer, 2)
@@ -77,3 +78,44 @@ def CreatePerimeterLayer(iface, project, geo_package):
         perimeter_layer = project.instance().mapLayersByName(GisFIRESettings.PERIMETER_LAYER_NAME)[0]
         LayerToGeoPackage(perimeter_layer, geo_package)
     return perimeter_layer
+
+def CreateModelsLayer(iface, project, geo_package):
+    if len(project.mapLayersByName(GisFIRESettings.FIREMODELS_LAYER_NAME)) == 0:
+        attributes = [QgsField('model',  QVariant.String)]
+        models_layer = CreateLayer('Polygon', GisFIRESettings.FIREMODELS_LAYER_NAME, attributes, project.crs())
+        LayerToGeoPackage(models_layer, geo_package)
+        models_layer = LoadLayer(GisFIRESettings.FIREMODELS_LAYER_NAME, geo_package)
+        AddLayerInPosition(project, models_layer, 3)
+    else:
+        models_layer = project.instance().mapLayersByName(GisFIRESettings.FIREMODELS_LAYER_NAME)[0]
+        LayerToGeoPackage(models_layer, geo_package)
+    return models_layer
+
+def AddIgnitionPoint(layer, point, date, type, burned):
+    """Add a point to an igtion layer
+
+    :param layer: Layer where the ignition points are stored
+    :type layer: QgsVectorLayer
+
+    :param point: Two dimensional point in map units where there will be an
+    ignition
+    :type point: QgsPointXY
+
+    :param date: An ISO date indicating when the point will be ignited
+    :type date: String
+
+    :param type: Type of ingition. 0 user ignition, 1 spotting ignition
+    :type type: Integer
+
+    :param burned: Indicates if the point is already ignited during the
+    simulation
+    :type burned: Integer
+    """
+    feat = QgsFeature(layer.fields())
+    feat.setAttribute('date', date)
+    feat.setAttribute('type', 0)
+    feat.setAttribute('burned', 0)
+    feat.setGeometry(point)
+    (res, outFeats) = layer.dataProvider().addFeatures([feat])
+    layer.updateExtents()
+    layer.triggerRepaint()

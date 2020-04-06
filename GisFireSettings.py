@@ -6,3 +6,5 @@ class GisFIRESettings:
     IGNITION_LAYER_ID = 'ignition_layer'
     PERIMETER_LAYER_NAME = 'Fire Perimeter'
     PERIMETER_LAYER_ID = 'perimeter_layer'
+    FIREMODELS_LAYER_NAME = 'Fire Models'
+    FIREMODELS_LAYER_ID = 'models_layer'
