@@ -18,4 +18,11 @@ CREATE TABLE meteocat_lightning (
         PRIMARY KEY (id),
         FOREIGN KEY(id) REFERENCES lightning (id)
 )
-
+WITH (
+  OIDS = FALSE
+)
+;
+ALTER TABLE public.asset
+  OWNER TO gisfire_user
+;
+GRANT ALL on public.asset to gisfire_remoteuser;

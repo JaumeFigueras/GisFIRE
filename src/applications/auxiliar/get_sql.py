@@ -13,6 +13,7 @@ from sqlalchemy.schema import CreateTable
 from src.data_model import Base
 from src.data_model.data_provider import DataProvider
 from src.data_model.lightning import Lightning
+from src.data_model.request import Request
 from src.meteocat.data_model.lightning import MeteocatLightning
 
 
@@ -22,6 +23,7 @@ def main(e: Engine):
     print(CreateTable(DataProvider.__table__).compile(e))
     print(CreateTable(Lightning.__table__).compile(e))
     print(CreateTable(MeteocatLightning.__table__).compile(e))
+    print(CreateTable(Request.__table__).compile(e))
 
 
 if __name__ == "__main__":  # pragma: no cover

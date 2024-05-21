@@ -14,6 +14,7 @@ postgresql_schema = factories.postgresql('postgresql_session', dbname='test', lo
     str(test_folder.parent) + '/src/data_model/database/data_provider.sql',
     str(test_folder.parent) + '/src/data_model/database/lightning.sql',
     str(test_folder.parent) + '/src/meteocat/data_model/database/lightning.sql',
+    str(test_folder.parent) + '/src/data_model/database/request.sql',
 ])
 
 pytest_plugins = [

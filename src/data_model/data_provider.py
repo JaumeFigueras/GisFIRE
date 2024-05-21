@@ -26,6 +26,7 @@ class DataProvider(Base):
     ts: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     lightnings: Mapped[List["Lightning"]] = relationship(back_populates="data_provider")
+    requests: Mapped[List["Request"]] = relationship(back_populates="data_provider")
 
     def __init__(self, name: Optional[str] = None, url: Optional[str] = None) -> None:
         """
