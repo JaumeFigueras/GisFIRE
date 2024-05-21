@@ -36,11 +36,10 @@ class Request(Base):
     data_provider_name: Mapped[str] = mapped_column('data_provider_name', ForeignKey('data_provider.name'), nullable=False)
     data_provider: Mapped["DataProvider"] = relationship(back_populates="requests")
 
-    def __init__(self, symbol: Optional[str] = None, request_from_date: Optional[datetime.date] = None,
-                 request_to_date: Optional[datetime.date] = None, request_result: Optional[int] = None):
+    def __init__(self, symbol: Optional[str] = None, params: Optional[Union[Dict, MutableDict]] = None,
+                 request_result: Optional[int] = None):
         super().__init__()
         self.symbol = symbol
-        self.request_from_date = request_from_date
-        self.request_to_date = request_to_date
+        self.params = params
         self.request_result = request_result
 
