@@ -10,13 +10,21 @@ def test_data_provider_init_01() -> None:
     """
     data_provider = DataProvider()
     assert data_provider.name is None
+    assert data_provider.description is None
     assert data_provider.url is None
     data_provider = DataProvider(name='test name')
     assert data_provider.name == 'test name'
+    assert data_provider.description is None
+    assert data_provider.url is None
+    data_provider = DataProvider(description='test description')
+    assert data_provider.name is None
+    assert data_provider.description == 'test description'
     assert data_provider.url is None
     data_provider = DataProvider(url='test url')
     assert data_provider.name is None
+    assert data_provider.description is None
     assert data_provider.url == 'test url'
-    data_provider = DataProvider('test name', 'test url')
+    data_provider = DataProvider('test name', 'test description', 'test url')
     assert data_provider.name == 'test name'
+    assert data_provider.description == 'test description'
     assert data_provider.url == 'test url'

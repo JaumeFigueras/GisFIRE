@@ -16,8 +16,8 @@ WITH (
   OIDS = FALSE
 )
 ;
-ALTER TABLE public.asset
+ALTER TABLE public.lightning
   OWNER TO gisfire_user
 ;
-GRANT ALL on public.asset to gisfire_remoteuser;
+GRANT ALL on public.lightning to gisfire_remoteuser;
 

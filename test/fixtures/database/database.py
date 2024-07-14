@@ -65,12 +65,11 @@ def db_session(db_session_factory: scoped_session[Union[Session, Any]]) -> Sessi
     session_.close()
 
 
-def populate_data_providers(db_session: Session) -> None:
+def populate_data_providers(db_session: Session, data_providers: Union[List[DataProvider], None]) -> None:
     """
     Adds data providers data to the database
     """
-
-    db_session.add(DataProvider(name="Meteo.cat", url="https://www.meteo.cat"))
-    db_session.add(DataProvider(name="Bombers de la Generalitat de Catalunya", url="https://www.gencat.cat/bombers"))
-    db_session.commit()
+    if data_providers is not None:
+        db_session.add_all(data_providers)
+        db_session.commit()
 

@@ -11,7 +11,7 @@ WITH (
   OIDS = FALSE
 )
 ;
-ALTER TABLE public.asset
+ALTER TABLE public.request
   OWNER TO gisfire_user
 ;
-GRANT ALL on public.asset to gisfire_remoteuser;
+GRANT ALL on public.request to gisfire_remoteuser;

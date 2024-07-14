@@ -22,7 +22,7 @@ WITH (
   OIDS = FALSE
 )
 ;
-ALTER TABLE public.asset
+ALTER TABLE public.meteocat_lightning
   OWNER TO gisfire_user
 ;
-GRANT ALL on public.asset to gisfire_remoteuser;
+GRANT ALL on public.meteocat_lightning to gisfire_remoteuser;
