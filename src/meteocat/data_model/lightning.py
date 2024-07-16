@@ -108,14 +108,14 @@ class MeteocatLightning(Lightning):
         return self._longitude_etrs89
 
     @longitude_etrs89.setter
-    def longitude_etrs89(self, longitude_erts89: Union[float, None]) -> None:
-        if longitude_erts89 is None:
+    def longitude_etrs89(self, longitude_etrs89: Union[float, None]) -> None:
+        if longitude_etrs89 is None:
             self._longitude_etrs89 = None
             self._geometry_etrs89 = None
             self.longitude_wgs84 = None
             return
-        if (longitude_erts89 is not None) and (-180 <= longitude_erts89 <= 180):
-            self._longitude_etrs89 = longitude_erts89
+        if (longitude_etrs89 is not None) and (-180 <= longitude_etrs89 <= 180):
+            self._longitude_etrs89 = longitude_etrs89
             if self._latitude_etrs89 is not None:
                 self._geometry_etrs89 = "SRID=4258;POINT({0:} {1:})".format(self._longitude_etrs89,
                                                                             self._latitude_etrs89)

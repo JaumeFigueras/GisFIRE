@@ -20,4 +20,5 @@ postgresql_schema = factories.postgresql('postgresql_session', dbname='test', lo
 pytest_plugins = [
     'test.fixtures.database.database',
     'test.fixtures.data_model.data_provider',
+    'test.fixtures.meteocat.lightnings.lightnings',
 ]
