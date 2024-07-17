@@ -3,12 +3,8 @@
 import sqlalchemy.orm
 
 from src.data_model.request import Request
-from src.json_decoders.no_none_in_list import NoNoneInList
 
-import json
 import datetime
-
-from typing import List
 
 
 def test_day_request_init_01() -> None:

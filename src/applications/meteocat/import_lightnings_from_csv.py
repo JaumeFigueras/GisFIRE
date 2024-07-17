@@ -101,12 +101,12 @@ if __name__ == "__main__":  # pragma: no cover
     print("Starting...")
     # noinspection DuplicatedCode
     parser = argparse.ArgumentParser()
-    parser.add_argument('-H', '--host', help='Host name were the database cluster is located')
-    parser.add_argument('-p', '--port', type=int, help='Database cluster port')
-    parser.add_argument('-d', '--database', help='Database name')
-    parser.add_argument('-u', '--username', help='Database username')
-    parser.add_argument('-w', '--password', help='Database password')
-    parser.add_argument('-f', '--file', help='File to retrieve data from')
+    parser.add_argument('-H', '--host', help='Host name were the database cluster is located', required=True)
+    parser.add_argument('-p', '--port', type=int, help='Database cluster port', required=True)
+    parser.add_argument('-d', '--database', help='Database name', required=True)
+    parser.add_argument('-u', '--username', help='Database username', required=True)
+    parser.add_argument('-w', '--password', help='Database password', required=True)
+    parser.add_argument('-f', '--file', help='File to retrieve data from', required=True)
     args = parser.parse_args()
 
     # Create the database URL

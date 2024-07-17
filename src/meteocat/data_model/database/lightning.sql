@@ -1,5 +1,6 @@
 -- lightning.sql
 
+
 CREATE TABLE meteocat_lightning (
         id INTEGER NOT NULL,
         meteocat_id INTEGER NOT NULL,

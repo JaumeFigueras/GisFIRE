@@ -19,7 +19,7 @@ from src.meteocat.data_model.lightning import MeteocatLightning
 
 def main(e: Engine):
     print(Base.metadata.tables.keys())
-    Base.metadata.create_all(e)
+    # Base.metadata.create_all(e)
     print(CreateTable(DataProvider.__table__).compile(e))
     print(CreateTable(Lightning.__table__).compile(e))
     print(CreateTable(MeteocatLightning.__table__).compile(e))

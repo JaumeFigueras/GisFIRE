@@ -14,8 +14,7 @@ CREATE TABLE lightning (
 )
 WITH (
   OIDS = FALSE
-)
-;
+);
 ALTER TABLE public.lightning
   OWNER TO gisfire_user
 ;

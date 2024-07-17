@@ -21,4 +21,5 @@ pytest_plugins = [
     'test.fixtures.database.database',
     'test.fixtures.data_model.data_provider',
     'test.fixtures.meteocat.lightnings.lightnings',
+    'test.fixtures.api.api',
 ]

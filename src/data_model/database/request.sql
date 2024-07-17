@@ -1,3 +1,5 @@
+-- request.sql
+
 CREATE TABLE request (
         uri VARCHAR NOT NULL,
         params HSTORE NOT NULL,
