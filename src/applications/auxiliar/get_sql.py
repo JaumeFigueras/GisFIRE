@@ -15,6 +15,8 @@ from src.data_model.data_provider import DataProvider
 from src.data_model.lightning import Lightning
 from src.data_model.request import Request
 from src.meteocat.data_model.lightning import MeteocatLightning
+from src.data_model.user import User
+from src.data_model.user_access import UserAccess
 
 
 def main(e: Engine):
@@ -24,6 +26,8 @@ def main(e: Engine):
     print(CreateTable(Lightning.__table__).compile(e))
     print(CreateTable(MeteocatLightning.__table__).compile(e))
     print(CreateTable(Request.__table__).compile(e))
+    print(CreateTable(User.__table__).compile(e))
+    print(CreateTable(UserAccess.__table__).compile(e))
 
 
 if __name__ == "__main__":  # pragma: no cover

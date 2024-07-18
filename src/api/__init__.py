@@ -10,7 +10,7 @@ from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import URL
 
 from src.api.auth import auth
-
+from src.data_model.user_access import UserAccess
 
 db = SQLAlchemy()
 
@@ -34,14 +34,13 @@ def create_app(db_connection=None, params=None):
     app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
     db.init_app(app)
 
-    # @app.errorhandler(401)
-    # def page_error_401(error):
-    #     from .user import UserAccess
-    #
-    #     UserAccess(request.remote_addr, request.url, request.method, json.dumps(dict(request.values)),
-    #                auth.current_user()).record_access(db, 401)
-    #     return jsonify(status_code=401), 401
-    #
+    @app.errorhandler(401)
+    def page_error_401(error):
+
+        UserAccess(request.remote_addr, request.url, request.method, dict(request.values),
+                   auth.current_user()).record_access(db, 401)
+        return jsonify(status_code=401), 401
+
     # @app.errorhandler(404)
     # def page_error_404(error):
     #     from .user import UserAccess

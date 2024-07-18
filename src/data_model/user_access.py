@@ -18,7 +18,8 @@ from sqlalchemy.dialects.postgresql import INET
 from sqlalchemy.dialects.postgresql import HSTORE
 
 from typing import Optional
-from typing import List
+from typing import Dict
+from typing import Union
 
 
 class HttpMethods(enum.StrEnum):
@@ -45,11 +46,11 @@ class UserAccess(Base):
     params: Mapped[MutableDict] = mapped_column('params', HSTORE, nullable=True)
     ts: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
-    user_id: Mapped[int] = mapped_column('user_id', ForeignKey('users.id'), nullable=False)
-    user: Mapped["User"] = relationship('User', back_populates='user_accesses')
+    user_id: Mapped[Optional[int]] = mapped_column('user_id', ForeignKey('user.id'), nullable=True)
+    user: Mapped[Optional["User"]] = relationship('User', back_populates='user_accesses')
 
     def __init__(self, ip: Optional[str] = None, url: Optional[str] = None, method: Optional[HttpMethods] = None,
-                 params: MutableDict = None, user_id: Optional[int] = None) -> None:
+                 params: Union[MutableDict[str, str], Dict[str, str]] = None, user_id: Optional[int] = None) -> None:
         """
         UserAccess constructor.
 
