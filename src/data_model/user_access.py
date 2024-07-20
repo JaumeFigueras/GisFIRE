@@ -8,6 +8,8 @@ import datetime
 import random
 import enum
 
+from ipaddress import IPv4Address
+
 from sqlalchemy import DateTime, ForeignKey
 from sqlalchemy import func
 from sqlalchemy.orm import Mapped
@@ -42,17 +44,19 @@ class UserAccess(Base):
     """
     __tablename__ = 'user_access'
     id: Mapped[int] = mapped_column('id', primary_key=True, autoincrement=True)
-    ip: Mapped[str] = mapped_column('ip', INET, nullable=False)
+    ip: Mapped[IPv4Address] = mapped_column('ip', INET, nullable=False)
     url: Mapped[str] = mapped_column('url', nullable=False)
     method: Mapped[HttpMethods] = mapped_column('method', nullable=False)
     params: Mapped[MutableDict] = mapped_column('params', HSTORE, nullable=True)
+    result: Mapped[int] = mapped_column('result', nullable=False)
     ts: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     user_id: Mapped[Optional[int]] = mapped_column('user_id', ForeignKey('user.id'), nullable=True)
     user: Mapped[Optional["User"]] = relationship('User', back_populates='user_accesses')
 
-    def __init__(self, ip: Optional[str] = None, url: Optional[str] = None, method: Optional[HttpMethods] = None,
-                 params: Union[MutableDict[str, str], Dict[str, str]] = None, user: Optional[Union[int, User]] = None) -> None:
+    def __init__(self, ip: Optional[IPv4Address] = None, url: Optional[str] = None, method: Optional[HttpMethods] = None,
+                 params: Union[MutableDict[str, str], Dict[str, str]] = None, result: Optional[int] = 500,
+                 user: Optional[Union[int, User]] = None) -> None:
         """
         UserAccess constructor.
 
@@ -60,6 +64,7 @@ class UserAccess(Base):
         :param url:
         :param method:
         :param params:
+        :param result:
         :param user:
         """
         super().__init__()
@@ -67,6 +72,7 @@ class UserAccess(Base):
         self.url = url
         self.method = method
         self.params = params
+        self.result = result
         if isinstance(user, int):
             self.user_id = user
         elif isinstance(user, User):

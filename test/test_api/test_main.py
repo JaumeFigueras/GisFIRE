@@ -3,8 +3,15 @@
 
 import json
 
+from ipaddress import IPv4Address
+
 from sqlalchemy.orm import Session
+from sqlalchemy import func
+from sqlalchemy import select
 from flask.testing import FlaskClient
+
+from src.data_model.user_access import UserAccess
+from src.data_model.user_access import HttpMethods
 
 
 def test_api_main_entrypoint_01(db_session: Session, api: FlaskClient) -> None:
@@ -14,53 +21,23 @@ def test_api_main_entrypoint_01(db_session: Session, api: FlaskClient) -> None:
     :param api: GisFIRE api fixture
     :return: None
     """
+    # Assert the database is OK
+    assert db_session.execute(select(func.count(UserAccess.id))).scalar_one() == 0
+    # Tests the API
     response = api.get('/')
     assert response.content_type == 'application/json'
     data = json.loads(response.get_data(as_text=True))
     assert len(data) == 1
     assert data['status_code'] == 500
     assert response.status_code == 500
-    # cursor = postgresql_schema.cursor()
-    # cursor.execute("SELECT count(*) FROM user_access")
-    # record = cursor.fetchone()
-    # assert record[0] == count + 1
-    # cursor.execute("SELECT id, user_id, ip, url, method, params, result_code FROM user_access")
-    # record = cursor.fetchone()
-    # assert record[1] is None
-    # assert record[2] == '127.0.0.1'
-    # assert record[3] == 'http://localhost/'
-    # assert record[4] == 'GET'
-    # assert record[5] == '{}'
-    # assert record[6] == 500
+    # Assert database
+    assert db_session.execute(select(func.count(UserAccess.id))).scalar_one() == 1
+    user_access = db_session.execute(select(UserAccess)).scalar_one()
+    assert user_access.user_id is None
+    assert user_access.user is None
+    assert user_access.ip == IPv4Address('127.0.0.1')
+    assert user_access.url == 'http://localhost/'
+    assert user_access.method == HttpMethods.GET
+    assert user_access.params == {}
 
 
-# def test_api_main_entrypoint_02(api, postgresql_schema):
-#     """
-#     Test the main entry point to the API. The /api will return a not found, so a 404 (not found) code is thrown
-#
-#     :param api: GisFIRE api fixture
-#     :return: Nothing
-#     """
-#
-#     cursor = postgresql_schema.cursor()
-#     cursor.execute("SELECT count(*) FROM user_access")
-#     record = cursor.fetchone()
-#     count = record[0]
-#     response = api.get('/api')
-#     assert response.content_type == 'application/json'
-#     data = json.loads(response.get_data(as_text=True))
-#     assert len(data) == 1
-#     assert data['status_code'] == 404
-#     assert response.status_code == 404
-#     cursor = postgresql_schema.cursor()
-#     cursor.execute("SELECT count(*) FROM user_access")
-#     record = cursor.fetchone()
-#     assert record[0] == count + 1
-#     cursor.execute("SELECT id, user_id, ip, url, method, params, result_code FROM user_access")
-#     record = cursor.fetchone()
-#     assert record[1] is None
-#     assert record[2] == '127.0.0.1'
-#     assert record[3] == 'http://localhost/api'
-#     assert record[4] == 'GET'
-#     assert record[5] == '{}'
-#     assert record[6] == 404

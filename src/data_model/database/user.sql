@@ -5,7 +5,7 @@ CREATE TABLE "user" (
         username VARCHAR NOT NULL,
         token VARCHAR NOT NULL,
         is_admin BOOLEAN NOT NULL,
-        valid_until TIMESTAMP WITHOUT TIME ZONE NOT NULL,
+        valid_until TIMESTAMP WITH TIME ZONE NOT NULL,
         ts TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
         PRIMARY KEY (id),
         UNIQUE (username),

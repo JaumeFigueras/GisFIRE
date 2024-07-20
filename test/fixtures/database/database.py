@@ -13,6 +13,7 @@ from sqlalchemy.sql import text
 from pathlib import Path
 
 from src.data_model.data_provider import DataProvider
+from src.data_model.user import User
 
 from typing import Any
 from typing import Union
@@ -71,5 +72,14 @@ def populate_data_providers(db_session: Session, data_providers: Union[List[Data
     """
     if data_providers is not None:
         db_session.add_all(data_providers)
+        db_session.commit()
+
+
+def populate_users(db_session: Session, user_list: Union[List[User], None]) -> None:
+    """
+    Adds data providers data to the database
+    """
+    if user_list is not None:
+        db_session.add_all(user_list)
         db_session.commit()
 

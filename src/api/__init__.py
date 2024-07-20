@@ -34,18 +34,36 @@ def create_app(db_connection=None, params=None):
     app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
     db.init_app(app)
 
+    @app.errorhandler(400)
+    def page_error_400(error):
+
+        user_access = UserAccess(request.remote_addr, request.url, request.method, dict(request.values), 400,
+                                 auth.current_user())
+        db.session.add(user_access)
+        db.session.commit()
+        return jsonify(status_code=400), 400
+
     @app.errorhandler(401)
     def page_error_401(error):
 
-        user_access = UserAccess(request.remote_addr, request.url, request.method, dict(request.values),
+        user_access = UserAccess(request.remote_addr, request.url, request.method, dict(request.values), 401,
                                  auth.current_user())
         db.session.add(user_access)
         db.session.commit()
         return jsonify(status_code=401), 401
 
+    @app.errorhandler(403)
+    def page_error_403(error):
+
+        user_access = UserAccess(request.remote_addr, request.url, request.method, dict(request.values), 403,
+                                 auth.current_user())
+        db.session.add(user_access)
+        db.session.commit()
+        return jsonify(status_code=403), 403
+
     @app.errorhandler(404)
     def page_error_404(error):
-        user_access = UserAccess(request.remote_addr, request.url, request.method, dict(request.values),
+        user_access = UserAccess(request.remote_addr, request.url, request.method, dict(request.values), 404,
                                  auth.current_user())
         db.session.add(user_access)
         db.session.commit()
@@ -53,7 +71,7 @@ def create_app(db_connection=None, params=None):
 
     @app.errorhandler(405)
     def page_error_405(error):
-        user_access = UserAccess(request.remote_addr, request.url, request.method, dict(request.values),
+        user_access = UserAccess(request.remote_addr, request.url, request.method, dict(request.values), 405,
                                  auth.current_user())
         db.session.add(user_access)
         db.session.commit()
@@ -61,13 +79,15 @@ def create_app(db_connection=None, params=None):
 
     @app.route('/')
     def main():
-        user_access = UserAccess(request.remote_addr, request.url, request.method, dict(request.values),
+        user_access = UserAccess(request.remote_addr, request.url, request.method, dict(request.values), 500,
                                  auth.current_user())
         db.session.add(user_access)
         db.session.commit()
         return jsonify(status_code=500), 500
 
-    # app.register_blueprint(user.bp)
+    from src.api.user import user
+
+    app.register_blueprint(user.bp)
     # app.register_blueprint(lightning.bp)
     # app.register_blueprint(stations.bp)
     # app.register_blueprint(data.bp)

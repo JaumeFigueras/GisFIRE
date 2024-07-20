@@ -8,6 +8,7 @@ CREATE TABLE user_access (
         url VARCHAR NOT NULL,
         method httpmethods NOT NULL,
         params HSTORE,
+        result INTEGER NOT NULL,
         ts TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
         user_id INTEGER,
         PRIMARY KEY (id),

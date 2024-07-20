@@ -21,7 +21,7 @@ def auth_error(status):
     """
     from src.api import db
 
-    user_access = UserAccess(request.remote_addr, request.url, request.method, dict(request.values),
+    user_access = UserAccess(request.remote_addr, request.url, request.method, dict(request.values), 401,
                              auth.current_user())
     db.session.add(user_access)
     db.session.commit()
