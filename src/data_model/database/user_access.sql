@@ -9,7 +9,7 @@ CREATE TABLE user_access (
         method httpmethods NOT NULL,
         params HSTORE,
         ts TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
-        user_id INTEGER NOT NULL,
+        user_id INTEGER,
         PRIMARY KEY (id),
         FOREIGN KEY(user_id) REFERENCES "user" (id)
 )

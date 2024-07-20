@@ -3,13 +3,13 @@
 
 import argparse
 import datetime
-from typing import TextIO
-
+import logging
 import sys
 import csv
 import pytz
 
-
+from logging.handlers import RotatingFileHandler
+from logging import Logger
 
 from sqlalchemy import URL
 from sqlalchemy import Engine
@@ -24,8 +24,10 @@ from src.meteocat.data_model.lightning import Lightning, MeteocatLightning
 from src.data_model.request import Request
 from src.meteocat.remote_api.meteocat_api import get_lightning_request_equivalent
 
+from typing import TextIO
 
-def process_lightnings(db_session: Session, csv_reader: csv.reader):
+
+def process_lightnings(db_session: Session, csv_reader: csv.reader, logger: Logger):
     """
     Process a CSV file with the lightning information (the CSV file is obtained from MeteoCat) and stores in a database.
     In case of error the data insertions are rolled back.
@@ -34,9 +36,12 @@ def process_lightnings(db_session: Session, csv_reader: csv.reader):
     :type db_session: sqlalchemy.orm.Session
     :param csv_reader: CSV file reader
     :type csv_reader: csvs.Reader
+    :param logger: Logger to log progress or errors
+    :type logger: Logger
     :return: The processed year
     :rtype: int
     """
+    logger.info("Starting lightning import to database.")
     next(csv_reader)  # Remove the header
     i: int = 0  # Counter for information purposes
     year: int = 0
@@ -58,19 +63,20 @@ def process_lightnings(db_session: Session, csv_reader: csv.reader):
             lightning.latitude_etrs89 = float(row[10])
             lightning.data_provider_name = 'Meteo.cat'
         except ValueError as e:
-            print("Error found in record {0:}. Rolling back all changes. Exception text: {1:}".format(i, str(e)))
+            logger.error("Error found in record {0:}. Rolling back all changes. Exception text: {1:}".format(i, str(e)))
             db_session.rollback()
             return None
         db_session.add(lightning)
         if i % 10000 == 0:
-            print("Processed {0:} records.".format(i))
+            logger.info("Processed {0:} records.".format(i))
         i += 1
+    logger.info("Committing all {0:} records.".format(i))
     print("Committing all {0:} records".format(i))
     db_session.commit()
     return year
 
 
-def process_requests(db_session, year):
+def process_requests(db_session, year, logger: Logger):
     """
     Add the equivalent request responses to the database for the given year
 
@@ -80,6 +86,7 @@ def process_requests(db_session, year):
     :type year: int
     :return: None
     """
+    logger.info("Starting population of equivalent requests to Meteo.cat")
     date = datetime.datetime(year, 1, 1, 0, 0, 0, tzinfo=pytz.UTC)
     i = 0
     try:
@@ -98,7 +105,6 @@ def process_requests(db_session, year):
 
 if __name__ == "__main__":  # pragma: no cover
     # Config the program arguments
-    print("Starting...")
     # noinspection DuplicatedCode
     parser = argparse.ArgumentParser()
     parser.add_argument('-H', '--host', help='Host name were the database cluster is located', required=True)
@@ -107,11 +113,12 @@ if __name__ == "__main__":  # pragma: no cover
     parser.add_argument('-u', '--username', help='Database username', required=True)
     parser.add_argument('-w', '--password', help='Database password', required=True)
     parser.add_argument('-f', '--file', help='File to retrieve data from', required=True)
+    parser.add_argument('-l', '--log-file', help='File to log progress or errors', required=False)
     args = parser.parse_args()
 
     # Create the database URL
     database_url: URL = URL.create('postgresql+psycopg', username=args.username, password=args.password, host=args.host,
-                              port=args.port, database=args.database)
+                                   port=args.port, database=args.database)
     # Connect to the database
     try:
         engine: Engine = create_engine(database_url)
@@ -128,9 +135,18 @@ if __name__ == "__main__":  # pragma: no cover
         print(ex)
         sys.exit(-1)
 
-    # with session.begin():  # Open a transaction
+    logger = logging.getLogger(__name__)
+    if args.log_file is not None:
+        handler = RotatingFileHandler(args.log_file, mode='a', maxBytes=5*1024*1024, backupCount=15, encoding='utf-8', delay=False)
+        logging.basicConfig(format='%(asctime)s.%(msecs)03d [%(levelname)s] %(message)s', handlers=[handler], encoding='utf-8', level=logging.DEBUG, datefmt="%Y-%m-%d %H:%M:%S")
+    else:
+        handler = ch = logging.StreamHandler()
+        logging.basicConfig(format='%(asctime)s.%(msecs)03d [%(levelname)s] %(message)s', handlers=[handler], encoding='utf-8', level=logging.DEBUG, datefmt="%Y-%m-%d %H:%M:%S")
+
     # Process the CSV file and store it into the database
-    processed_year = process_lightnings(session, reader)
+    logger.info("Processing file: {0:}".format(args.file))
+    processed_year = process_lightnings(session, reader, logger)
     if processed_year is not None:
         # Add the requests equivalencies to the database
-        process_requests(session, processed_year)
+        process_requests(session, processed_year, logger)
+    logger.info("Completed import of file: {0:}".format(args.file))

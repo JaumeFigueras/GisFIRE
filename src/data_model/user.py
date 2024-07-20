@@ -22,7 +22,7 @@ class User(Base):
     The class represents a user of GisFIRE
     """
     __tablename__ = 'user'
-    id: Mapped[int] = mapped_column('id', primary_key=True, auto_increment=True)
+    id: Mapped[int] = mapped_column('id', primary_key=True, autoincrement=True)
     username: Mapped[str] = mapped_column('username', unique=True, nullable=False)
     token: Mapped[str] = mapped_column('token', unique=True, nullable=False)
     is_admin: Mapped[bool] = mapped_column('is_admin', nullable=False, default=False)

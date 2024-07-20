@@ -37,39 +37,36 @@ def create_app(db_connection=None, params=None):
     @app.errorhandler(401)
     def page_error_401(error):
 
-        UserAccess(request.remote_addr, request.url, request.method, dict(request.values),
-                   auth.current_user()).record_access(db, 401)
+        user_access = UserAccess(request.remote_addr, request.url, request.method, dict(request.values),
+                                 auth.current_user())
+        db.session.add(user_access)
+        db.session.commit()
         return jsonify(status_code=401), 401
 
-    # @app.errorhandler(404)
-    # def page_error_404(error):
-    #     from .user import UserAccess
-    #
-    #     UserAccess(request.remote_addr, request.url, request.method, json.dumps(dict(request.values)),
-    #                auth.current_user()).record_access(db, 404)
-    #     return jsonify(status_code=404), 404
-    #
-    # @app.errorhandler(405)
-    # def page_error_405(error):
-    #     from .user import UserAccess
-    #
-    #     UserAccess(request.remote_addr, request.url, request.method, json.dumps(dict(request.values)),
-    #                auth.current_user()).record_access(db, 405)
-    #     return jsonify(status_code=405), 405
-    #
+    @app.errorhandler(404)
+    def page_error_404(error):
+        user_access = UserAccess(request.remote_addr, request.url, request.method, dict(request.values),
+                                 auth.current_user())
+        db.session.add(user_access)
+        db.session.commit()
+        return jsonify(status_code=404), 404
+
+    @app.errorhandler(405)
+    def page_error_405(error):
+        user_access = UserAccess(request.remote_addr, request.url, request.method, dict(request.values),
+                                 auth.current_user())
+        db.session.add(user_access)
+        db.session.commit()
+        return jsonify(status_code=405), 405
+
     @app.route('/')
     def main():
-        # from .user import UserAccess
-        #
-        # UserAccess(request.remote_addr, request.url, request.method, json.dumps(dict(request.values)),
-        #            auth.current_user()).record_access(db, 500)
+        user_access = UserAccess(request.remote_addr, request.url, request.method, dict(request.values),
+                                 auth.current_user())
+        db.session.add(user_access)
+        db.session.commit()
         return jsonify(status_code=500), 500
-    #
-    # from .user import user
-    # from .meteocat import lightning
-    # from .meteocat import stations
-    # from .meteocat import data
-    #
+
     # app.register_blueprint(user.bp)
     # app.register_blueprint(lightning.bp)
     # app.register_blueprint(stations.bp)
