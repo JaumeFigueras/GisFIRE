@@ -109,7 +109,6 @@ def test_user_init_05() -> None:
     assert user.valid_until.astimezone(pytz.utc) == datetime.datetime(year=2023, month=1, day=1, hour=11, minute=0, second=0, tzinfo=pytz.utc)
 
 
-
 def test_user_generate_token_01() -> None:
     """
     Tests the generation of a token

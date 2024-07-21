@@ -9,6 +9,8 @@ import random
 import json
 import pytz
 
+from dateutil.tz import tzoffset
+
 from sqlalchemy import DateTime
 from sqlalchemy import func
 from sqlalchemy.orm import Mapped
@@ -32,6 +34,7 @@ class User(Base):
     token: Mapped[str] = mapped_column('token', unique=True, nullable=False)
     is_admin: Mapped[bool] = mapped_column('is_admin', nullable=False, default=False)
     valid_until: Mapped[datetime.datetime] = mapped_column('valid_until', DateTime(timezone=True), nullable=False)
+    tzinfo: Mapped[str] = mapped_column('tzinfo', nullable=False)
     ts: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     user_accesses: Mapped[List["UserAccess"]] = relationship(back_populates="user")
@@ -59,6 +62,7 @@ class User(Base):
             if valid_until.tzinfo is None:
                 raise ValueError('valid_until must contain timezone information')
             self.valid_until = valid_until
+        self.tzinfo = str(self.valid_until.tzinfo)
 
     @staticmethod
     def _generate_token() -> str:
@@ -89,7 +93,11 @@ class User(Base):
         yield "username", self.username
         yield "token", self.token
         yield "is_admin", self.is_admin
-        yield "valid_until", self.valid_until.strftime("%Y-%m-%dT%H:%M:%S%z")
+        if self.tzinfo.startswith('tzoffset'):
+            tmp = self.valid_until.astimezone(pytz.UTC)
+            yield "valid_until", tmp.astimezone(eval(self.tzinfo)).strftime("%Y-%m-%dT%H:%M:%S%z")
+        else:
+            yield "valid_until", self.valid_until.astimezone(pytz.timezone(self.tzinfo)).strftime("%Y-%m-%dT%H:%M:%S%z")
 
     class JSONEncoder(json.JSONEncoder):
         """
