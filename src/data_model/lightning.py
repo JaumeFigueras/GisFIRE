@@ -24,7 +24,8 @@ from typing import Union
 class Lightning(Base):
     __tablename__ = "lightning"
     id: Mapped[int] = mapped_column('id', Integer, primary_key=True, autoincrement=True)
-    date = mapped_column('date', DateTime(timezone=True), nullable=False)
+    _date = mapped_column('date', DateTime(timezone=True), nullable=False)
+    tzinfo: Mapped[str] = mapped_column('tzinfo', nullable=False)
     _latitude_wgs84 = mapped_column('latitude_wgs84', Float, nullable=False)
     _longitude_wgs84 = mapped_column('longitude_wgs84', Float, nullable=False)
     _geometry_wgs84 = mapped_column('geom_wgs84', Geometry(geometry_type='POINT', srid=4326))
@@ -46,13 +47,31 @@ class Lightning(Base):
             raise ValueError("Latitude WGS84 out of range")
         if (longitude_wgs84 is not None) and not (-180 <= longitude_wgs84 <= 180):
             raise ValueError("Longitude WGS84 out of range")
-        self.date = date
+        if date is not None:
+            if date.tzinfo is None:
+                raise ValueError('Date must contain timezone information')
+            self.tzinfo = str(date.tzinfo)
+        self._date = date
         self._latitude_wgs84 = latitude_wgs84
         self._longitude_wgs84 = longitude_wgs84
         if (self._latitude_wgs84 is not None) and (self._longitude_wgs84 is not None):
             self._geometry_wgs84 = "SRID=4326;POINT({0:} {1:})".format(self._longitude_wgs84, self._latitude_wgs84)
         else:
             self._geometry_wgs84 = None
+
+    def __iter__(self):
+        pass
+
+    @property
+    def date(self) -> Optional[datetime.datetime]:
+        return self._date
+
+    @date.setter
+    def date(self, value: datetime.datetime) -> None:
+        if value.tzinfo is None:
+            raise ValueError('Date must contain timezone information')
+        self.tzinfo = str(value.tzinfo)
+        self._date = value
 
     @property
     def latitude_wgs84(self) -> Union[float, None]:

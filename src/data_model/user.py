@@ -98,26 +98,3 @@ class User(Base):
             yield "valid_until", tmp.astimezone(eval(self.tzinfo)).strftime("%Y-%m-%dT%H:%M:%S%z")
         else:
             yield "valid_until", self.valid_until.astimezone(pytz.timezone(self.tzinfo)).strftime("%Y-%m-%dT%H:%M:%S%z")
-
-    class JSONEncoder(json.JSONEncoder):
-        """
-        JSON Encoder to convert a User to JSON
-        """
-
-        def default(self, obj: Union[object, User]) -> Dict[str, Any]:
-            """
-            Default procedure to create a dictionary with the Exchange data
-
-            :param obj:
-            :type obj: Union[object, Exchange]
-            :return: Dict[str, Any]
-            """
-            if isinstance(obj, User):
-                obj: User
-                dct = dict()
-                dct['username'] = obj.username
-                dct['token'] = obj.token
-                dct['is_admin'] = obj.is_admin
-                dct['valid_until'] = obj.valid_until.strftime("%Y-%m-%d %H:%M:%S%z")
-                return dct
-            return json.JSONEncoder.default(self, obj)  # pragma: no cover

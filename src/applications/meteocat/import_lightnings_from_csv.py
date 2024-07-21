@@ -49,7 +49,7 @@ def process_lightnings(db_session: Session, csv_reader: csv.reader, logger: Logg
         lightning: MeteocatLightning = MeteocatLightning()
         try:
             lightning.meteocat_id = int(row[0])
-            lightning.date = datetime.datetime.strptime(row[1] + ' UTC', '%Y-%m-%d %H:%M:%S.%f %Z')
+            lightning.date = datetime.datetime.strptime(row[1], '%Y-%m-%d %H:%M:%S.%f').replace(tzinfo=pytz.UTC)
             year = lightning.date.year
             lightning.peak_current = float(row[2])
             lightning.chi_squared = float(row[3])

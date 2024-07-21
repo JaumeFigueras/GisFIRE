@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+
 import datetime
-from datetime import date
+import pytz
 
 import pytest
 
@@ -17,8 +18,8 @@ def test_lightning_01() -> None:
     assert lightning.latitude_wgs84 is None
     assert lightning.longitude_wgs84 is None
     assert lightning.geometry_wgs84 is None
-    lightning = Lightning(date=datetime.datetime(2024,4,1,15, 34,56))
-    assert lightning.date == datetime.datetime(2024,4,1,15, 34,56)
+    lightning = Lightning(date=datetime.datetime(2024,4,1,15, 34,56, tzinfo=pytz.UTC))
+    assert lightning.date == datetime.datetime(2024,4,1,15, 34,56, tzinfo=pytz.UTC)
     assert lightning.latitude_wgs84 is None
     assert lightning.longitude_wgs84 is None
     assert lightning.geometry_wgs84 is None
@@ -32,8 +33,8 @@ def test_lightning_01() -> None:
     assert lightning.latitude_wgs84 is None
     assert lightning.longitude_wgs84 == 34.56
     assert lightning.geometry_wgs84 is None
-    lightning = Lightning(date=datetime.datetime(2024,4,1,15, 34,56), latitude_wgs84=12.34, longitude_wgs84=34.56)
-    assert lightning.date == datetime.datetime(2024,4,1,15, 34,56)
+    lightning = Lightning(date=datetime.datetime(2024,4,1,15, 34,56, tzinfo=pytz.UTC), latitude_wgs84=12.34, longitude_wgs84=34.56)
+    assert lightning.date == datetime.datetime(2024,4,1,15, 34,56, tzinfo=pytz.UTC)
     assert lightning.latitude_wgs84 == 12.34
     assert lightning.longitude_wgs84 == 34.56
     assert lightning.geometry_wgs84 == "SRID=4326;POINT(34.56 12.34)"
@@ -53,6 +54,8 @@ def test_lightning_02() -> None:
         _ = Lightning(longitude_wgs84=-180.01)
     with pytest.raises(ValueError):
         _ = Lightning(latitude_wgs84=90.01, longitude_wgs84=180.01)
+    with pytest.raises(ValueError):
+        _ = Lightning(date=datetime.datetime(2024, 4, 1, 15,  34, 56), latitude_wgs84=12.34, longitude_wgs84=34.56)
 
 
 def test_lightning_latitude_property_01() -> None:
