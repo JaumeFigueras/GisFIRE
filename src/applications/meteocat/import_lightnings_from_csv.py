@@ -59,8 +59,8 @@ def process_lightnings(db_session: Session, csv_reader: csv.reader, logger: Logg
             lightning.number_of_sensors = int(row[6])
             lightning.hit_ground = row[7] == 't'
             lightning.municipality_id = int(row[8]) if row[8] != '' else None
-            lightning.longitude_etrs89 = float(row[9])
-            lightning.latitude_etrs89 = float(row[10])
+            lightning.longitude_epsg_4258 = float(row[9])
+            lightning.latitude_epsg_4258 = float(row[10])
             lightning.data_provider_name = 'Meteo.cat'
         except ValueError as e:
             logger.error("Error found in record {0:}. Rolling back all changes. Exception text: {1:}".format(i, str(e)))
@@ -84,6 +84,8 @@ def process_requests(db_session, year, logger: Logger):
     :type db_session: sqlalchemy.orm.Session
     :param year: Year to process requests into the database
     :type year: int
+    :param logger: Logger to log progress or errors
+    :type logger: Logger
     :return: None
     """
     logger.info("Starting population of equivalent requests to Meteo.cat")

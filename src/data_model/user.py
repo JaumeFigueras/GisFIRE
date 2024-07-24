@@ -33,8 +33,8 @@ class User(Base):
     username: Mapped[str] = mapped_column('username', unique=True, nullable=False)
     token: Mapped[str] = mapped_column('token', unique=True, nullable=False)
     is_admin: Mapped[bool] = mapped_column('is_admin', nullable=False, default=False)
-    valid_until: Mapped[datetime.datetime] = mapped_column('valid_until', DateTime(timezone=True), nullable=False)
-    tzinfo: Mapped[str] = mapped_column('tzinfo', nullable=False)
+    _valid_until: Mapped[datetime.datetime] = mapped_column('valid_until', DateTime(timezone=True), nullable=False)
+    _tzinfo: Mapped[str] = mapped_column('tzinfo', nullable=False)
     ts: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     user_accesses: Mapped[List["UserAccess"]] = relationship(back_populates="user")
@@ -57,12 +57,12 @@ class User(Base):
             self.token = token
         self.is_admin = is_admin
         if valid_until is None:
-            self.valid_until = self._generate_valid_until()
+            self._valid_until = self._generate_valid_until()
         else:
             if valid_until.tzinfo is None:
                 raise ValueError('valid_until must contain timezone information')
-            self.valid_until = valid_until
-        self.tzinfo = str(self.valid_until.tzinfo)
+            self._valid_until = valid_until
+        self._tzinfo = str(self.valid_until.tzinfo)
 
     @staticmethod
     def _generate_token() -> str:
@@ -93,8 +93,19 @@ class User(Base):
         yield "username", self.username
         yield "token", self.token
         yield "is_admin", self.is_admin
-        if self.tzinfo.startswith('tzoffset'):
+        if self._tzinfo.startswith('tzoffset'):
             tmp = self.valid_until.astimezone(pytz.UTC)
-            yield "valid_until", tmp.astimezone(eval(self.tzinfo)).strftime("%Y-%m-%dT%H:%M:%S%z")
+            yield "valid_until", tmp.astimezone(eval(self._tzinfo)).strftime("%Y-%m-%dT%H:%M:%S%z")
         else:
-            yield "valid_until", self.valid_until.astimezone(pytz.timezone(self.tzinfo)).strftime("%Y-%m-%dT%H:%M:%S%z")
+            yield "valid_until", self.valid_until.astimezone(pytz.timezone(self._tzinfo)).strftime("%Y-%m-%dT%H:%M:%S%z")
+
+    @property
+    def valid_until(self) -> datetime.datetime:
+        return self._valid_until
+
+    @valid_until.setter
+    def valid_until(self, valid_until: datetime.datetime) -> None:
+        if valid_until.tzinfo is None:
+            raise ValueError('valid_until must contain timezone information')
+        self._valid_until = valid_until
+        self._tzinfo = str(valid_until.tzinfo)
