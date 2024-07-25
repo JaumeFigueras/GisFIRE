@@ -62,7 +62,7 @@ class MeteocatLightning(Lightning):
                  ellipse_angle: Optional[float] = None, number_of_sensors: Optional[int] = None,
                  hit_ground: bool = False, municipality_code: Optional[str] = None,
                  latitude_epsg_4258: Optional[float] = None, longitude_epsg_4258: Optional[float] = None):
-        super().__init__(date=date)
+        super().__init__(date=date, longitude_epsg_4326=None, latitude_epsg_4326=None)
         if (latitude_epsg_4258 is not None) and not (-90 <= latitude_epsg_4258 <= 90):
             raise ValueError("Latitude ETRS89 out of range")
         if (longitude_epsg_4258 is not None) and not (-180 <= longitude_epsg_4258 <= 180):

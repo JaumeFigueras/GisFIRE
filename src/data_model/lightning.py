@@ -22,12 +22,13 @@ from shapely.geometry import Point
 
 from src.data_model.data_provider import DataProvider
 from src.geo.location_converter import LocationConverter
+from src.data_model.located_entity import LocatedEntityEPSG4326
 
 from typing import Optional
 from typing import Union
 
 
-class Lightning(Base):
+class Lightning(Base, LocatedEntityEPSG4326):
     __tablename__ = "lightning"
     id: Mapped[int] = mapped_column('id', Integer, primary_key=True, autoincrement=True)
     _date: Mapped[datetime.datetime] = mapped_column('date', DateTime(timezone=True), nullable=False)
@@ -50,20 +51,14 @@ class Lightning(Base):
 
     def __init__(self, date: Optional[datetime.datetime] = None, latitude_epsg_4326: Optional[float] = None,
                  longitude_epsg_4326: Optional[float] = None):
-        super().__init__()
-        if (latitude_epsg_4326 is not None) and not (-90 <= latitude_epsg_4326 <= 90):
-            raise ValueError("Latitude WGS84 out of range")
-        if (longitude_epsg_4326 is not None) and not (-180 <= longitude_epsg_4326 <= 180):
-            raise ValueError("Longitude WGS84 out of range")
-        self.converter_4326 = LocationConverter("_longitude_epsg_4326", "_latitude_epsg_4326", "4326", "geometry_epsg_4326")
+        Base.__init__(self)
+        LocatedEntityEPSG4326.__init__(self, longitude_epsg_4326=longitude_epsg_4326, latitude_epsg_4326=latitude_epsg_4326)
         if date is not None:
             if date.tzinfo is None:
                 raise ValueError('Date must contain timezone information')
             self._tzinfo = str(date.tzinfo)
         self._date = date
-        self._latitude_epsg_4326 = latitude_epsg_4326
-        self._longitude_epsg_4326 = longitude_epsg_4326
-        self.converter_4326.generate_geometry(self)
+        print("Init Lightning")
 
     def __iter__(self):
         yield "id", self.id
@@ -72,13 +67,7 @@ class Lightning(Base):
             yield "date", tmp.astimezone(eval(self._tzinfo)).strftime("%Y-%m-%dT%H:%M:%S%z")
         else:
             yield "date", self._date.astimezone(pytz.timezone(self._tzinfo)).strftime("%Y-%m-%dT%H:%M:%S%z")
-        yield "latitude_epsg_4326", self.latitude_epsg_4326
-        yield "longitude_epsg_4326", self.longitude_epsg_4326
-        if self.geometry_epsg_4326 is not None:
-            if isinstance(self.geometry_epsg_4326, str):
-                yield "geometry_epsg_4326", self.geometry_epsg_4326
-            else:
-                yield "geometry_epsg_4326", self.geometry_epsg_4326_as_point.wkt
+        yield from super(LocatedEntityEPSG4326).__iter__()
 
     @property
     def date(self) -> Optional[datetime.datetime]:
@@ -91,30 +80,3 @@ class Lightning(Base):
         self._tzinfo = str(value.tzinfo)
         self._date = value
 
-    @property
-    def latitude_epsg_4326(self) -> Union[float, None]:
-        return self._latitude_epsg_4326
-
-    @latitude_epsg_4326.setter
-    def latitude_epsg_4326(self, latitude_epsg_4326: Union[float, None]) -> None:
-        if latitude_epsg_4326 is not None:
-            if not (-90 <= latitude_epsg_4326 <= 90):
-                raise ValueError("Latitude WGS84 out of range")
-        self._latitude_epsg_4326 = latitude_epsg_4326
-        self.converter_4326.generate_geometry(self)
-
-    @property
-    def longitude_epsg_4326(self) -> Union[float, None]:
-        return self._longitude_epsg_4326
-
-    @longitude_epsg_4326.setter
-    def longitude_epsg_4326(self, longitude_epsg_4326: Union[float, None]) -> None:
-        if longitude_epsg_4326 is not None:
-            if not (-90 <= longitude_epsg_4326 <= 90):
-                raise ValueError("Latitude WGS84 out of range")
-        self._longitude_epsg_4326 = longitude_epsg_4326
-        self.converter_4326.generate_geometry(self)
-
-    @property
-    def geometry_epsg_4326_as_point(self) -> Union[Point, None]:
-        return shape.to_shape(self.geometry_epsg_4326)
