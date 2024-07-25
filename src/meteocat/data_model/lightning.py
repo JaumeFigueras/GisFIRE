@@ -7,7 +7,7 @@ from __future__ import annotations  # Needed to allow returning type of enclosin
 import datetime
 
 from src.data_model.lightning import Lightning
-from src.data_model.location_converter import LocationConverter
+from src.geo.location_converter import LocationConverter
 
 from sqlalchemy import Integer
 from sqlalchemy import Float
@@ -21,8 +21,6 @@ from geoalchemy2 import Geometry
 from geoalchemy2 import WKBElement
 from geoalchemy2 import shape
 from shapely.geometry import Point
-
-from pyproj import Transformer
 
 from typing import Optional
 from typing import Union

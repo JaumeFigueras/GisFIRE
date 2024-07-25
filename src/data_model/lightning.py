@@ -21,7 +21,7 @@ from geoalchemy2 import shape
 from shapely.geometry import Point
 
 from src.data_model.data_provider import DataProvider
-from src.data_model.location_converter import LocationConverter
+from src.geo.location_converter import LocationConverter
 
 from typing import Optional
 from typing import Union

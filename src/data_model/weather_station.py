@@ -22,6 +22,7 @@ from geoalchemy2 import shape
 from shapely.geometry import Point
 
 from src.data_model.data_provider import DataProvider
+from src.geo.location_converter import LocationConverter
 
 from typing import Optional
 from typing import Union
@@ -55,14 +56,12 @@ class WeatherStation(Base):
             raise ValueError("Latitude WGS84 out of range")
         if (longitude_epsg_4326 is not None) and not (-180 <= longitude_epsg_4326 <= 180):
             raise ValueError("Longitude WGS84 out of range")
+        self.converter_4326 = LocationConverter("_longitude_epsg_4326", "_latitude_epsg_4326", "4326", "geometry_epsg_4326")
         self.name = name
         self.altitude = altitude
         self.latitude_epsg_4326 = latitude_epsg_4326
         self.longitude_epsg_4326 = longitude_epsg_4326
-        if (self._latitude_epsg_4326 is not None) and (self._longitude_epsg_4326 is not None):
-            self.geometry_epsg_4326 = "SRID=4326;POINT({0:} {1:})".format(self._longitude_epsg_4326, self._latitude_epsg_4326)  # type: ignore[assignment]
-        else:
-            self.geometry_epsg_4326 = None
+        self.converter_4326.generate_geometry(self)
 
     @property
     def latitude_epsg_4326(self) -> Union[float, None]:
@@ -70,37 +69,23 @@ class WeatherStation(Base):
 
     @latitude_epsg_4326.setter
     def latitude_epsg_4326(self, latitude_epsg_4326: Union[float, None]) -> None:
-        if latitude_epsg_4326 is None:
-            self._latitude_epsg_4326 = None
-            self.geometry_epsg_4326 = None
-            return
-        if -90 <= latitude_epsg_4326 <= 90:
-            self._latitude_epsg_4326 = latitude_epsg_4326
-            if (self._longitude_epsg_4326 is not None) and (self._latitude_epsg_4326 is not None):
-                self.geometry_epsg_4326 = "SRID=4326;POINT({0:} {1:})".format(self._longitude_epsg_4326, self._latitude_epsg_4326)  # type: ignore[assignment]
-            else:
-                self.geometry_epsg_4326 = None
-        else:
-            raise ValueError("Latitude WGS84 out of range")
+        if latitude_epsg_4326 is not None:
+            if not (-90 <= latitude_epsg_4326 <= 90):
+                raise ValueError("Latitude WGS84 out of range")
+        self._latitude_epsg_4326 = latitude_epsg_4326
+        self.converter_4326.generate_geometry(self)
 
     @property
     def longitude_epsg_4326(self) -> Union[float, None]:
-        return self._longitude_epsg_4326
+        return self._latitude_epsg_4326
 
     @longitude_epsg_4326.setter
     def longitude_epsg_4326(self, longitude_epsg_4326: Union[float, None]) -> None:
-        if longitude_epsg_4326 is None:
-            self._longitude_epsg_4326 = None
-            self.geometry_epsg_4326 = None
-            return
-        if -90 <= longitude_epsg_4326 <= 90:
-            self._longitude_epsg_4326 = longitude_epsg_4326
-            if (self._longitude_epsg_4326 is not None) and (self._latitude_epsg_4326 is not None):
-                self.geometry_epsg_4326 = "SRID=4326;POINT({0:} {1:})".format(self._longitude_epsg_4326, self._latitude_epsg_4326)  # type: ignore[assignment]
-            else:
-                self.geometry_epsg_4326 = None
-        else:
-            raise ValueError("Latitude WGS84 out of range")
+        if longitude_epsg_4326 is not None:
+            if not (-90 <= longitude_epsg_4326 <= 90):
+                raise ValueError("Latitude WGS84 out of range")
+        self._longitude_epsg_4326 = longitude_epsg_4326
+        self.converter_4326.generate_geometry(self)
 
     @property
     def geometry_epsg_4326_as_point(self) -> Union[Point, None]:

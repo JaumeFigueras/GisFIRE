@@ -151,7 +151,6 @@ class MeteocatWeatherStation(WeatherStation):
     :type measures: relationship
     :type SRID_WEATHER_STATIONS: int
     """
-    SRID_WEATHER_STATIONS = 4258
     __tablename__ = 'meteocat_weather_station'
     id: Mapped[int] = mapped_column(ForeignKey("weather_station.id"), primary_key=True)
     code: Mapped[str] = mapped_column('meteocat_code', String, nullable=False, unique=True)
@@ -238,74 +237,8 @@ class MeteocatWeatherStation(WeatherStation):
         self.province_name = province_name
         self.network_code = network_code
         self.network_name = network_name
-        self.__format_geom()
 
-    def __format_geom(self) -> None:
-        """
-        Unique procedure to convert the member attributes coordinate_latitude and coordinate longitude to a OSGeo WKT
-        standard format
 
-        :return: None
-        """
-        if (self._coordinates_latitude is not None) and (self._coordinates_longitude is not None):
-            self.postgis_geometry = "SRID={2:};POINT({0:} {1:})".format(self._coordinates_longitude, self._coordinates_latitude,
-                                                                        self.SRID_WEATHER_STATIONS)
-        else:
-            self.postgis_geometry = None
-
-    @property
-    def lat(self) -> float:
-        """
-        Latitude getter
-
-        :return: Lightning latitude
-        :rtype: float
-        """
-        return self._coordinates_latitude
-
-    @lat.setter
-    def lat(self, value: float) -> None:
-        """
-        Latitude setter. Value must be between -90 and 90 degrees
-
-        :param value: Latitude value
-        :type value: float
-        :raise: ValueError
-        :return: None
-        """
-        if -90 <= value <= 90:
-            self._coordinates_latitude = value
-            if self._coordinates_longitude is not None:
-                self.__format_geom()
-        else:
-            raise ValueError("Latitude value must be between -90 and 90 degrees")
-
-    @property
-    def lon(self) -> float:
-        """
-        Longitude getter
-
-        :return: Lightning longitude
-        :rtype: float
-        """
-        return self._coordinates_longitude
-
-    @lon.setter
-    def lon(self, value: float) -> None:
-        """
-        Longitude setter. Value must be between -180 and 180 degrees
-
-        :param value: Longitude value
-        :type value: float
-        :raise: ValueError
-        :return: None
-        """
-        if -180 <= value <= 180:
-            self._coordinates_longitude = value
-            if self._coordinates_latitude is not None:
-                self.__format_geom()
-        else:
-            raise ValueError("Longitude value must be between -180 and 180 degrees")
 
     @staticmethod
     def object_hook(dct: Dict[str, Any]) -> Union[WeatherStation, Dict[str, Any], WeatherStationState, None]:
