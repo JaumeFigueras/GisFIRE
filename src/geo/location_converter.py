@@ -42,5 +42,8 @@ class LocationConverter:
     def generate_geometry(self, obj: Any):
         if (getattr(obj, self.src_x_attr) is not None) and (getattr(obj, self.src_y_attr) is not None):
             setattr(obj, self.src_geom_attr, "SRID={2:};POINT({0:} {1:})".format(getattr(obj, self.src_x_attr), getattr(obj, self.src_y_attr), self.src_epsg))
+            print("SRID={2:};POINT({0:} {1:})".format(getattr(obj, self.src_x_attr), getattr(obj, self.src_y_attr), self.src_epsg))
+            print("Generated!")
         else:
             setattr(obj, self.src_geom_attr, None)
+

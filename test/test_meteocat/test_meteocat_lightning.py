@@ -23,9 +23,9 @@ def test_lightning_01() -> None:
     """
     lightning = MeteocatLightning()
     assert lightning.date is None
-    assert lightning.latitude_epsg_4326 is None
-    assert lightning.longitude_epsg_4326 is None
-    assert lightning.geometry_epsg_4326 is None
+    assert lightning.x_4326 is None
+    assert lightning.y_4326 is None
+    assert lightning.geometry_4326 is None
     assert lightning.meteocat_id is None
     assert lightning.peak_current is None
     assert lightning.chi_squared is None
@@ -35,10 +35,13 @@ def test_lightning_01() -> None:
     assert lightning.number_of_sensors is None
     assert not lightning.hit_ground
     assert lightning.municipality_code is None
-    assert lightning._latitude_epsg_4258 is None
-    assert lightning._longitude_epsg_4258 is None
-    assert lightning.geometry_epsg_4258 is None
-    lightning = MeteocatLightning(date=datetime.datetime(2024, 4, 1, 15,  34, 56, tzinfo=pytz.UTC))
+    assert lightning.x_4258 is None
+    assert lightning.y_4258 is None
+    assert lightning.geometry_4258 is None
+    assert lightning.x_25831 is None
+    assert lightning.y_25831 is None
+    assert lightning.geometry_25831 is None
+    lightning = MeteocatLightning(date_time=datetime.datetime(2024, 4, 1, 15, 34, 56, tzinfo=pytz.UTC))
     assert lightning.date == datetime.datetime(2024, 4, 1, 15, 34, 56, tzinfo=pytz.UTC)
     assert lightning.latitude_epsg_4326 is None
     assert lightning.longitude_epsg_4326 is None
@@ -242,7 +245,7 @@ def test_lightning_01() -> None:
     assert lightning._latitude_epsg_4258 is None
     assert lightning._longitude_epsg_4258 == 123.45
     assert lightning.geometry_epsg_4258 is None
-    lightning = MeteocatLightning(date=datetime.datetime(2024, 4, 1, 15, 34, 56, tzinfo=pytz.UTC),
+    lightning = MeteocatLightning(date_time=datetime.datetime(2024, 4, 1, 15, 34, 56, tzinfo=pytz.UTC),
                                   meteocat_id=123456789, peak_current=57.45, chi_squared=23.12, ellipse_major_axis=3500,
                                   ellipse_minor_axis=500, ellipse_angle=23.45, number_of_sensors=2, hit_ground=True,
                                   municipality_code='08233', latitude_epsg_4258=41.77052639,
@@ -272,22 +275,22 @@ def test_lightning_02() -> None:
     :return: None
     """
     with pytest.raises(ValueError):
-        _ = MeteocatLightning(date=datetime.datetime(2024, 4, 1, 15, 34, 56, tzinfo=pytz.UTC), meteocat_id=123456789,
+        _ = MeteocatLightning(date_time=datetime.datetime(2024, 4, 1, 15, 34, 56, tzinfo=pytz.UTC), meteocat_id=123456789,
                               peak_current=57.45, chi_squared=23.12, ellipse_major_axis=3500, ellipse_minor_axis=500,
                               ellipse_angle=23.45, number_of_sensors=2, hit_ground=True, municipality_code='08233',
                               latitude_epsg_4258=-141.77052639, longitude_epsg_4258=2.18969857)
     with pytest.raises(ValueError):
-        _ = MeteocatLightning(date=datetime.datetime(2024, 4, 1, 15, 34, 56, tzinfo=pytz.UTC), meteocat_id=123456789,
+        _ = MeteocatLightning(date_time=datetime.datetime(2024, 4, 1, 15, 34, 56, tzinfo=pytz.UTC), meteocat_id=123456789,
                               peak_current=57.45, chi_squared=23.12, ellipse_major_axis=3500, ellipse_minor_axis=500,
                               ellipse_angle=23.45, number_of_sensors=2, hit_ground=True, municipality_code='08233',
                               latitude_epsg_4258=-41.77052639, longitude_epsg_4258=222.18969857)
     with pytest.raises(ValueError):
-        _ = MeteocatLightning(date=datetime.datetime(2024, 4, 1, 15, 34, 56, tzinfo=pytz.UTC), meteocat_id=123456789,
+        _ = MeteocatLightning(date_time=datetime.datetime(2024, 4, 1, 15, 34, 56, tzinfo=pytz.UTC), meteocat_id=123456789,
                               peak_current=57.45, chi_squared=23.12, ellipse_major_axis=3500, ellipse_minor_axis=500,
                               ellipse_angle=23.45, number_of_sensors=0, hit_ground=True, municipality_code='08233',
                               latitude_epsg_4258=41.77052639, longitude_epsg_4258=2.18969857)
     with pytest.raises(ValueError):
-        _ = MeteocatLightning(date=datetime.datetime(2024, 4, 1, 15, 34, 56), meteocat_id=123456789, peak_current=57.45,
+        _ = MeteocatLightning(date_time=datetime.datetime(2024, 4, 1, 15, 34, 56), meteocat_id=123456789, peak_current=57.45,
                               chi_squared=23.12, ellipse_major_axis=3500, ellipse_minor_axis=500,
                               ellipse_angle=23.45, number_of_sensors=0, hit_ground=True, municipality_code='08233',
                               latitude_epsg_4258=41.77052639, longitude_epsg_4258=2.18969857)
@@ -299,7 +302,7 @@ def test_lightning_latitude_etrs89_01() -> None:
 
     :return: None
     """
-    lightning = MeteocatLightning(date=datetime.datetime(2024, 4, 1, 15, 34, 56, tzinfo=pytz.UTC),
+    lightning = MeteocatLightning(date_time=datetime.datetime(2024, 4, 1, 15, 34, 56, tzinfo=pytz.UTC),
                                   meteocat_id=123456789, peak_current=57.45, chi_squared=23.12, ellipse_major_axis=3500,
                                   ellipse_minor_axis=500, ellipse_angle=23.45, number_of_sensors=2, hit_ground=True,
                                   municipality_code='08233', latitude_epsg_4258=41.77052639,
@@ -310,7 +313,7 @@ def test_lightning_latitude_etrs89_01() -> None:
     assert lightning.geometry_epsg_4258 == "SRID=4258;POINT(2.18969857 2.18969857)"
     assert lightning._latitude_epsg_4326 == 2.18969857
     assert lightning.geometry_epsg_4326 == "SRID=4326;POINT(2.18969857 2.18969857)"
-    lightning = MeteocatLightning(date=datetime.datetime(2024, 4, 1, 15, 34, 56, tzinfo=pytz.UTC),
+    lightning = MeteocatLightning(date_time=datetime.datetime(2024, 4, 1, 15, 34, 56, tzinfo=pytz.UTC),
                                   meteocat_id=123456789, peak_current=57.45, chi_squared=23.12, ellipse_major_axis=3500,
                                   ellipse_minor_axis=500, ellipse_angle=23.45, number_of_sensors=2, hit_ground=True,
                                   municipality_code='08233', latitude_epsg_4258=41.77052639,
@@ -326,7 +329,7 @@ def test_lightning_latitude_etrs89_01() -> None:
     assert lightning.geometry_epsg_4258 == "SRID=4258;POINT(2.18969857 2.18969857)"
     assert lightning._latitude_epsg_4326 == 2.18969857
     assert lightning.geometry_epsg_4326 == "SRID=4326;POINT(2.18969857 2.18969857)"
-    lightning = MeteocatLightning(date=datetime.datetime(2024, 4, 1, 15, 34, 56, tzinfo=pytz.UTC),
+    lightning = MeteocatLightning(date_time=datetime.datetime(2024, 4, 1, 15, 34, 56, tzinfo=pytz.UTC),
                                   meteocat_id=123456789, peak_current=57.45, chi_squared=23.12, ellipse_major_axis=3500,
                                   ellipse_minor_axis=500, ellipse_angle=23.45, number_of_sensors=2, hit_ground=True,
                                   municipality_code='08233', latitude_epsg_4258=41.77052639,
@@ -347,7 +350,7 @@ def test_lightning_latitude_etrs89_02() -> None:
 
     :return: None
     """
-    lightning = MeteocatLightning(date=datetime.datetime(2024, 4, 1, 15, 34,  56, tzinfo=pytz.UTC),
+    lightning = MeteocatLightning(date_time=datetime.datetime(2024, 4, 1, 15, 34, 56, tzinfo=pytz.UTC),
                                   meteocat_id=123456789, peak_current=57.45, chi_squared=23.12, ellipse_major_axis=3500,
                                   ellipse_minor_axis=500, ellipse_angle=23.45, number_of_sensors=2, hit_ground=True,
                                   municipality_code='08233', latitude_epsg_4258=41.77052639,
@@ -363,7 +366,7 @@ def test_lightning_longitude_etrs89_01() -> None:
 
     :return: None
     """
-    lightning = MeteocatLightning(date=datetime.datetime(2024, 4, 1, 15, 34, 56, tzinfo=pytz.UTC),
+    lightning = MeteocatLightning(date_time=datetime.datetime(2024, 4, 1, 15, 34, 56, tzinfo=pytz.UTC),
                                   meteocat_id=123456789, peak_current=57.45, chi_squared=23.12, ellipse_major_axis=3500,
                                   ellipse_minor_axis=500, ellipse_angle=23.45, number_of_sensors=2, hit_ground=True,
                                   municipality_code='08233', latitude_epsg_4258=2.18969857,
@@ -374,7 +377,7 @@ def test_lightning_longitude_etrs89_01() -> None:
     assert lightning.geometry_epsg_4258 == "SRID=4258;POINT(2.18969857 2.18969857)"
     assert lightning._longitude_epsg_4326 == 2.18969857
     assert lightning.geometry_epsg_4326 == "SRID=4326;POINT(2.18969857 2.18969857)"
-    lightning = MeteocatLightning(date=datetime.datetime(2024, 4, 1, 15, 34, 56, tzinfo=pytz.UTC),
+    lightning = MeteocatLightning(date_time=datetime.datetime(2024, 4, 1, 15, 34, 56, tzinfo=pytz.UTC),
                                   meteocat_id=123456789, peak_current=57.45, chi_squared=23.12, ellipse_major_axis=3500,
                                   ellipse_minor_axis=500, ellipse_angle=23.45, number_of_sensors=2, hit_ground=True,
                                   municipality_code='08233', latitude_epsg_4258=2.18969857,
@@ -390,7 +393,7 @@ def test_lightning_longitude_etrs89_01() -> None:
     assert lightning.geometry_epsg_4258 == "SRID=4258;POINT(2.18969857 2.18969857)"
     assert lightning._longitude_epsg_4326 == 2.18969857
     assert lightning.geometry_epsg_4326 == "SRID=4326;POINT(2.18969857 2.18969857)"
-    lightning = MeteocatLightning(date=datetime.datetime(2024, 4, 1, 15, 34, 56, tzinfo=pytz.UTC),
+    lightning = MeteocatLightning(date_time=datetime.datetime(2024, 4, 1, 15, 34, 56, tzinfo=pytz.UTC),
                                   meteocat_id=123456789, peak_current=57.45, chi_squared=23.12, ellipse_major_axis=3500,
                                   ellipse_minor_axis=500, ellipse_angle=23.45, number_of_sensors=2, hit_ground=True,
                                   municipality_code='08233', latitude_epsg_4258=41.77052639,
@@ -411,7 +414,7 @@ def test_lightning_longitude_etrs89_02() -> None:
 
     :return: None
     """
-    lightning = MeteocatLightning(date=datetime.datetime(2024, 4, 1, 15, 34, 56, tzinfo=pytz.UTC),
+    lightning = MeteocatLightning(date_time=datetime.datetime(2024, 4, 1, 15, 34, 56, tzinfo=pytz.UTC),
                                   meteocat_id=123456789, peak_current=57.45, chi_squared=23.12, ellipse_major_axis=3500,
                                   ellipse_minor_axis=500, ellipse_angle=23.45, number_of_sensors=2, hit_ground=True,
                                   municipality_code='08233', latitude_epsg_4258=41.77052639,
@@ -427,7 +430,7 @@ def test_lightning_geometry_etrs89_01() -> None:
 
     :return: None
     """
-    lightning = MeteocatLightning(date=datetime.datetime(2024, 4, 1, 15, 34, 56, tzinfo=pytz.UTC),
+    lightning = MeteocatLightning(date_time=datetime.datetime(2024, 4, 1, 15, 34, 56, tzinfo=pytz.UTC),
                                   meteocat_id=123456789, peak_current=57.45, chi_squared=23.12, ellipse_major_axis=3500,
                                   ellipse_minor_axis=500, ellipse_angle=23.45, number_of_sensors=2, hit_ground=True,
                                   municipality_code='08233', latitude_epsg_4258=41.77052639,
@@ -438,7 +441,7 @@ def test_lightning_geometry_etrs89_01() -> None:
 @pytest.mark.parametrize('data_provider_list', [{'data_providers': ['Meteo.cat']},], indirect=True)
 def test_geometries_01(db_session: Session, data_provider_list: Union[List[DataProvider], None]) -> None:
     populate_data_providers(db_session, data_provider_list)
-    lightning = MeteocatLightning(date=datetime.datetime(2024, 4, 1, 15, 34, 56, tzinfo=pytz.UTC),
+    lightning = MeteocatLightning(date_time=datetime.datetime(2024, 4, 1, 15, 34, 56, tzinfo=pytz.UTC),
                                   meteocat_id=123456789, peak_current=57.45, chi_squared=23.12, ellipse_major_axis=3500,
                                   ellipse_minor_axis=500, ellipse_angle=23.45, number_of_sensors=2, hit_ground=True,
                                   municipality_code='08233', latitude_epsg_4258=41.77052639,

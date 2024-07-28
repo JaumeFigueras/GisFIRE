@@ -2,16 +2,15 @@
 # -*- coding: utf-8 -*-
 
 # Creation of a declarative base for the SQL Alchemy models to inherit from
-from sqlalchemy.orm import DeclarativeBase
+from sqlalchemy.orm import declarative_base
 
+from src.data_model.metaclass.location_metaclass import LocationMeta
 
-class Base(DeclarativeBase):
-    pass
+Base = declarative_base(metaclass=LocationMeta)
 
 
 # Imports needed by SQL Alchemy to process the relations correctly
 from src.data_model.data_provider import *  # noqa: E402
 from src.data_model.lightning import *  # noqa: E402
 from src.data_model.request import *  # noqa: E402
-from src.meteocat.data_model.lightning import *  # noqa: E402
 
