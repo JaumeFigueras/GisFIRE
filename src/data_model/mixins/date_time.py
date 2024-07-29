@@ -35,14 +35,14 @@ class DateTimeMixIn(object):
             tmp = self._date_time.astimezone(pytz.UTC)
             yield "date_time", tmp.astimezone(eval(self._tzinfo)).strftime("%Y-%m-%dT%H:%M:%S%z")
         else:
-            yield "date", self._date_time.astimezone(pytz.timezone(self._tzinfo)).strftime("%Y-%m-%dT%H:%M:%S%z")
+            yield "date_time", self._date_time.astimezone(pytz.timezone(self._tzinfo)).strftime("%Y-%m-%dT%H:%M:%S%z")
 
     @property
-    def date(self) -> Optional[datetime.datetime]:
+    def date_time(self) -> Optional[datetime.datetime]:
         return self._date_time
 
-    @date.setter
-    def date(self, value: datetime.datetime) -> None:
+    @date_time.setter
+    def date_time(self, value: datetime.datetime) -> None:
         if value.tzinfo is None:
             raise ValueError('Date must contain timezone information')
         self._tzinfo = str(value.tzinfo)

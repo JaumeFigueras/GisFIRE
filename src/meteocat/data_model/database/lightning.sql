@@ -13,14 +13,15 @@ CREATE TABLE meteocat_lightning (
         meteocat_number_of_sensors INTEGER NOT NULL,
         meteocat_hit_ground BOOLEAN NOT NULL,
         meteocat_municipality_code VARCHAR,
-        meteocat_latitude_epsg_4258 FLOAT NOT NULL,
-        meteocat_longitude_epsg_4258 FLOAT NOT NULL,
-        meteocat_geom_epsg_4258 geometry(POINT,4258),
-        meteocat_latitude_epsg_25831 FLOAT NOT NULL,
-        meteocat_longitude_epsg_25831 FLOAT NOT NULL,
-        meteocat_geom_epsg_25831 geometry(POINT,25831),
+        x_4258 FLOAT NOT NULL,
+        y_4258 FLOAT NOT NULL,
+        geometry_4258 geometry(POINT,4258) NOT NULL,
+        x_25831 FLOAT NOT NULL,
+        y_25831 FLOAT NOT NULL,
+        geometry_25831 geometry(POINT,25831) NOT NULL,
         PRIMARY KEY (id),
         FOREIGN KEY(id) REFERENCES lightning (id)
+
 )
 WITH (
   OIDS = FALSE

@@ -71,11 +71,11 @@ class MeteocatLightning(Lightning):
         self.number_of_sensors = number_of_sensors
         self.hit_ground = hit_ground
         self.municipality_code = municipality_code
-        self.x_4258 = latitude_epsg_4258
-        self.y_4258 = longitude_epsg_4258
+        self.x_4258 = longitude_epsg_4258
+        self.y_4258 = latitude_epsg_4258
 
     def __iter__(self):
-        super().__iter__()
+        yield from super().__iter__()
         yield "meteocat_id", self.meteocat_id
         yield "peak_current", self.peak_current
         yield "multiplicity", self.multiplicity
@@ -86,23 +86,10 @@ class MeteocatLightning(Lightning):
         yield "number_of_sensors", self.number_of_sensors
         yield "hit_ground", self.hit_ground
         yield "municipality_code", self.municipality_code
-        yield "longitude_epsg_4258", self._longitude_epsg_4258
-        yield "latitude_epsg_4258", self._latitude_epsg_4258
-        if self.geometry_epsg_4326 is not None:
-            if isinstance(self.geometry_epsg_4326, str):
-                yield "geometry_epsg_4258", self.geometry_epsg_4258
-            else:
-                yield "geometry_epsg_4258", self.geometry_epsg_4258_as_point.wkt
-        else:
-            yield "geometry_epsg_4258", None
-        yield "longitude_epsg_25831", self._longitude_epsg_25831
-        yield "latitude_epsg_25831", self._latitude_epsg_25831
-        if self.geometry_epsg_25831 is not None:
-            if isinstance(self.geometry_epsg_25831, str):
-                yield "geometry_epsg_25831", self.geometry_epsg_25831
-            else:
-                yield "geometry_epsg_25831", self.geometry_epsg_25831_as_point.wkt
-        else:
-            yield "geometry_epsg_25831", None
+        yield "x_4258", self.x_4258
+        yield "y_4258", self.y_4258
+        yield "x_25831", self.x_25831
+        yield "y_25831", self.y_25831
+
 
 

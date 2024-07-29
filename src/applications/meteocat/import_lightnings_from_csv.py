@@ -49,8 +49,8 @@ def process_lightnings(db_session: Session, csv_reader: csv.reader, logger: Logg
         lightning: MeteocatLightning = MeteocatLightning()
         try:
             lightning.meteocat_id = int(row[0])
-            lightning.date = datetime.datetime.strptime(row[1], '%Y-%m-%d %H:%M:%S.%f').replace(tzinfo=pytz.UTC)
-            year = lightning.date.year
+            lightning.date_time = datetime.datetime.strptime(row[1], '%Y-%m-%d %H:%M:%S.%f').replace(tzinfo=pytz.UTC)
+            year = lightning.date_time.year
             lightning.peak_current = float(row[2])
             lightning.chi_squared = float(row[3])
             lightning.ellipse_major_axis = float(row[4])
@@ -59,8 +59,8 @@ def process_lightnings(db_session: Session, csv_reader: csv.reader, logger: Logg
             lightning.number_of_sensors = int(row[6])
             lightning.hit_ground = row[7] == 't'
             lightning.municipality_id = int(row[8]) if row[8] != '' else None
-            lightning.longitude_epsg_4258 = float(row[9])
-            lightning.latitude_epsg_4258 = float(row[10])
+            lightning.x_4258 = float(row[9])
+            lightning.y_4258 = float(row[10])
             lightning.data_provider_name = 'Meteo.cat'
         except ValueError as e:
             logger.error("Error found in record {0:}. Rolling back all changes. Exception text: {1:}".format(i, str(e)))

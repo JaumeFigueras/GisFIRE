@@ -22,28 +22,28 @@ def test_lightning_01() -> None:
     Tests the initialization of a data provider
     """
     lightning = Lightning()
-    assert lightning.date is None
+    assert lightning.date_time is None
     assert lightning.x_4326 is None
     assert lightning.y_4326 is None
     assert lightning.geometry_4326 is None
     lightning = Lightning(date_time=datetime.datetime(2024, 4, 1, 15, 34, 56, tzinfo=pytz.UTC))
-    assert lightning.date == datetime.datetime(2024, 4, 1, 15, 34, 56, tzinfo=pytz.UTC)
+    assert lightning.date_time == datetime.datetime(2024, 4, 1, 15, 34, 56, tzinfo=pytz.UTC)
     assert lightning.x_4326 is None
     assert lightning.y_4326 is None
     assert lightning.geometry_4326 is None
     lightning = Lightning(latitude_epsg_4326=34.56)
-    assert lightning.date is None
+    assert lightning.date_time is None
     assert lightning.y_4326 == 34.56
     assert lightning.x_4326 is None
     assert lightning.geometry_4326 is None
     lightning = Lightning(longitude_epsg_4326=34.56)
-    assert lightning.date is None
+    assert lightning.date_time is None
     assert lightning.y_4326 is None
     assert lightning.x_4326 == 34.56
     assert lightning.geometry_4326 is None
     lightning = Lightning(date_time=datetime.datetime(2024, 4, 1, 15,  34, 56, tzinfo=pytz.UTC), latitude_epsg_4326=12.34,
                           longitude_epsg_4326=34.56)
-    assert lightning.date == datetime.datetime(2024, 4, 1, 15, 34, 56, tzinfo=pytz.UTC)
+    assert lightning.date_time == datetime.datetime(2024, 4, 1, 15, 34, 56, tzinfo=pytz.UTC)
     assert lightning.y_4326 == 12.34
     assert lightning.x_4326 == 34.56
     assert lightning.geometry_4326 == "SRID=4326;POINT(34.56 12.34)"
@@ -155,3 +155,32 @@ def test_geometries_01(db_session: Session, data_provider_list: Union[List[DataP
     point: Point = lightning.geometry_4326
     assert point.x == 34.56
     assert point.y == 12.34
+
+
+def test_iter_01() -> None:
+    lightning = Lightning(date_time=datetime.datetime(2024, 4, 1, 15,  34, 56, tzinfo=pytz.UTC), latitude_epsg_4326=12.34,
+                          longitude_epsg_4326=34.56)
+    dct = dict(lightning)
+    assert dct == {
+        'id': None,
+        'x_4326': 34.56,
+        'y_4326': 12.34,
+        'date_time': '2024-04-01T15:34:56+0000'
+    }
+
+
+@pytest.mark.parametrize('data_provider_list', [{'data_providers': ['Meteo.cat']},], indirect=True)
+def test_iter_02(db_session: Session, data_provider_list: Union[List[DataProvider], None]) -> None:
+    populate_data_providers(db_session, data_provider_list)
+    lightning = Lightning(date_time=datetime.datetime(2024, 4, 1, 15,  34, 56, tzinfo=pytz.UTC), latitude_epsg_4326=12.34,
+                          longitude_epsg_4326=34.56)
+    lightning.data_provider_name = "Meteo.cat"
+    db_session.add(lightning)
+    db_session.commit()
+    dct = dict(lightning)
+    assert dct == {
+        'id': 1,
+        'x_4326': 34.56,
+        'y_4326': 12.34,
+        'date_time': '2024-04-01T15:34:56+0000'
+    }

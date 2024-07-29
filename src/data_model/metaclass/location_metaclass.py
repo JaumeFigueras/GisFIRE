@@ -64,7 +64,7 @@ class LocationMeta(DeclarativeMeta):
                 conversion = col_def['conversion']
                 setattr(cls, '_x_' + epsg, mapped_column('x_' + epsg, Float, nullable=False))
                 setattr(cls, '_y_' + epsg, mapped_column('y_' + epsg, Float, nullable=False))
-                setattr(cls, '_geometry_' + epsg, mapped_column('geometry_' + epsg, Geometry(geometry_type='POINT', srid=4326), nullable=False))
+                setattr(cls, '_geometry_' + epsg, mapped_column('geometry_' + epsg, Geometry(geometry_type='POINT', srid=int(epsg)), nullable=False))
                 setattr(cls, 'geometry_' + epsg, property_factory_geometry('geometry_' + epsg))
                 generator = GeometryGenerator('_x_' + epsg, '_y_' + epsg,  epsg, '_geometry_' + epsg)
                 setattr(cls, 'geometry_generator_' + epsg, generator)
@@ -76,8 +76,8 @@ class LocationMeta(DeclarativeMeta):
                         dst = str(conversion_parameters['dst'])
                         converter = LocationConverter('_x_' + src, '_y_' + src,  src, '_geometry_' + src, '_x_' + dst,
                                                       '_y_' + dst,  dst, '_geometry_' + dst)
-                        setattr(cls, 'geometry_converter_' + src + '_' + 'dst', converter)
-                        converter_attrs.append('geometry_converter_' + src + '_' + 'dst')
+                        setattr(cls, 'geometry_converter_' + src + '_' + dst, converter)
+                        converter_attrs.append('geometry_converter_' + src + '_' + dst)
                 if validation == 'geographic':
                     setattr(cls, 'x_' + epsg, property_factory_xy('x_' + epsg, 'geometry_generator_' + epsg, converter_attrs, 'longitude'))
                     setattr(cls, 'y_' + epsg, property_factory_xy('y_' + epsg, 'geometry_generator_' + epsg, converter_attrs, 'latitude'))
@@ -86,5 +86,3 @@ class LocationMeta(DeclarativeMeta):
                     setattr(cls, 'y_' + epsg, property_factory_xy('y_' + epsg, 'geometry_generator_' + epsg, converter_attrs))
 
         super().__init__(name, bases, dct)
-
-

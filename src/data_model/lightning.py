@@ -55,6 +55,7 @@ class Lightning(Base, DateTimeMixIn, TimeStampMixIn):
 
     def __iter__(self):
         yield "id", self.id
-        yield from super(Base).__iter__()
-        yield from super(DateTimeMixIn).__iter__()
+        yield 'x_4326', self.x_4326
+        yield 'y_4326', self.y_4326
+        yield from DateTimeMixIn.__iter__(self)
 
