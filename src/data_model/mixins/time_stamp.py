@@ -16,8 +16,4 @@ from typing import Union
 
 class TimeStampMixIn(object):
 
-    @declared_attr
-    def __tablename__(cls):
-        return cls.__name__.lower()
-
     ts: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)

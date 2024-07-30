@@ -5,12 +5,11 @@ CREATE TABLE "user" (
         username VARCHAR NOT NULL,
         token VARCHAR NOT NULL,
         is_admin BOOLEAN NOT NULL,
-        valid_until TIMESTAMP WITH TIME ZONE NOT NULL,
-        tzinfo VARCHAR NOT NULL,
         ts TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
+        date_time TIMESTAMP WITH TIME ZONE NOT NULL,
+        tzinfo VARCHAR NOT NULL,
         PRIMARY KEY (id),
-        UNIQUE (username),
-        UNIQUE (token)
+        UNIQUE (username)
 )
 WITH (
   OIDS = FALSE

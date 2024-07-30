@@ -1,6 +1,13 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
+
+import datetime
+import pytz
+
+from dateutil.tz import tzoffset  # Do not remove, necessary for eval tzoffset in run-time
+
+from sqlalchemy import DateTime, String
 from sqlalchemy import Float
 from sqlalchemy.orm import DeclarativeMeta
 from sqlalchemy.orm import mapped_column
@@ -84,5 +91,43 @@ class LocationMeta(DeclarativeMeta):
                 else:
                     setattr(cls, 'x_' + epsg, property_factory_xy('x_' + epsg, 'geometry_generator_' + epsg, converter_attrs))
                     setattr(cls, 'y_' + epsg, property_factory_xy('y_' + epsg, 'geometry_generator_' + epsg, converter_attrs))
+
+        def property_factory(attr: str) -> property:
+            def getter(self):
+                return getattr(self, attr)
+
+            def setter(self, value):
+                if value is not None:
+                    if value.tzinfo is None:
+                        raise ValueError('Date must contain timezone information')
+                    setattr(self, '_tzinfo' + attr, str(value.tzinfo))
+                    setattr(self, attr, value)
+                else:
+                    setattr(self, '_tzinfo' + attr, None)
+                    setattr(self, attr, None)
+
+            return property(getter, setter)
+
+        def property_factory_2(attr: str) -> property:
+            def getter(self):
+                return getattr(self, attr)
+
+            def setter(self, value):
+                setattr(self, attr, value)
+
+
+            return property(getter, setter)
+
+        if 'attributes' in dct:
+            attributes = dct.pop('attributes', [])
+            for attribute in attributes:
+                attribute_name = column_name = attribute['name']
+                protected_attribute_name = '_' + attribute_name
+                nullable = attribute['nullable']
+                setattr(cls, protected_attribute_name, mapped_column(column_name, DateTime(timezone=True), nullable=nullable))
+                setattr(cls, '_tzinfo' + protected_attribute_name, mapped_column('tzinfo_' + column_name, String, nullable=nullable))
+                setattr(cls, attribute_name, property_factory(protected_attribute_name))
+                setattr(cls, 'tzinfo_' + attribute_name, property_factory_2('_tzinfo' + protected_attribute_name))
+
 
         super().__init__(name, bases, dct)

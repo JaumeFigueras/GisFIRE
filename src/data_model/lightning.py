@@ -15,14 +15,13 @@ from sqlalchemy.orm import mapped_column
 from shapely.geometry import Point
 
 from src.data_model.data_provider import DataProvider
-from src.data_model.mixins.date_time import DateTimeMixIn
 from src.data_model.mixins.time_stamp import TimeStampMixIn
 
 from typing import Optional
 from typing import Union
 
 
-class Lightning(Base, DateTimeMixIn, TimeStampMixIn):
+class Lightning(Base):
     # Metaclass location attributes
     location = [
         {'epsg': 4326, 'validation': 'geographic', 'conversion': False}
@@ -31,6 +30,13 @@ class Lightning(Base, DateTimeMixIn, TimeStampMixIn):
     x_4326: float
     y_4326: float
     geometry_4326: Union[str, Point]
+
+    attributes = [
+        {'name': 'date_time', 'nullable': False}
+    ]
+    date_time: datetime.datetime
+    tzinfo_date_time: str
+
     # SQLAlchemy columns
     __tablename__ = "lightning"
     id: Mapped[int] = mapped_column('id', Integer, primary_key=True, autoincrement=True)
@@ -48,10 +54,11 @@ class Lightning(Base, DateTimeMixIn, TimeStampMixIn):
     def __init__(self, date_time: Optional[datetime.datetime] = None, longitude_epsg_4326: Optional[float] = None,
                  latitude_epsg_4326: Optional[float] = None) -> None:
         Base.__init__(self)
-        DateTimeMixIn.__init__(self, date_time)
+        # DateTimeMixIn.__init__(self, date_time)
         TimeStampMixIn.__init__(self)
         self.x_4326 = longitude_epsg_4326
         self.y_4326 = latitude_epsg_4326
+        self.date_time = date_time
 
     def __iter__(self):
         yield "id", self.id

@@ -137,4 +137,11 @@ def test_user_json_01() -> None:
     TODO
     :return: None
     """
-    assert True
+    user = User(username='test@test.com', is_admin=True, valid_until=datetime.datetime(year=2099, month=1, day=1, hour=12, minute=0, second=0, tzinfo=pytz.utc))
+    token = user.token
+    assert dict(user) == {
+        'username': 'test@test.com',
+        'is_admin': True,
+        'valid_until': '2099-01-01T12:00:00+0000',
+        'token': token
+    }

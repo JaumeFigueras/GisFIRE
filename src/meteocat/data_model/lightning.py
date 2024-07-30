@@ -30,12 +30,12 @@ class MeteocatLightning(Lightning):
         ]},
         {'epsg': 25831, 'validation': False, 'conversion': False}
     ]
-
+    # Type hint fot generated attributes by the metaclass
     x_25831: float
     y_25831: float
     geometry_4258: Union[str, Point]
     geometry_25831: Union[str, Point]
-
+    # SQLAlchemy columns
     __tablename__ = "meteocat_lightning"
     id: Mapped[int] = mapped_column(ForeignKey("lightning.id"), primary_key=True)
     meteocat_id: Mapped[int] = mapped_column('meteocat_id', Integer, nullable=False)
@@ -48,7 +48,7 @@ class MeteocatLightning(Lightning):
     number_of_sensors: Mapped[Union[int, None]] = mapped_column('meteocat_number_of_sensors', Integer, nullable=False)
     hit_ground: Mapped[bool] = mapped_column('meteocat_hit_ground', Boolean, nullable=False, default=False)
     municipality_code: Mapped[str] = mapped_column('meteocat_municipality_code', String, default=None, nullable=True)
-
+    # SQLAlchemy Inheritance options
     __mapper_args__ = {
         "polymorphic_identity": "meteocat_lightning",
     }

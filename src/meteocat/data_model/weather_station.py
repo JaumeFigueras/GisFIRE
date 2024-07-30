@@ -57,7 +57,7 @@ class WeatherStationStateCategory(enum.Enum):
     REPAIR = 3
 
 
-class WeatherStationState(State):
+class MeteocatWeatherStationState(State):
     """
     Class container for the weather station status table.  Provides the SQL Alchemy access to the different status of
     the timeline of a weather station. A weather station status informs of the presence of a certain weather station in
@@ -149,18 +149,25 @@ class MeteocatWeatherStation(WeatherStation):
     :type postgis_geometry = str or Column
     :type states: relationship
     :type measures: relationship
-    :type SRID_WEATHER_STATIONS: int
     """
+    # Metaclass location attributes
+    location = [
+        {'epsg': 4258, 'validation': 'geographic', 'conversion': [
+            {'src': 4258, 'dst': 4326},
+            {'src': 4258, 'dst': 25831}
+        ]},
+        {'epsg': 25831, 'validation': False, 'conversion': False}
+    ]
+    # Type hint fot generated attributes by the metaclass
+    x_25831: float
+    y_25831: float
+    geometry_4258: Union[str, Point]
+    geometry_25831: Union[str, Point]
+    # SQLAlchemy columns
     __tablename__ = 'meteocat_weather_station'
     id: Mapped[int] = mapped_column(ForeignKey("weather_station.id"), primary_key=True)
     code: Mapped[str] = mapped_column('meteocat_code', String, nullable=False, unique=True)
     category: Mapped[MeteocatWeatherStationCategory] = mapped_column('meteocat_type', Enum(MeteocatWeatherStationCategory, name='meteocat_weather_station_category'), nullable=False)
-    _latitude_epsg_4258: Mapped[Optional[float]] = mapped_column('meteocat_latitude_epsg_4258', Float, nullable=False)
-    _longitude_epsg_4258: Mapped[Optional[float]] = mapped_column('meteocat_longitude_epsg_4258', Float, nullable=False)
-    geometry_epsg_4258: Mapped[Union[WKBElement, None]] = mapped_column('meteocat_geom_epsg_4258',
-                                                                        Geometry(geometry_type='POINT', srid=4258))
-    geometry_epsg_25831: Mapped[Union[WKBElement, None]] = mapped_column('meteocat_geom_epsg_25831',
-                                                                         Geometry(geometry_type='POINT', srid=25831))
     placement: Mapped[str] = mapped_column('meteocat_placement', String, nullable=False)
     municipality_code: Mapped[str] = mapped_column('meteocat_municipality_code', String, nullable=False)
     municipality_name: Mapped[str] = mapped_column('meteocat_municipality_name', String, nullable=False)
@@ -170,11 +177,11 @@ class MeteocatWeatherStation(WeatherStation):
     province_name: Mapped[str] = mapped_column('meteocat_province_name', String, nullable=False)
     network_code: Mapped[str] = mapped_column('meteocat_network_code', String, nullable=False)
     network_name: Mapped[str] = mapped_column('meteocat_network_name', String, nullable=False)
-
+    # SQLAlchemy Relations
     states: Mapped[List["WeatherStationState"]] = relationship("WeatherStationState", back_populates='station', lazy='joined')
     measures = relationship("Measure", back_populates='station', lazy='select')
     # TODO: add variables relationship
-
+    # SQLAlchemy Inheritance options
     __mapper_args__ = {
         "polymorphic_identity": "meteocat_weather_station",
     }
