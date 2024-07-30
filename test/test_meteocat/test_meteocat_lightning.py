@@ -573,6 +573,7 @@ def test_iter_01() -> None:
         'meteocat_id': 123456789,
         'peak_current': 57.45,
         'chi_squared': 23.12,
+        'multiplicity': None,
         'ellipse_major_axis': 3500,
         'ellipse_minor_axis': 500,
         'ellipse_angle': 23.45,
@@ -600,7 +601,21 @@ def test_iter_02(db_session: Session, data_provider_list: Union[List[DataProvide
     dct = dict(lightning)
     assert dct == {
         'id': 1,
-        'x_4326': 34.56,
-        'y_4326': 12.34,
-        'date_time': '2024-04-01T15:34:56+0000'
+        'x_4326': 2.18969857,
+        'y_4326': 41.77052639,
+        'date_time': '2024-04-01T15:34:56+0000',
+        'meteocat_id': 123456789,
+        'peak_current': 57.45,
+        'chi_squared': 23.12,
+        'multiplicity': None,
+        'ellipse_major_axis': 3500,
+        'ellipse_minor_axis': 500,
+        'ellipse_angle': 23.45,
+        'number_of_sensors': 2,
+        'hit_ground': True,
+        'municipality_code': '08233',
+        'x_4258': 2.18969857,
+        'y_4258': 41.77052639,
+        'x_25831': 5185363.987287801,
+        'y_25831': 311007.0448608123
     }

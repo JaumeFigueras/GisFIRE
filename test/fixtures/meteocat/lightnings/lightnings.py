@@ -21,7 +21,7 @@ def meteocat_lightnings_csv_reader(request: pytest.FixtureRequest) -> Union[_csv
     if hasattr(request, 'param'):
         year = str(request.param['year']) if 'year' in request.param else None
         print(year)
-        if year is None or year not in ['2013', '2017']:
+        if year is None or year not in ['2000', '2013', '2017']:
             yield None
         current_dir: Path = Path(__file__).parent
         csv_file: str = os.path.join(str(current_dir), os.path.join("csvs", "DATMET-12706_cg_cm_{0:}.csv".format(year)))

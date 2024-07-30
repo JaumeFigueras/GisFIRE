@@ -65,7 +65,7 @@ def process_lightnings(db_session: Session, csv_reader: csv.reader, logger: Logg
         except ValueError as e:
             logger.error("Error found in record {0:}. Rolling back all changes. Exception text: {1:}".format(i, str(e)))
             db_session.rollback()
-            return None
+            raise e
         db_session.add(lightning)
         if i % 10000 == 0:
             logger.info("Processed {0:} records.".format(i))
@@ -103,6 +103,7 @@ def process_requests(db_session, year, logger: Logger):
     except SQLAlchemyError as e:
         print("Error found in record {0:}. Rolling back all changes. Exception text: {1:}".format(i, str(e)))
         db_session.rollback()
+        raise e
 
 
 if __name__ == "__main__":  # pragma: no cover
