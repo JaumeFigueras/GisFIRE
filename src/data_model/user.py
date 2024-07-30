@@ -17,7 +17,7 @@ from sqlalchemy.orm import Mapped
 from sqlalchemy.orm import mapped_column
 from sqlalchemy.orm import relationship
 
-# from src.data_model.mixins.valid_until import ValidUntilMixIn
+from src.data_model.mixins.date_time import DateTimeMixIn
 
 from typing import Optional
 from typing import List
@@ -26,10 +26,18 @@ from typing import Dict
 from typing import Any
 
 
-class User(Base):
+class User(Base, DateTimeMixIn):
     """
     The class represents a user of GisFIRE
     """
+    # Metaclass date_time attributes
+    __date__ = [
+        {'name': 'valid_until', 'nullable': False}
+    ]
+    # Type hint for generated attributes by the metaclass
+    valid_until: datetime.datetime
+    tzinfo_valid_until: str
+    # SQLAlchemy column definition
     __tablename__ = 'user'
     id: Mapped[int] = mapped_column('id', primary_key=True, autoincrement=True)
     username: Mapped[str] = mapped_column('username', unique=True, nullable=False)
@@ -49,14 +57,17 @@ class User(Base):
         :param is_admin:
         :param valid_until:
         """
-        Base.__init__(self)
-        ValidUntilMixIn.__init__(self, valid_until)
+        super().__init__()
         self.username = username
         if token is None:
             self.token = self._generate_token()
         else:
             self.token = token
         self.is_admin = is_admin
+        if valid_until is None:
+            self.valid_until = self._generate_valid_until()
+        else:
+            self.valid_until = valid_until
 
     @staticmethod
     def _generate_token() -> str:
@@ -73,8 +84,18 @@ class User(Base):
             token += chars[random.randint(0, len(chars) - 1)]
         return token
 
+    @staticmethod
+    def _generate_valid_until() -> datetime.datetime:
+        """
+        Calculates a valid until date one year
+
+        :return: Actual date plus one year
+        :rtype: datetime.datetime
+        """
+        return datetime.datetime.now(pytz.utc) + datetime.timedelta(days=365)
+
     def __iter__(self):
         yield "username", self.username
         yield "token", self.token
         yield "is_admin", self.is_admin
-        yield from ValidUntilMixIn.__iter__(self)
+        yield from DateTimeMixIn.__iter__(self)

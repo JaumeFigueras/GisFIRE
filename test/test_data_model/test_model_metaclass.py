@@ -7,7 +7,7 @@ import pytz
 from src.data_model.lightning import Lightning
 
 
-def test_location_metaclass_setter() -> None:
+def test_location_metaclass_setter_01() -> None:
     """
     Metaclass is tested with its sons, but for coverage purposes the geometry setter that is not used is checked here
     """
@@ -19,3 +19,15 @@ def test_location_metaclass_setter() -> None:
     assert lightning.geometry_4326 == "SRID=4326;POINT(34.56 12.34)"
     lightning.geometry_4326 = "SRID=4326;POINT(0 0)"
     assert lightning.geometry_4326 == "SRID=4326;POINT(34.56 12.34)"
+
+
+def test_location_metaclass_setter_02() -> None:
+    """
+    Metaclass is tested with its sons, but for coverage purposes the geometry setter that is not used is checked here
+    """
+    lightning = Lightning(date_time=datetime.datetime(2024, 4, 1, 15,  34, 56, tzinfo=pytz.UTC), latitude_epsg_4326=12.34,
+                          longitude_epsg_4326=34.56)
+    assert lightning.date_time == datetime.datetime(2024, 4, 1, 15, 34, 56, tzinfo=pytz.UTC)
+    assert lightning.tzinfo_date_time == 'UTC'
+    lightning.tzinfo_date_time = 'CET'
+    assert lightning.tzinfo_date_time == 'CET'

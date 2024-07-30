@@ -1,46 +1,32 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-import datetime
 import pytz
-
 from dateutil.tz import tzoffset  # Do not remove, necessary for eval tzoffset in run-time
 
-from sqlalchemy import DateTime
-from sqlalchemy import String
-from sqlalchemy.orm import declared_attr
-from sqlalchemy.orm import Mapped
-from sqlalchemy.orm import mapped_column
-from sqlalchemy.orm import synonym
 from sqlalchemy.orm import declarative_mixin
-from sqlalchemy.orm import DeclarativeMeta
 
-from src.data_model.metaclass.location_metaclass import LocationMeta
-from src.data_model import Base
-from typing import Optional
 from typing import List
+from typing import Dict
+from typing import Any
 
 
-class DateTimeMixIn(Base):
+@declarative_mixin
+class DateTimeMixIn(object):
 
-    attributes = [
-        {'name': 'date_time', 'nullable': False}
-    ]
-    date_time: datetime.datetime
-    tzinfo_date_time: str
-
-    def __init__(self, date_time: Optional[datetime.datetime] = None):
-        super().__init__()
-        self.date_time = date_time
+    __date__: List[Dict[str, Any]]
 
     def __iter__(self):
-        for attribute in self.attributes:
-            attribute_name = attribute['name']
-            tzinfo_attribute_name = 'tzinfo_' + attribute_name
-            date_time = getattr(self, attribute_name)
-            tzinfo = getattr(self, tzinfo_attribute_name)
-            if tzinfo.startswith('tzoffset'):
-                tmp = date_time.astimezone(pytz.UTC)
-                yield attribute_name, tmp.astimezone(eval(tzinfo)).strftime("%Y-%m-%dT%H:%M:%S%z")
-            else:
-                yield attribute_name, date_time.astimezone(pytz.timezone(tzinfo)).strftime("%Y-%m-%dT%H:%M:%S%z")
+        for cls in self.__class__.mro():
+            if hasattr(cls, '__date__'):
+                dates = cls.__date__
+                for attribute in dates:
+                    attribute_name = attribute['name']
+                    tzinfo_attribute_name = 'tzinfo_' + attribute_name
+                    date_time = getattr(self, attribute_name)
+                    tzinfo = getattr(self, tzinfo_attribute_name)
+                    if tzinfo.startswith('tzoffset'):
+                        tmp = date_time.astimezone(pytz.UTC)
+                        yield attribute_name, tmp.astimezone(eval(tzinfo)).strftime("%Y-%m-%dT%H:%M:%S%z")
+                    else:
+                        yield attribute_name, date_time.astimezone(pytz.timezone(tzinfo)).strftime("%Y-%m-%dT%H:%M:%S%z")

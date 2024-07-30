@@ -16,27 +16,29 @@ from shapely.geometry import Point
 
 from src.data_model.data_provider import DataProvider
 from src.data_model.mixins.time_stamp import TimeStampMixIn
+from src.data_model.mixins.date_time import DateTimeMixIn
+from src.data_model.mixins.location import LocationMixIn
 
 from typing import Optional
 from typing import Union
 
 
-class Lightning(Base, TimeStampMixIn):
+class Lightning(Base, LocationMixIn, DateTimeMixIn, TimeStampMixIn):
     # Metaclass location attributes
-    location = [
+    __location__ = [
         {'epsg': 4326, 'validation': 'geographic', 'conversion': False}
     ]
-    # Type hint fot generated attributes by the metaclass
+    # Type hint for generated attributes by the metaclass
     x_4326: float
     y_4326: float
     geometry_4326: Union[str, Point]
-
-    attributes = [
+    # Metaclass date_time attributes
+    __date__ = [
         {'name': 'date_time', 'nullable': False}
     ]
+    # Type hint for generated attributes by the metaclass
     date_time: datetime.datetime
     tzinfo_date_time: str
-
     # SQLAlchemy columns
     __tablename__ = "lightning"
     id: Mapped[int] = mapped_column('id', Integer, primary_key=True, autoincrement=True)
@@ -62,7 +64,6 @@ class Lightning(Base, TimeStampMixIn):
 
     def __iter__(self):
         yield "id", self.id
-        yield 'x_4326', self.x_4326
-        yield 'y_4326', self.y_4326
+        yield from LocationMixIn.__iter__(self)
         yield from DateTimeMixIn.__iter__(self)
 

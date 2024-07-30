@@ -4,10 +4,10 @@
 # Creation of a declarative base for the SQL Alchemy models to inherit from
 from sqlalchemy.orm import declarative_base
 
-from src.data_model.metaclass.location_metaclass import LocationMeta
+from src.data_model.metaclass.model_metaclass import ModelMeta
 
 
-Base = declarative_base(metaclass=LocationMeta)
+Base = declarative_base(metaclass=ModelMeta)
 
 
 # Imports needed by SQL Alchemy to process the relations correctly

@@ -23,7 +23,7 @@ from typing import Union
 
 class MeteocatLightning(Lightning):
     # Metaclass location attributes
-    location = [
+    __location__ = [
         {'epsg': 4258, 'validation': 'geographic', 'conversion': [
             {'src': 4258, 'dst': 4326},
             {'src': 4258, 'dst': 25831}

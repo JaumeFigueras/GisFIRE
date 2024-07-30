@@ -6,8 +6,8 @@ CREATE TABLE "user" (
         token VARCHAR NOT NULL,
         is_admin BOOLEAN NOT NULL,
         ts TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
-        date_time TIMESTAMP WITH TIME ZONE NOT NULL,
-        tzinfo VARCHAR NOT NULL,
+        valid_until TIMESTAMP WITH TIME ZONE NOT NULL,
+        tzinfo_valid_until VARCHAR NOT NULL,
         PRIMARY KEY (id),
         UNIQUE (username)
 )
