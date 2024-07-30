@@ -21,7 +21,7 @@ from typing import Optional
 from typing import Union
 
 
-class Lightning(Base):
+class Lightning(Base, TimeStampMixIn):
     # Metaclass location attributes
     location = [
         {'epsg': 4326, 'validation': 'geographic', 'conversion': False}
