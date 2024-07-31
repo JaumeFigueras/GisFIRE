@@ -17,6 +17,9 @@ from src.data_model.request import Request
 from src.meteocat.data_model.lightning import MeteocatLightning
 from src.data_model.user import User
 from src.data_model.user_access import UserAccess
+from src.data_model.weather_station import WeatherStation
+from src.meteocat.data_model.weather_station import MeteocatWeatherStationState
+from src.meteocat.data_model.weather_station import MeteocatWeatherStation
 
 
 def main(e: Engine):
@@ -28,6 +31,9 @@ def main(e: Engine):
     print(CreateTable(Request.__table__).compile(e))
     print(CreateTable(User.__table__).compile(e))
     print(CreateTable(UserAccess.__table__).compile(e))
+    print(CreateTable(WeatherStation.__table__).compile(e))
+    print(CreateTable(MeteocatWeatherStation.__table__).compile(e))
+    print(CreateTable(MeteocatWeatherStationState.__table__).compile(e))
 
 
 if __name__ == "__main__":  # pragma: no cover

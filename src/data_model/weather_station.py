@@ -14,15 +14,17 @@ from sqlalchemy.orm import mapped_column
 from shapely.geometry import Point
 
 from src.data_model.data_provider import DataProvider
+from src.data_model.mixins.location import LocationMixIn
+from src.data_model.mixins.date_time import DateTimeMixIn
 from src.data_model.mixins.time_stamp import TimeStampMixIn
 
 from typing import Optional
 from typing import Union
 
 
-class WeatherStation(Base, TimeStampMixIn):
+class WeatherStation(Base, LocationMixIn, TimeStampMixIn):
     # Metaclass location attributes
-    location = [
+    __location__ = [
         {'epsg': 4326, 'validation': 'geographic', 'conversion': False}
     ]
     # Type hint fot generated attributes by the metaclass
@@ -30,7 +32,7 @@ class WeatherStation(Base, TimeStampMixIn):
     y_4326: float
     geometry_4326: Union[str, Point]
     # SQLAlchemy columns
-    __tablename__ = "whether_station"
+    __tablename__ = "weather_station"
     id: Mapped[int] = mapped_column('id', Integer, primary_key=True, autoincrement=True)
     name: Mapped[str] = mapped_column('name', String, nullable=False)
     altitude: Mapped[Optional[float]] = mapped_column('altitude', Float, nullable=True)
