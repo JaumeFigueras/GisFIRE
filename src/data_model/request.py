@@ -18,8 +18,6 @@ from sqlalchemy.orm import relationship
 from sqlalchemy.ext.mutable import MutableDict
 from sqlalchemy.dialects.postgresql import HSTORE
 
-from src.data_model.data_provider import DataProvider
-
 from typing import Optional
 from typing import Dict
 from typing import Union

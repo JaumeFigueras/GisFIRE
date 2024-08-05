@@ -9,7 +9,7 @@ CREATE TABLE meteocat_weather_station (
         meteocat_placement VARCHAR NOT NULL,
         meteocat_municipality_code VARCHAR NOT NULL,
         meteocat_municipality_name VARCHAR NOT NULL,
-        meteocat_county_code INTEGER NOT NULL,
+        meteocat_county_code VARCHAR NOT NULL,
         meteocat_county_name VARCHAR NOT NULL,
         meteocat_province_code VARCHAR NOT NULL,
         meteocat_province_name VARCHAR NOT NULL,

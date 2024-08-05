@@ -33,5 +33,6 @@ def test_date_time_mixin_dict():
         'date_time': '2024-01-01T00:00:00+0300',
         'id': None,
         'x_4326': 34.56,
-        'y_4326': 12.34
+        'y_4326': 12.34,
+        'data_provider': None
     }

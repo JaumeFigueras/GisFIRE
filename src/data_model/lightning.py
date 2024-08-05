@@ -14,7 +14,6 @@ from sqlalchemy.orm import Mapped
 from sqlalchemy.orm import mapped_column
 from shapely.geometry import Point
 
-from src.data_model.data_provider import DataProvider
 from src.data_model.mixins.time_stamp import TimeStampMixIn
 from src.data_model.mixins.date_time import DateTimeMixIn
 from src.data_model.mixins.location import LocationMixIn
@@ -46,7 +45,7 @@ class Lightning(Base, LocationMixIn, DateTimeMixIn, TimeStampMixIn):
     # SQLAlchemy relations
     data_provider_name: Mapped[str] = mapped_column('data_provider_name', ForeignKey('data_provider.name'),
                                                     nullable=False)
-    data_provider: Mapped[DataProvider] = relationship(back_populates="lightnings")
+    data_provider: Mapped["DataProvider"] = relationship(back_populates="lightnings")
     # SQLAlchemy Inheritance options
     __mapper_args__ = {
         "polymorphic_identity": "lightning",
@@ -64,6 +63,7 @@ class Lightning(Base, LocationMixIn, DateTimeMixIn, TimeStampMixIn):
 
     def __iter__(self):
         yield "id", self.id
+        yield "data_provider", self.data_provider_name
         yield from LocationMixIn.__iter__(self)
         yield from DateTimeMixIn.__iter__(self)
 

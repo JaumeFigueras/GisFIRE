@@ -2,8 +2,6 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations  # Needed to allow returning type of enclosing class PEP 563
 
-from . import Base
-
 from sqlalchemy import Integer
 from sqlalchemy import String
 from sqlalchemy import Float
@@ -13,9 +11,8 @@ from sqlalchemy.orm import Mapped
 from sqlalchemy.orm import mapped_column
 from shapely.geometry import Point
 
-from src.data_model.data_provider import DataProvider
+from src.data_model import Base
 from src.data_model.mixins.location import LocationMixIn
-from src.data_model.mixins.date_time import DateTimeMixIn
 from src.data_model.mixins.time_stamp import TimeStampMixIn
 
 from typing import Optional
@@ -40,7 +37,7 @@ class WeatherStation(Base, LocationMixIn, TimeStampMixIn):
     # SQLAlchemy relations
     data_provider_name: Mapped[str] = mapped_column('data_provider_name', ForeignKey('data_provider.name'),
                                                     nullable=False)
-    data_provider: Mapped["DataProvider"] = relationship(back_populates="lightnings")
+    data_provider: Mapped["DataProvider"] = relationship(back_populates="weather_stations")
     # SQLAlchemy Inheritance options
     __mapper_args__ = {
         "polymorphic_identity": "weather_station",
@@ -54,3 +51,10 @@ class WeatherStation(Base, LocationMixIn, TimeStampMixIn):
         self.altitude = altitude
         self.x_4326 = longitude_epsg_4326
         self.y_4326 = latitude_epsg_4326
+
+    def __iter__(self):
+        yield 'id', self.id
+        yield 'name', self.name
+        yield 'altitude', self.altitude
+        yield from LocationMixIn.__iter__(self)
+        yield 'data_provider', self.data_provider_name

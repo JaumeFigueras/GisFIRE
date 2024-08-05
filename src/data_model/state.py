@@ -16,10 +16,10 @@ from src.data_model import Base
 from src.data_model.mixins.date_time import DateTimeMixIn
 from src.data_model.mixins.time_stamp import TimeStampMixIn
 
-
 from typing import Dict
 from typing import Optional
 from typing import Any
+from typing import Union
 
 
 class State(Base, DateTimeMixIn, TimeStampMixIn):
@@ -76,30 +76,8 @@ class State(Base, DateTimeMixIn, TimeStampMixIn):
             return False
 
     def __iter__(self):
+        yield 'id', self.id
         yield from DateTimeMixIn.__iter__(self)
-
-    @staticmethod
-    def object_hook_abstract(dct: Dict[str, Any], dest: State) -> None:
-        """
-        Decodes a JSON originated dict from the Meteocat API and stores in the destination object
-
-        :param dct: Dictionary with the standard parsing of the json library
-        :type dct: Dict[str, Any]
-        :param dest: Destination object were the data wil be stored. Must be a subclass of State
-        :type dest: State
-        :return: None
-        """
-        try:
-            dest.from_date = dateutil.parser.isoparse(dct['dataInici'])
-        except ValueError as e:
-            raise e
-        if dct['dataFi'] is None:
-            dest.to_date = None
-        else:
-            try:
-                dest.to_date = dateutil.parser.isoparse(dct['dataFi'])
-            except ValueError as e:
-                raise e
 
     class JSONEncoder(json.JSONEncoder):
         """

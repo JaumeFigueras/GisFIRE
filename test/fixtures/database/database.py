@@ -14,6 +14,8 @@ from pathlib import Path
 
 from src.data_model.data_provider import DataProvider
 from src.data_model.user import User
+from src.meteocat.data_model.weather_station import MeteocatWeatherStation
+from src.meteocat.data_model.variable import MeteocatVariable
 
 from typing import Any
 from typing import Union
@@ -81,5 +83,23 @@ def populate_users(db_session: Session, user_list: Union[List[User], None]) -> N
     """
     if user_list is not None:
         db_session.add_all(user_list)
+        db_session.commit()
+
+
+def populate_meteocat_weather_stations(db_session: Session, meteocat_weather_stations: Union[List[MeteocatWeatherStation], None]) -> None:
+    """
+    Adds data providers data to the database
+    """
+    if meteocat_weather_stations is not None:
+        db_session.add_all(meteocat_weather_stations)
+        db_session.commit()
+
+
+def populate_meteocat_variables(db_session: Session, meteocat_variables: Union[List[MeteocatVariable], None]) -> None:
+    """
+    Adds data providers data to the database
+    """
+    if meteocat_variables is not None:
+        db_session.add_all(meteocat_variables)
         db_session.commit()
 

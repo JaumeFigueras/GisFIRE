@@ -165,7 +165,8 @@ def test_iter_01() -> None:
         'id': None,
         'x_4326': 34.56,
         'y_4326': 12.34,
-        'date_time': '2024-04-01T15:34:56+0000'
+        'date_time': '2024-04-01T15:34:56+0000',
+        'data_provider': None
     }
 
 
@@ -182,5 +183,6 @@ def test_iter_02(db_session: Session, data_provider_list: Union[List[DataProvide
         'id': 1,
         'x_4326': 34.56,
         'y_4326': 12.34,
-        'date_time': '2024-04-01T15:34:56+0000'
+        'date_time': '2024-04-01T15:34:56+0000',
+        'data_provider': 'Meteo.cat'
     }

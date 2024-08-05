@@ -17,15 +17,24 @@ postgresql_schema = factories.postgresql('postgresql_session', dbname='test', lo
     str(test_folder.parent) + '/src/data_model/database/request.sql',
     str(test_folder.parent) + '/src/data_model/database/user.sql',
     str(test_folder.parent) + '/src/data_model/database/user_access.sql',
+    str(test_folder.parent) + '/src/meteocat/data_model/database/state.sql',
     str(test_folder.parent) + '/src/data_model/database/weather_station.sql',
     str(test_folder.parent) + '/src/meteocat/data_model/database/weather_station.sql',
-    str(test_folder.parent) + '/src/meteocat/data_model/database/state.sql',
+    str(test_folder.parent) + '/src/meteocat/data_model/database/weather_station_state.sql',
+    str(test_folder.parent) + '/src/data_model/database/variable.sql',
+    str(test_folder.parent) + '/src/meteocat/data_model/database/variable.sql',
+    str(test_folder.parent) + '/src/meteocat/data_model/database/variable_state.sql',
+    str(test_folder.parent) + '/src/meteocat/data_model/database/variable_time_base.sql',
+    str(test_folder.parent) + '/src/meteocat/data_model/database/variable_station_relations.sql',
 ])
 
 pytest_plugins = [
     'test.fixtures.database.database',
     'test.fixtures.data_model.data_provider',
     'test.fixtures.data_model.user',
-    'test.fixtures.meteocat.lightnings.lightnings',
     'test.fixtures.api.api',
+    'test.fixtures.meteocat.lightnings.lightnings',
+    'test.fixtures.meteocat.weather_stations',
+    'test.fixtures.meteocat.variables',
+    'test.fixtures.meteocat.remote_api.api',
 ]

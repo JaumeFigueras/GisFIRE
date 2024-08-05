@@ -86,10 +86,7 @@ class MeteocatLightning(Lightning):
         yield "number_of_sensors", self.number_of_sensors
         yield "hit_ground", self.hit_ground
         yield "municipality_code", self.municipality_code
-        yield "x_4258", self.x_4258
-        yield "y_4258", self.y_4258
-        yield "x_25831", self.x_25831
-        yield "y_25831", self.y_25831
+
 
 
 
