@@ -33,12 +33,12 @@ if __name__ == "__main__":  # pragma: no cover
     # Config the program arguments
     # noinspection DuplicatedCode
     parser = argparse.ArgumentParser()
-    parser.add_argument('-a', '--api-token', help='MeteoCat key to access its api')
     parser.add_argument('-H', '--host', help='Host name were the database cluster is located')
     parser.add_argument('-p', '--port', type=int, help='Database cluster port')
     parser.add_argument('-d', '--database', help='Database name')
     parser.add_argument('-u', '--username', help='Database username')
     parser.add_argument('-w', '--password', help='Database password')
+    parser.add_argument('-a', '--api-key', help='API key to access meteocat', required=True)
     parser.add_argument('-l', '--log-file', help='File to log progress or errors', required=False)
     # noinspection DuplicatedCode
     args = parser.parse_args()

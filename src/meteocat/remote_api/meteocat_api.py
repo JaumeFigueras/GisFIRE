@@ -117,13 +117,16 @@ def get_station_variables_list(api_key: str, station_name: str) -> List[Meteocat
             'X-Api-Key': api_key,
         }
         values: List[MeteocatVariable] = list()
+        i: int = 0
         for url in [XEMA_STATION_VARIABLES_MESURADES, XEMA_STATION_VARIABLES_AUXILIARS, XEMA_STATION_VARIABLES_MULTIVARIABLE]:
             response = get_from_api(url.format(station_name), headers=headers)
             if response.ok:
                 values += json.loads(response.text, cls=NoNoneInList,
                                      object_hook=MeteocatVariable.object_hook_variables_of_station_meteocat_api)
             else:
-                raise StatusCodeError(response.status_code, response.text)
+                if (i > 0 and not (response.status_code == 400 or response.status_code == 500)) or (i == 0):
+                    raise StatusCodeError(response.status_code, response.text)
+            i += 1
         return values
     except Exception as xcpt:
         raise xcpt

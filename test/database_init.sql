@@ -30,3 +30,4 @@ CREATE EXTENSION hstore;
 
 ALTER DATABASE test OWNER TO gisfire_user;
 SET SESSION AUTHORIZATION 'gisfire_user';
+

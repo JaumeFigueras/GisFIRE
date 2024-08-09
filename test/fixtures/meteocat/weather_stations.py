@@ -27,8 +27,11 @@ def meteocat_weather_station_list(request, meteocat_api_weather_stations: str) -
                                                                 object_hook=MeteocatWeatherStation.object_hook_meteocat_api)
             stations_dict = {station.code: station for station in stations}
             weather_stations: List[MeteocatWeatherStation] = list()
-            for code in codes:
-                weather_stations.append(stations_dict[code])
+            if codes[0] == 'all':
+                weather_stations = stations
+            else:
+                for code in codes:
+                    weather_stations.append(stations_dict[code])
             for station in weather_stations:
                 station.data_provider_name = "Meteo.cat"
             return weather_stations

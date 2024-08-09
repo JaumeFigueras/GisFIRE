@@ -10,15 +10,18 @@ from sqlalchemy import Integer
 from sqlalchemy import String
 from sqlalchemy import Enum
 from sqlalchemy import ForeignKey
+from sqlalchemy import select
 from sqlalchemy.orm import relationship
 from sqlalchemy.orm import Mapped
 from sqlalchemy.orm import mapped_column
+from sqlalchemy.orm import object_session
 from shapely.geometry import Point
 
+
 from src.data_model.weather_station import WeatherStation
-from src.meteocat.data_model.state import MeteocatState
-# from src.meteocat.data_model.variable_station_relations import MeteocatAssociationStationVariableState
-# from src.meteocat.data_model.variable_station_relations import MeteocatAssociationStationVariableTimeBase
+from src.data_model.state import State
+from src.meteocat.data_model import MeteocatVariable
+from src.meteocat.data_model import MeteocatVariableState
 
 from typing import Union
 from typing import Dict
@@ -39,18 +42,50 @@ class MeteocatWeatherStationCategory(enum.Enum):
     OTHER = 1
 
 
-class MeteocatWeatherStationState(MeteocatState):
+class MeteocatWeatherStationStateCategory(enum.Enum):
+    """
+    Defines the three types os statuses
+
+    DISMANTLED for dismantled stations
+    ACTIVE for active station
+    REPAIR for station under some type of repair or temporal inactivity
+    """
+    ACTIVE = 2
+    DISMANTLED = 1
+    REPAIR = 3
+
+
+class MeteocatWeatherStationState(State):
     # SQLAlchemy columns
     __tablename__ = "meteocat_weather_station_state"
+    code = mapped_column('code', Enum(MeteocatWeatherStationStateCategory, name='meteocat_weather_station_state_category'), nullable=False)
     # SQLAlchemy relations
     meteocat_weather_station_id: Mapped[int] = mapped_column(Integer, ForeignKey('meteocat_weather_station.id'))
-    meteocat_weather_station: Mapped["MeteocatWeatherStation"] = relationship(back_populates='states')
+    meteocat_weather_station: Mapped["MeteocatWeatherStation"] = relationship(back_populates='meteocat_weather_station_states')
 
-    def __init__(self, state: Optional[MeteocatState] = None, *args, **kwargs):
-        if state is None:
-            super().__init__(*args, **kwargs)
-        else:
-            super().__init__(code=state.code, valid_from=state.valid_from, valid_until=state.valid_until)
+    def __init__(self, state: Optional[MeteocatWeatherStationState] = None,
+                 code: Optional[MeteocatWeatherStationStateCategory] = None,
+                 valid_from: Optional[datetime.datetime, None] = None,
+                 valid_until: Optional[datetime.datetime, None] = None) -> None:
+        if state is not None and isinstance(state, MeteocatWeatherStationState):
+            code = state.code
+            valid_from = state.valid_from
+            valid_until = state.valid_until
+        super().__init__(valid_from=valid_from, valid_until=valid_until)
+        self.code = code
+
+    def __eq__(self, other: Any) -> bool:
+        if isinstance(other, MeteocatWeatherStationState):
+            equals: bool = super().__eq__(other)
+            equals = equals and self.code == other.code
+            return equals
+        return False
+
+
+    def __iter__(self) -> Iterator[MeteocatWeatherStationState]:
+        yield from super().__iter__()
+        yield 'code', self.code.name
+        yield 'weather_station_id', self.meteocat_weather_station_id
 
     @staticmethod
     def object_hook_meteocat_api(dct: Dict[str, Any]) -> Union[MeteocatWeatherStationState, None]:
@@ -61,10 +96,53 @@ class MeteocatWeatherStationState(MeteocatState):
         :type dct: Dict[str, Any]
         :return: WeatherStationStatus
         """
-        state = MeteocatState.object_hook_meteocat_api(dct)
-        if state is not None:
-            return MeteocatWeatherStationState(state)
+        if all(k in dct for k in ('codi', 'dataInici', 'dataFi')):
+            state = MeteocatWeatherStationState()
+            state.code = MeteocatWeatherStationStateCategory(dct['codi'])
+            state.valid_from = datetime.datetime.strptime(dct['dataInici'], "%Y-%m-%dT%H:%M%z")
+            if dct['dataFi'] is not None:
+                state.valid_until = datetime.datetime.strptime(dct['dataFi'], "%Y-%m-%dT%H:%M%z")
+            return state
         return None  # pragma: no cover
+
+    @staticmethod
+    def object_hook_gisfire_api(dct: Dict[str, Any]) -> Union[MeteocatWeatherStationState, None]:
+        """
+        Decodes a JSON originated dict from the Meteocat API to a WeatherStationStatus object
+
+        :param dct: Dictionary with the standard parsing of the json library
+        :type dct: Dict[str, Any]
+        :return: WeatherStationStatus
+        """
+        if all(k in dct for k in ('id', 'code', 'valid_from', 'valid_until', 'ts', 'weather_station_id')):
+            state = MeteocatWeatherStationState()
+            state.id = dct['id']
+            state.code = MeteocatWeatherStationStateCategory[dct['code']]
+            state.valid_from = datetime.datetime.strptime(dct['valid_from'], "%Y-%m-%dT%H:%M:%S%z")
+            if dct['valid_until'] is not None:
+                state.valid_until = datetime.datetime.strptime(dct['valid_until'], "%Y-%m-%dT%H:%M:%S%z")
+            state.meteocat_weather_station_id = dct['weather_station_id']
+            return state
+        return None  # pragma: no cover
+
+    class JSONEncoder(json.JSONEncoder):
+        """
+        JSON Encoder to convert a database VariableTimeBase to JSON
+        """
+
+        def default(self, obj: object) -> Dict[str, Any]:
+            """
+            Default procedure to create a dictionary with the Variable time bas2 data
+
+            :param obj:
+            :type obj: Lightning
+            :return: dict
+            """
+            if isinstance(obj, MeteocatWeatherStationState):
+                obj: MeteocatWeatherStationState
+                dct_weather_station_state = dict(obj)
+                return dct_weather_station_state
+            return json.JSONEncoder.default(self, obj)  # pragma: no cover
 
 
 class MeteocatWeatherStation(WeatherStation):
@@ -126,10 +204,10 @@ class MeteocatWeatherStation(WeatherStation):
     network_code: Mapped[str] = mapped_column('meteocat_network_code', String, nullable=False)
     network_name: Mapped[str] = mapped_column('meteocat_network_name', String, nullable=False)
     # SQLAlchemy Relations
-    states: Mapped[List[MeteocatWeatherStationState]] = relationship("MeteocatWeatherStationState", back_populates='meteocat_weather_station', lazy='joined')
-    variables: Mapped[List["MeteocatAssociationStationVariableState"]] = relationship('MeteocatAssociationStationVariableState', back_populates='weather_station')
-    variables_time_base: Mapped[List["MeteocatAssociationStationVariableTimeBase"]] = relationship('MeteocatAssociationStationVariableTimeBase', back_populates='weather_station')
-
+    meteocat_weather_station_states: Mapped[List[MeteocatWeatherStationState]] = relationship("MeteocatWeatherStationState", back_populates='meteocat_weather_station', lazy='joined')
+    meteocat_variable_states: Mapped[List["MeteocatVariableStates"]] = relationship('MeteocatVariableState', back_populates='meteocat_weather_station')
+    meteocat_variable_time_bases: Mapped[List["MeteocatVariableTimeBase"]] = relationship('MeteocatVariableTimeBase', back_populates='meteocat_weather_station')
+    # measures: Mapped[List["MeteocatMeasure"]] = relationship('MeteocatMeasure', back_populates='weather_station')
     # SQLAlchemy Inheritance options
     __mapper_args__ = {
         "polymorphic_identity": "meteocat_weather_station",
@@ -192,7 +270,7 @@ class MeteocatWeatherStation(WeatherStation):
         self.network_code = network_code
         self.network_name = network_name
 
-    def __iter__(self):
+    def __iter__(self) -> Iterator[Any]:
         yield from super().__iter__()
         yield 'code', self.code
         yield 'category', self.category.name
@@ -205,10 +283,19 @@ class MeteocatWeatherStation(WeatherStation):
         yield 'province_name', self.province_name
         yield 'network_code', self.network_code
         yield 'network_name', self.network_name
-        yield 'states', [state for state in self.states]
+        yield 'states', [dict(state) for state in self.meteocat_weather_station_states]
+
+    @property
+    def meteocat_variables(self) -> List[MeteocatVariable]:
+        return list(object_session(self).execute(select(MeteocatVariable).
+                                                 join(MeteocatVariableState).
+                                                 where(MeteocatVariable.id == MeteocatVariableState.meteocat_variable_id).
+                                                 where(MeteocatVariableState.meteocat_weather_station_id == self.id)).
+                    unique().scalars().all())
+
 
     @staticmethod
-    def object_hook_meteocat_api(dct: Dict[str, Any]) -> Union[WeatherStation, Dict[str, Any], MeteocatWeatherStation, None]:
+    def object_hook_meteocat_api(dct: Dict[str, Any]) -> Union[WeatherStation, Dict[str, Any], MeteocatWeatherStation, MeteocatWeatherStationState, None]:
         """
         Decodes a JSON originated dict from the Meteocat API to a Lightning object
 
@@ -247,7 +334,7 @@ class MeteocatWeatherStation(WeatherStation):
         station.network_name = str(dct['xarxa']['nom'])
         for state in dct['estats']:
             state: MeteocatWeatherStationState
-            station.states.append(state)
+            station.meteocat_weather_station_states.append(state)
         return station
 
     class JSONEncoder(json.JSONEncoder):
@@ -265,25 +352,8 @@ class MeteocatWeatherStation(WeatherStation):
             """
             if isinstance(obj, MeteocatWeatherStation):
                 obj: MeteocatWeatherStation
-                dct = dict()
-                dct['code'] = obj.code
-                dct['name'] = obj.name
-                dct['category'] = obj.category.value
-                dct['placement'] = obj.placement
-                dct['altitude'] = obj.altitude
-                dct['coordinates_latitude'] = obj._coordinates_latitude
-                dct['coordinates_longitude'] = obj._coordinates_longitude
-                dct['coordinates_epsg'] = WeatherStation.SRID_WEATHER_STATIONS
-                dct['municipality_code'] = obj.municipality_code
-                dct['municipality_name'] = obj.municipality_name
-                dct['county_code'] = obj.county_code
-                dct['county_name'] = obj.county_name
-                dct['province_code'] = obj.province_code
-                dct['province_name'] = obj.province_name
-                dct['network_code'] = obj.network_code
-                dct['network_name'] = obj.network_name
-                dct['states'] = [MeteocatWeatherStationState.JSONEncoder().default(state) for state in obj.states]
-                return dct
+                dct_weather_station = dict(obj)
+                return dct_weather_station
             return json.JSONEncoder.default(self, obj)  # pragma: no cover
 
     class GeoJSONEncoder(json.JSONEncoder):
@@ -304,15 +374,9 @@ class MeteocatWeatherStation(WeatherStation):
                 dct = dict()
                 dct['type'] = 'Feature'
                 dct['id'] = obj.id
-                dct['crs'] = dict()
-                dct['crs']['type'] = 'link'
-                dct['crs']['properties'] = dict()
-                dct['crs']['properties']['href'] = 'https://spatialreference.org/ref/epsg/' + \
-                                                   str(WeatherStation.SRID_WEATHER_STATIONS) + '/proj4/'
-                dct['crs']['properties']['type'] = 'proj4'
                 dct['geometry'] = dict()
                 dct['geometry']['type'] = 'Point'
-                dct['geometry']['coordinates'] = [obj._coordinates_longitude, obj._coordinates_latitude]
-                dct['properties'] = WeatherStation.JSONEncoder().default(obj)
+                dct['geometry']['coordinates'] = [obj.x_4326, obj.y_4326]
+                dct['properties'] = dict(obj)
                 return dct
             return json.JSONEncoder.default(self, obj)  # pragma: no cover

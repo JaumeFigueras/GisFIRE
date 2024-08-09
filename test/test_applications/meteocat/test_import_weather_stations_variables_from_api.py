@@ -19,8 +19,6 @@ from src.meteocat.data_model.variable import MeteocatVariable
 from src.data_model.data_provider import DataProvider
 from src.meteocat.data_model.variable import MeteocatVariableState
 from src.meteocat.data_model.variable import MeteocatVariableTimeBase
-from src.meteocat.data_model.variable_station_relations import MeteocatAssociationStationVariableState
-from src.meteocat.data_model.variable_station_relations import MeteocatAssociationStationVariableTimeBase
 from src.meteocat.remote_api.meteocat_api import XEMA_STATION_VARIABLES_MESURADES
 from src.meteocat.remote_api.meteocat_api import XEMA_STATION_VARIABLES_AUXILIARS
 from src.meteocat.remote_api.meteocat_api import XEMA_STATION_VARIABLES_MULTIVARIABLE
@@ -31,7 +29,7 @@ from test.fixtures.database.database import populate_data_providers
 from test.fixtures.database.database import populate_meteocat_weather_stations
 from test.fixtures.database.database import populate_meteocat_variables
 
-from src.applications.meteocat.import_weather_sattions_variables_relations_from_api import main
+from src.applications.meteocat.import_weather_stations_variables_from_api import main
 
 from typing import List
 from typing import Union
@@ -76,9 +74,6 @@ def test_main_01(db_session: Session, data_provider_list: Union[List[DataProvide
     assert db_session.execute(select(func.count(MeteocatVariable.id))).scalar_one() == 90
     assert db_session.execute(select(func.count(MeteocatVariableState.id))).scalar_one() == 0
     assert db_session.execute(select(func.count(MeteocatVariableTimeBase.id))).scalar_one() == 0
-    assert db_session.execute(select(func.count(MeteocatAssociationStationVariableState.variable_id))).scalar_one() == 0
-    assert (db_session.execute(select(func.count(MeteocatAssociationStationVariableTimeBase.variable_id))).
-            scalar_one() == 0)
     # Test function
     with requests_mock.Mocker() as rm:
         for url, response in [
@@ -89,12 +84,10 @@ def test_main_01(db_session: Session, data_provider_list: Union[List[DataProvide
             rm.get(url, text=response, status_code=200)
         main(db_session, '1234', logger)
         # Assert the results
-        assert db_session.execute(select(func.count(MeteocatAssociationStationVariableState.variable_id))).scalar_one() == 50
-        assert db_session.execute(select(func.count(MeteocatAssociationStationVariableTimeBase.variable_id))).scalar_one() == 24
+    assert db_session.execute(select(func.count(MeteocatVariableState.meteocat_variable_id))).scalar_one() == 50
+    assert db_session.execute(select(func.count(MeteocatVariableTimeBase.meteocat_variable_id))).scalar_one() == 24
     station: MeteocatWeatherStation = db_session.execute(select(MeteocatWeatherStation).where(MeteocatWeatherStation.code == 'CA')).unique().scalar_one()
-    variables = db_session.execute(select(MeteocatVariable).join(MeteocatAssociationStationVariableState).where(MeteocatAssociationStationVariableState.weather_station_id == station.id).where(MeteocatVariable.id == MeteocatAssociationStationVariableState.variable_id)).scalars().all()
-    for variable in variables:
-        assert isinstance(variable, MeteocatVariable)
+
 
 
 

@@ -3,10 +3,13 @@
 
 import argparse
 import sys
+import json
 
 from sqlalchemy import create_engine
 from sqlalchemy import URL
 from sqlalchemy import Engine
+from sqlalchemy import select
+from sqlalchemy.orm import Session
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.schema import CreateTable
 
@@ -25,27 +28,24 @@ from src.meteocat.data_model.weather_station import MeteocatWeatherStationState
 from src.meteocat.data_model.variable import MeteocatVariable
 from src.meteocat.data_model.variable import MeteocatVariableState
 from src.meteocat.data_model.variable import MeteocatVariableTimeBase
+from src.meteocat.data_model.variable_station_relations import MeteocatAssociationStationVariableState
+from src.meteocat.data_model.variable_station_relations import MeteocatAssociationStationVariableTimeBase
 from src.meteocat.data_model.measure import MeteocatMeasure
 
 
-def main(e: Engine):
-    print(Base.metadata.tables.keys())
-    # Base.metadata.create_all(e)
-    print(CreateTable(DataProvider.__table__).compile(e))
-    print(CreateTable(Lightning.__table__).compile(e))
-    print(CreateTable(MeteocatLightning.__table__).compile(e))
-    print(CreateTable(Request.__table__).compile(e))
-    print(CreateTable(User.__table__).compile(e))
-    print(CreateTable(UserAccess.__table__).compile(e))
-    print(CreateTable(WeatherStation.__table__).compile(e))
-    print(CreateTable(MeteocatWeatherStation.__table__).compile(e))
-    print(CreateTable(MeteocatWeatherStationState.__table__).compile(e))
-    print(CreateTable(Variable.__table__).compile(e))
-    print(CreateTable(MeteocatVariable.__table__).compile(e))
-    print(CreateTable(MeteocatVariableState.__table__).compile(e))
-    print(CreateTable(MeteocatVariableTimeBase.__table__).compile(e))
-    print(CreateTable(Measure.__table__).compile(e))
-    print(CreateTable(MeteocatMeasure.__table__).compile(e))
+def main(db_session: Session):
+    states_assoc = list(db_session.execute(select(MeteocatAssociationStationVariableState)).scalars().all())
+    states = list(db_session.execute(select(MeteocatVariableState)).scalars().all())
+    time_bases_assoc = list(db_session.execute(select(MeteocatAssociationStationVariableTimeBase)).scalars().all())
+    time_bases = list(db_session.execute(select(MeteocatVariableTimeBase)).scalars().all())
+    with open('meteocat_assoc_states.json', 'w', encoding='utf-8') as f:
+        json.dump(states_assoc, f, cls=MeteocatAssociationStationVariableState.JSONEncoder, ensure_ascii=False, indent=4)
+    with open('meteocat_states.json', 'w', encoding='utf-8') as f:
+        json.dump(states, f, cls=MeteocatVariableState.JSONEncoder, ensure_ascii=False, indent=4)
+    with open('meteocat_assoc_time_bases.json', 'w', encoding='utf-8') as f:
+        json.dump(time_bases_assoc, f, cls=MeteocatAssociationStationVariableTimeBase.JSONEncoder, ensure_ascii=False, indent=4)
+    with open('meteocat_time_bases.json', 'w', encoding='utf-8') as f:
+        json.dump(time_bases, f, cls=MeteocatVariableTimeBase.JSONEncoder, ensure_ascii=False, indent=4)
 
 
 if __name__ == "__main__":  # pragma: no cover
@@ -62,9 +62,10 @@ if __name__ == "__main__":  # pragma: no cover
                               port=args.port, database=args.database)
 
     try:
-        engine = create_engine(database_url)
+        engine: Engine = create_engine(database_url)
+        session: Session = Session(engine)
     except SQLAlchemyError as ex:
         print(ex)
         sys.exit(-1)
 
-    main(engine)
+    main(session)

@@ -24,5 +24,6 @@ def test_variable_iter_01() -> None:
     var = Variable(name='var')
     assert dict(var) == {
         'id': None,
-        'name': 'var'
+        'name': 'var',
+        'ts': None,
     }

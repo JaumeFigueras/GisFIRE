@@ -2,20 +2,26 @@
 # -*- coding: utf-8 -*-
 
 import pytest
-import json
+import datetime
+import pytz
 
+from freezegun import freeze_time
 from sqlalchemy import create_engine
 from sqlalchemy import Engine
+from sqlalchemy import event
 from sqlalchemy.orm import scoped_session
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.orm import Session
-from sqlalchemy.sql import text
-from pathlib import Path
+from contextlib import contextmanager
+
 
 from src.data_model.data_provider import DataProvider
 from src.data_model.user import User
 from src.meteocat.data_model.weather_station import MeteocatWeatherStation
 from src.meteocat.data_model.variable import MeteocatVariable
+from src.meteocat.data_model.variable import MeteocatVariableState
+from src.meteocat.data_model.variable import MeteocatVariableTimeBase
+from src.data_model import Base
 
 from typing import Any
 from typing import Union
@@ -68,6 +74,35 @@ def db_session(db_session_factory: scoped_session[Union[Session, Any]]) -> Sessi
     session_.close()
 
 
+@contextmanager
+def patch_time(time_to_freeze: str, tzinfo: Any = pytz.UTC, tick: bool = True):
+    """
+    Time Patcher for timestamps in Postgresql database
+    :param time_to_freeze:
+    :param tzinfo:
+    :param tick:
+    :return:
+    """
+    with freeze_time(time_to_freeze, tick=tick) as frozen_time:
+        def set_timestamp(mapper, connection, target):
+            now = datetime.datetime.now(tz=tzinfo)
+            if hasattr(target, 'ts'):
+                target.ts = now
+
+        event.listen(Base, 'before_insert', set_timestamp, propagate=True)
+        yield frozen_time
+        event.remove(Base, 'before_insert', set_timestamp)
+
+
+@pytest.fixture(scope='function')
+def patch_postgresql_time():
+    """
+    Fixture time patcher for timestamps in Postgresql database
+    :return:
+    """
+    return patch_time
+
+
 def populate_data_providers(db_session: Session, data_providers: Union[List[DataProvider], None]) -> None:
     """
     Adds data providers data to the database
@@ -103,3 +138,39 @@ def populate_meteocat_variables(db_session: Session, meteocat_variables: Union[L
         db_session.add_all(meteocat_variables)
         db_session.commit()
 
+
+def populate_meteocat_variable_states(db_session: Session, meteocat_variable_states: Union[List[MeteocatVariableState], None]) -> None:
+    """
+    Adds data providers data to the database
+    """
+    if meteocat_variable_states is not None:
+        db_session.add_all(meteocat_variable_states)
+        db_session.commit()
+
+
+def populate_meteocat_variable_time_bases(db_session: Session, meteocat_variable_time_bases: Union[List[MeteocatVariableTimeBase], None]) -> None:
+    """
+    Adds data providers data to the database
+    """
+    if meteocat_variable_time_bases is not None:
+        db_session.add_all(meteocat_variable_time_bases)
+        db_session.commit()
+
+#
+# def populate_meteocat_assoc_states(db_session: Session, meteocat_assoc_states: Union[List[MeteocatAssociationStationVariableState], None]) -> None:
+#     """
+#     Adds data providers data to the database
+#     """
+#     if meteocat_assoc_states is not None:
+#         db_session.add_all(meteocat_assoc_states)
+#         db_session.commit()
+#
+#
+# def populate_meteocat_assoc_time_bases(db_session: Session, meteocat_assoc_time_bases: Union[List[MeteocatAssociationStationVariableTimeBase], None]) -> None:
+#     """
+#     Adds data providers data to the database
+#     """
+#     if meteocat_assoc_time_bases is not None:
+#         db_session.add_all(meteocat_assoc_time_bases)
+#         db_session.commit()
+#

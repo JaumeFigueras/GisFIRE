@@ -60,7 +60,7 @@ class MeteocatState(State):
     """
     # SQLAlchemy columns
     __abstract__ = True
-    code = mapped_column('code', Enum(MeteocatStateCategory, name='meteocat_state_category'), nullable=False)
+
 
     def __init__(self, code: Optional[MeteocatStateCategory] = None,
                  valid_from: Optional[datetime.datetime, None] = None,
@@ -97,6 +97,25 @@ class MeteocatState(State):
             return state
         return None  # pragma: no cover
 
+    @staticmethod
+    def object_hook_gisfire_api(dct: Dict[str, Any]) -> Union[MeteocatState, None]:
+        """
+        Decodes a JSON originated dict from the Meteocat API to a WeatherStationStatus object
+
+        :param dct: Dictionary with the standard parsing of the json library
+        :type dct: Dict[str, Any]
+        :return: WeatherStationStatus
+        """
+        if all(k in dct for k in ('id', 'code', 'valid_from', 'valid_until', 'ts')):
+            state = MeteocatState()
+            state.id = int(dct['id'])
+            state.code = MeteocatStateCategory[dct['code']]
+            state.valid_from = datetime.datetime.strptime(dct['valid_from'], "%Y-%m-%dT%H:%M:%S%z")
+            if dct['valid_until'] is not None:
+                state.valid_until = datetime.datetime.strptime(dct['valid_until'], "%Y-%m-%dT%H:%M:%S%z")
+            return state
+        return None  # pragma: no cover
+
     class JSONEncoder(json.JSONEncoder):
         """
         JSON Encoder to convert a database WeatherStationStatus to JSON
@@ -110,9 +129,18 @@ class MeteocatState(State):
             :type obj: Lightning
             :return: dict
             """
-            if isinstance(obj, MeteocatState):
-                obj: MeteocatState
-                dct = dict(obj)
-                if isinstance(obj.id, int):
-                    dct['id'] = obj.id
-            return json.JSONEncoder.default(self, obj)  # pragma: no cover
+
+            def default(self, obj: object) -> Dict[str, Any]:
+                """
+                Default procedure to create a dictionary with the Variable time bas2 data
+
+                :param obj:
+                :type obj: Lightning
+                :return: dict
+                """
+                if isinstance(obj, MeteocatState):
+                    obj: MeteocatState
+                    dct_state = dict(obj)
+                    return dct_state
+                return json.JSONEncoder.default(self, obj)  # pragma: no cover
+

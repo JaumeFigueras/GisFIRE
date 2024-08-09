@@ -4,14 +4,27 @@
 import datetime
 import pytz
 import json
+import pytest
+
+from sqlalchemy import select
+from sqlalchemy import func
+from sqlalchemy.orm import Session
 
 from src.json_decoders.no_none_in_list import NoNoneInList
+from src.data_model.data_provider import DataProvider
 from src.meteocat.data_model.weather_station import MeteocatWeatherStation
 from src.meteocat.data_model.weather_station import MeteocatWeatherStationCategory
-from src.meteocat.data_model.state import MeteocatState
-from src.meteocat.data_model.state import MeteocatStateCategory
+from src.meteocat.data_model.weather_station import MeteocatWeatherStationState
+from src.meteocat.data_model.weather_station import MeteocatWeatherStationStateCategory
+from src.meteocat.data_model.variable import MeteocatVariable
+
+from test.fixtures.database.database import populate_data_providers
+from test.fixtures.database.database import populate_meteocat_weather_stations
 
 from typing import List
+from typing import Union
+from typing import Dict
+from typing import Any
 
 
 def test_meteocat_weather_station_01() -> None:
@@ -418,11 +431,78 @@ def test_meteocat_weather_station_dict_01() -> None:
         'x_25831': 5131215.529498735,
         'y_25831': 308107.46729102544,
         'states': [],
-        'data_provider': None
+        'data_provider': None,
+        'ts': None,
     }
 
 
+@pytest.mark.parametrize('data_provider_list', [
+    {'data_providers': ['Meteo.cat', 'Bombers.cat']},
+], indirect=True)
+@pytest.mark.parametrize('meteocat_weather_station_list', [
+    {'weather_stations': ['CA']},
+], indirect=True)
+def test_meteocat_weather_station_dict_02(db_session: Session, data_provider_list: Union[List[DataProvider], None],
+                                          meteocat_weather_station_list: Union[List[MeteocatWeatherStation], None],
+                                          patch_postgresql_time) -> None:
+    with patch_postgresql_time("2024-01-01 12:00:00", tzinfo=pytz.UTC, tick=False):
+        assert db_session.execute(select(func.count(DataProvider.name))).scalar_one() == 0
+        assert db_session.execute(select(func.count(MeteocatWeatherStation.id))).scalar_one() == 0
+        populate_data_providers(db_session, data_provider_list)
+        populate_meteocat_weather_stations(db_session, meteocat_weather_station_list)
+        assert db_session.execute(select(func.count(DataProvider.name))).scalar_one() == 2
+        assert db_session.execute(select(func.count(MeteocatWeatherStation.id))).scalar_one() == 1
+        station = db_session.execute(select(MeteocatWeatherStation).where(MeteocatWeatherStation.code == 'CA')).unique().scalar_one()
+        assert dict(station) == {
+            'id': 1,
+            'name': 'Clariana de Cardener',
+            'altitude': 693.0,
+            'x_4326': 1.5851,
+            'y_4326': 41.95378,
+            'code': 'CA',
+            'category': 'AUTO',
+            'x_4258': 1.5851,
+            'y_4258': 41.95378,
+            'placement': 'Abocador comarcal',
+            'municipality_code': '250753',
+            'municipality_name': 'Clariana de Cardener',
+            'county_code': '35',
+            'county_name': 'Solsonès',
+            'province_code': '25',
+            'province_name': 'Lleida',
+            'network_code': '1',
+            'network_name': 'XEMA',
+            'x_25831': 5213867.008915531,
+            'y_25831': 225755.54260222084,
+            'states': [
+                {
+                    'code': 'ACTIVE',
+                    'id': 1,
+                    'weather_station_id': 1,
+                    'ts': '2024-01-01T12:00:00+0000',
+                    'valid_from': '1996-05-02T09:00:00+0000',
+                    'valid_until': '2012-07-10T13:00:00+0000',
+                },
+                {
+                    'code': 'DISMANTLED',
+                    'id': 2,
+                    'weather_station_id': 1,
+                    'ts': '2024-01-01T12:00:00+0000',
+                    'valid_from': '2012-07-10T13:00:00+0000',
+                    'valid_until': None,
+                },
+            ],
+            'data_provider': 'Meteo.cat',
+            'ts': '2024-01-01T12:00:00+0000',
+        }
+
+
 def test_meteocat_weather_station_json_parser(meteocat_api_weather_stations: str) -> None:
+    """
+    TODO
+    :param meteocat_api_weather_stations:
+    :return:
+    """
     stations: List[MeteocatWeatherStation] = json.loads(meteocat_api_weather_stations, cls=NoNoneInList,
                                                         object_hook=MeteocatWeatherStation.object_hook_meteocat_api)
     for station in stations:
@@ -451,18 +531,191 @@ def test_meteocat_weather_station_json_parser(meteocat_api_weather_stations: str
     assert station.x_25831 == 5131215.529498735
     assert station.y_25831 == 308107.46729102544
     assert station.geometry_25831 == "SRID=25831;POINT(5131215.529498735 308107.46729102544)"
-    assert len(station.states) == 2
-    state_1 = station.states[0]
-    assert isinstance(state_1, MeteocatState)
-    assert state_1.code == MeteocatStateCategory.ACTIVE
+    assert len(station.meteocat_weather_station_states) == 2
+    state_1 = station.meteocat_weather_station_states[0]
+    assert isinstance(state_1, MeteocatWeatherStationState)
+    assert state_1.code == MeteocatWeatherStationStateCategory.ACTIVE
     assert state_1.valid_from == datetime.datetime(1992, 5, 11, 15, 30, tzinfo=pytz.UTC)
     assert state_1.tzinfo_valid_from == 'UTC'
     assert state_1.valid_until == datetime.datetime(2002, 10, 29, 5, 0, tzinfo=pytz.UTC)
     assert state_1.tzinfo_valid_until == 'UTC'
-    state_2 = station.states[1]
-    assert isinstance(state_2, MeteocatState)
-    assert state_2.code == MeteocatStateCategory.DISMANTLED
+    state_2 = station.meteocat_weather_station_states[1]
+    assert isinstance(state_2, MeteocatWeatherStationState)
+    assert state_2.code == MeteocatWeatherStationStateCategory.DISMANTLED
     assert state_2.valid_from == datetime.datetime(2002, 10, 29, 5, 0, tzinfo=pytz.UTC)
     assert state_2.tzinfo_valid_from == 'UTC'
     assert state_2.valid_until is None
     assert state_2.tzinfo_valid_until is None
+
+
+@pytest.mark.parametrize('data_provider_list', [
+    {'data_providers': ['Meteo.cat', 'Bombers.cat']},
+], indirect=True)
+@pytest.mark.parametrize('meteocat_weather_station_list', [
+    {'weather_stations': ['CA']},
+], indirect=True)
+def test_meteocat_weather_station_json_encoder_01(db_session: Session, data_provider_list: Union[List[DataProvider], None],
+                                                  meteocat_weather_station_list: Union[List[MeteocatWeatherStation], None],
+                                                  patch_postgresql_time) -> None:
+    """
+    TODO
+    :param db_session:
+    :param data_provider_list:
+    :param meteocat_weather_station_list:
+    :param patch_postgresql_time:
+    :return:
+    """
+    with patch_postgresql_time("2024-01-01 12:00:00", tzinfo=pytz.UTC, tick=False):
+        assert db_session.execute(select(func.count(DataProvider.name))).scalar_one() == 0
+        assert db_session.execute(select(func.count(MeteocatWeatherStation.id))).scalar_one() == 0
+        populate_data_providers(db_session, data_provider_list)
+        populate_meteocat_weather_stations(db_session, meteocat_weather_station_list)
+        assert db_session.execute(select(func.count(DataProvider.name))).scalar_one() == 2
+        assert db_session.execute(select(func.count(MeteocatWeatherStation.id))).scalar_one() == 1
+        station = db_session.execute(select(MeteocatWeatherStation).where(MeteocatWeatherStation.code == 'CA')).unique().scalar_one()
+        station_dict = {
+            'id': 1,
+            'name': 'Clariana de Cardener',
+            'altitude': 693.0,
+            'x_4326': 1.5851,
+            'y_4326': 41.95378,
+            'code': 'CA',
+            'category': 'AUTO',
+            'x_4258': 1.5851,
+            'y_4258': 41.95378,
+            'placement': 'Abocador comarcal',
+            'municipality_code': '250753',
+            'municipality_name': 'Clariana de Cardener',
+            'county_code': '35',
+            'county_name': 'Solsonès',
+            'province_code': '25',
+            'province_name': 'Lleida',
+            'network_code': '1',
+            'network_name': 'XEMA',
+            'x_25831': 5213867.008915531,
+            'y_25831': 225755.54260222084,
+            'states': [
+                {
+                    'code': 'ACTIVE',
+                    'id': 1,
+                    'weather_station_id': 1,
+                    'ts': '2024-01-01T12:00:00+0000',
+                    'valid_from': '1996-05-02T09:00:00+0000',
+                    'valid_until': '2012-07-10T13:00:00+0000',
+                },
+                {
+                    'code': 'DISMANTLED',
+                    'id': 2,
+                    'weather_station_id': 1,
+                    'ts': '2024-01-01T12:00:00+0000',
+                    'valid_from': '2012-07-10T13:00:00+0000',
+                    'valid_until': None,
+                },
+            ],
+            'data_provider': 'Meteo.cat',
+            'ts': '2024-01-01T12:00:00+0000',
+        }
+        assert json.loads(json.dumps(station, cls=MeteocatWeatherStation.JSONEncoder)) == station_dict
+
+
+@pytest.mark.parametrize('data_provider_list', [
+    {'data_providers': ['Meteo.cat', 'Bombers.cat']},
+], indirect=True)
+@pytest.mark.parametrize('meteocat_weather_station_list', [
+    {'weather_stations': ['CA']},
+], indirect=True)
+def test_meteocat_weather_station_geojson_encoder_01(db_session: Session, data_provider_list: Union[List[DataProvider], None],
+                                                     meteocat_weather_station_list: Union[List[MeteocatWeatherStation], None],
+                                                     patch_postgresql_time) -> None:
+    """
+    TODO
+    :param db_session:
+    :param data_provider_list:
+    :param meteocat_weather_station_list:
+    :param patch_postgresql_time:
+    :return:
+    """
+    with patch_postgresql_time("2024-01-01 12:00:00", tzinfo=pytz.UTC, tick=False):
+        assert db_session.execute(select(func.count(DataProvider.name))).scalar_one() == 0
+        assert db_session.execute(select(func.count(MeteocatWeatherStation.id))).scalar_one() == 0
+        populate_data_providers(db_session, data_provider_list)
+        populate_meteocat_weather_stations(db_session, meteocat_weather_station_list)
+        assert db_session.execute(select(func.count(DataProvider.name))).scalar_one() == 2
+        assert db_session.execute(select(func.count(MeteocatWeatherStation.id))).scalar_one() == 1
+        station = db_session.execute(select(MeteocatWeatherStation).where(MeteocatWeatherStation.code == 'CA')).unique().scalar_one()
+        station_dict = {
+            "type": "Feature",
+            "id": 1,
+            "geometry": {
+                "type": "Point",
+                "coordinates": [1.5851, 41.95378]
+            },
+            "properties": {
+                "id": 1,
+                "name": "Clariana de Cardener",
+                "altitude": 693.0,
+                "x_4258": 1.5851,
+                "y_4258": 41.95378,
+                "x_25831": 5213867.008915531,
+                "y_25831": 225755.54260222084,
+                "x_4326": 1.5851,
+                "y_4326": 41.95378,
+                "ts": "2024-01-01T12:00:00+0000",
+                "data_provider": "Meteo.cat",
+                "code": "CA",
+                "category": "AUTO",
+                "placement": "Abocador comarcal",
+                "municipality_code": "250753",
+                "municipality_name": "Clariana de Cardener",
+                "county_code": "35",
+                "county_name": "Solsonès",
+                "province_code": "25",
+                "province_name": "Lleida",
+                "network_code": "1",
+                "network_name": "XEMA",
+                "states": [
+                    {
+                        "code": "ACTIVE",
+                        "id": 1,
+                        "valid_from": "1996-05-02T09:00:00+0000",
+                        "valid_until": "2012-07-10T13:00:00+0000",
+                        "ts": "2024-01-01T12:00:00+0000",
+                        "weather_station_id": 1
+                    },
+                    {
+                        "code": "DISMANTLED",
+                        "id": 2,
+                        "valid_from": "2012-07-10T13:00:00+0000",
+                        "valid_until": None,
+                        "ts": "2024-01-01T12:00:00+0000",
+                        "weather_station_id": 1
+                    }
+                ]
+            }
+        }
+        assert json.loads(json.dumps(station, cls=MeteocatWeatherStation.GeoJSONEncoder)) == station_dict
+
+
+@pytest.mark.parametrize('data_provider_list', [
+    {'data_providers': ['Meteo.cat', 'Bombers.cat']},
+], indirect=True)
+@pytest.mark.parametrize('meteocat_weather_station_list', [
+    {'weather_stations': ['CA']},
+], indirect=True)
+@pytest.mark.parametrize('meteocat_api_station_variables_mesurades', [
+    {'weather_stations': ['CA']},
+], indirect=True)
+@pytest.mark.parametrize('meteocat_api_station_variables_auxiliars', [
+    {'weather_stations': ['CA']},
+], indirect=True)
+@pytest.mark.parametrize('meteocat_api_station_variables_multivariable', [
+    {'weather_stations': ['CA']},
+], indirect=True)
+def no_test_meteocat_weather_station_variables_01(db_session: Session, data_provider_list: Union[List[DataProvider], None],
+                 meteocat_weather_station_list: Union[List[MeteocatWeatherStation], None],
+                 meteocat_variables_list: Union[List[MeteocatVariable]],
+                 meteocat_api_station_variables_mesurades: Dict[str, str],
+                 meteocat_api_station_variables_auxiliars: Dict[str, str],
+                 meteocat_api_station_variables_multivariable: Dict[str, str]) -> None:
+    # TODO: Falta codi per guardar variables a la base de dades
+    pass

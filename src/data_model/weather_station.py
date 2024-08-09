@@ -57,4 +57,5 @@ class WeatherStation(Base, LocationMixIn, TimeStampMixIn):
         yield 'name', self.name
         yield 'altitude', self.altitude
         yield from LocationMixIn.__iter__(self)
+        yield from TimeStampMixIn.__iter__(self)
         yield 'data_provider', self.data_provider_name

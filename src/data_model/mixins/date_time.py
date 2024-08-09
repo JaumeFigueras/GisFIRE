@@ -43,8 +43,11 @@ class DateTimeMixIn(object):
                     tzinfo_attribute_name = 'tzinfo_' + attribute_name
                     date_time = getattr(self, attribute_name)
                     tzinfo = getattr(self, tzinfo_attribute_name)
-                    if tzinfo.startswith('tzoffset'):
-                        tmp = date_time.astimezone(pytz.UTC)
-                        yield attribute_name, tmp.astimezone(eval(tzinfo)).strftime("%Y-%m-%dT%H:%M:%S%z")
+                    if date_time is None:
+                        yield attribute_name, None
                     else:
-                        yield attribute_name, date_time.astimezone(pytz.timezone(tzinfo)).strftime("%Y-%m-%dT%H:%M:%S%z")
+                        if tzinfo.startswith('tzoffset'):
+                            tmp = date_time.astimezone(pytz.UTC)
+                            yield attribute_name, tmp.astimezone(eval(tzinfo)).strftime("%Y-%m-%dT%H:%M:%S%z")
+                        else:
+                            yield attribute_name, date_time.astimezone(pytz.timezone(tzinfo)).strftime("%Y-%m-%dT%H:%M:%S%z")

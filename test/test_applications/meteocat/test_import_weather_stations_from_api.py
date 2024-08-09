@@ -17,13 +17,13 @@ from shapely.geometry import Point
 from src.meteocat.data_model.weather_station import MeteocatWeatherStation
 from src.meteocat.data_model.weather_station import MeteocatWeatherStationCategory
 from src.meteocat.data_model.weather_station import MeteocatWeatherStationState
-from src.meteocat.data_model.state import MeteocatStateCategory
+from src.meteocat.data_model.weather_station import MeteocatWeatherStationStateCategory
 from src.data_model.data_provider import DataProvider
 from src.meteocat.remote_api.meteocat_api import XEMA_STATIONS
 
 from test.fixtures.database.database import populate_data_providers
 
-from src.applications.meteocat.import_weather_sattions_from_api import main
+from src.applications.meteocat.import_weather_stations_from_api import main
 
 from typing import List
 from typing import Union
@@ -69,17 +69,17 @@ def test_main_01(db_session: Session, meteocat_api_weather_stations: str,
     assert station.province_name == "Barcelona"
     assert station.network_code == '1'
     assert station.network_name == 'XEMA'
-    assert len(station.states) == 2
-    assert station.states[0].code == MeteocatStateCategory.ACTIVE
-    assert station.states[0].valid_from == datetime.datetime(2006, 4, 11, 0, 0, tzinfo=pytz.UTC)
-    assert station.states[0].tzinfo_valid_from == 'UTC'
-    assert station.states[0].valid_until == datetime.datetime(2021, 5, 7, 9, 0, tzinfo=pytz.UTC)
-    assert station.states[0].tzinfo_valid_until == 'UTC'
-    assert station.states[1].code == MeteocatStateCategory.DISMANTLED
-    assert station.states[1].valid_from == datetime.datetime(2021, 5, 7, 9, 0, tzinfo=pytz.UTC)
-    assert station.states[1].tzinfo_valid_from == 'UTC'
-    assert station.states[1].valid_until is None
-    assert station.states[1].tzinfo_valid_until is None
+    assert len(station.meteocat_weather_station_states) == 2
+    assert station.meteocat_weather_station_states[0].code == MeteocatWeatherStationStateCategory.ACTIVE
+    assert station.meteocat_weather_station_states[0].valid_from == datetime.datetime(2006, 4, 11, 0, 0, tzinfo=pytz.UTC)
+    assert station.meteocat_weather_station_states[0].tzinfo_valid_from == 'UTC'
+    assert station.meteocat_weather_station_states[0].valid_until == datetime.datetime(2021, 5, 7, 9, 0, tzinfo=pytz.UTC)
+    assert station.meteocat_weather_station_states[0].tzinfo_valid_until == 'UTC'
+    assert station.meteocat_weather_station_states[1].code == MeteocatWeatherStationStateCategory.DISMANTLED
+    assert station.meteocat_weather_station_states[1].valid_from == datetime.datetime(2021, 5, 7, 9, 0, tzinfo=pytz.UTC)
+    assert station.meteocat_weather_station_states[1].tzinfo_valid_from == 'UTC'
+    assert station.meteocat_weather_station_states[1].valid_until is None
+    assert station.meteocat_weather_station_states[1].tzinfo_valid_until is None
     assert station.x_4326 == 1.79429
     assert station.y_4326 == 41.43386
     assert station.geometry_4326 == Point(1.79429, 41.43386)

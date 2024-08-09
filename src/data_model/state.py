@@ -78,6 +78,7 @@ class State(Base, DateTimeMixIn, TimeStampMixIn):
     def __iter__(self):
         yield 'id', self.id
         yield from DateTimeMixIn.__iter__(self)
+        yield from TimeStampMixIn.__iter__(self)
 
     class JSONEncoder(json.JSONEncoder):
         """
@@ -94,8 +95,6 @@ class State(Base, DateTimeMixIn, TimeStampMixIn):
             """
             if isinstance(obj, State):
                 obj: State
-                dct = dict()
-                dct['from_date'] = obj.from_date.strftime("%Y-%m-%dT%H:%MZ")
-                dct['to_date'] = obj.to_date.strftime("%Y-%m-%dT%H:%MZ") if obj.to_date is not None else None
-                return dct
+                dct_state = dict(obj)
+                return dct_state
             return json.JSONEncoder.default(self, obj)  # pragma: no cover

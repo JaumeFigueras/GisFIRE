@@ -24,9 +24,6 @@ from src.meteocat.data_model.weather_station import MeteocatWeatherStation
 from src.meteocat.data_model.variable import MeteocatVariable
 from src.meteocat.data_model.variable import MeteocatVariableState
 from src.meteocat.data_model.variable import MeteocatVariableTimeBase
-from src.meteocat.data_model.variable_station_relations import MeteocatAssociationStationVariableState
-from src.meteocat.data_model.variable_station_relations import MeteocatAssociationStationVariableTimeBase
-from src.meteocat.data_model.weather_station import MeteocatWeatherStationState
 from src.meteocat.remote_api.meteocat_api import get_station_variables_list
 
 from typing import List
@@ -42,20 +39,23 @@ def main(db_session: Session, api_key: str, logger: Logger):
     logger.info("Getting stations from API.")
     stations = db_session.execute(select(MeteocatWeatherStation)).unique().scalars().all()
     for station in stations:
-        logger.info("Getting variables from API for station: {0:}".format(station.name))
+        logger.info("Getting variables from API for station: {0:} - {1:}".format(station.code, station.name))
         variables = get_station_variables_list(api_key, station.code)
         for variable in variables:
-            variable_db = db_session.execute(select(MeteocatVariable).where(MeteocatVariable.code == variable.code)).unique().scalar_one()
-            for state in variable.unbinded_states:
-                new_state = MeteocatVariableState(state)
-                db_session.add(new_state)
-                association = MeteocatAssociationStationVariableState(weather_station=station, variable=variable_db, variable_state=new_state)
-                db_session.add(association)
-            for time_base in variable.unbinded_time_bases:
-                new_time_base = MeteocatVariableTimeBase(time_base, time_base.code)
-                db_session.add(new_time_base)
-                association = MeteocatAssociationStationVariableTimeBase(weather_station=station, variable=variable_db, variable_time_base=new_time_base)
-                db_session.add(association)
+            print(dict(variable))
+            variable_db: MeteocatVariable = db_session.execute(select(MeteocatVariable).where(MeteocatVariable.code == variable.code)).unique().scalar_one()
+            print(dict(variable_db))
+            for state in variable.meteocat_variable_states:
+                new_state = MeteocatVariableState(state=state)
+                new_state.meteocat_variable_id = variable_db.id
+                new_state.meteocat_weather_station_id = station.id
+                variable_db.meteocat_variable_states.append(new_state)
+            for time_base in variable.meteocat_variable_time_bases:
+                new_time_base = MeteocatVariableTimeBase(time_base=time_base, code=time_base.code)
+                new_time_base.meteocat_variable_id = variable_db.id
+                new_time_base.meteocat_weather_station_id = station.id
+                variable_db.meteocat_variable_time_bases.append(new_time_base)
+            db_session.commit()
         logger.info("Storing relations to database for station: {0:}".format(station.name))
         db_session.commit()
 

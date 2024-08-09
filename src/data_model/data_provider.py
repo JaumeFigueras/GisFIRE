@@ -30,6 +30,7 @@ class DataProvider(Base):
     weather_stations: Mapped[List["WeatherStation"]] = relationship(back_populates="data_provider")
     variables: Mapped[List["Variable"]] = relationship(back_populates="data_provider")
     requests: Mapped[List["Request"]] = relationship(back_populates="data_provider")
+    measures: Mapped[List["Measure"]] = relationship(back_populates="data_provider")
 
     def __init__(self, name: Optional[str] = None, description: Optional[str] = None,
                  url: Optional[str] = None) -> None:
