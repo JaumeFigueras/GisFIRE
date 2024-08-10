@@ -71,7 +71,6 @@ def process_lightnings(db_session: Session, csv_reader: csv.reader, logger: Logg
             logger.info("Processed {0:} records.".format(i))
         i += 1
     logger.info("Committing all {0:} records.".format(i))
-    print("Committing all {0:} records".format(i))
     db_session.commit()
     return year
 
@@ -97,11 +96,11 @@ def process_requests(db_session, year, logger: Logger):
             date = date + datetime.timedelta(hours=1)
             db_session.add(simulated_request)
             if i % 24 == 0:
-                print("Processing day: {0:}".format(date.strftime("%Y-%m-%d")))
+                logger.info("Processing day: {0:}".format(date.strftime("%Y-%m-%d")))
             i += 1
         db_session.commit()
     except SQLAlchemyError as e:
-        print("Error found in record {0:}. Rolling back all changes. Exception text: {1:}".format(i, str(e)))
+        logger.error("Error found in record {0:}. Rolling back all changes. Exception text: {1:}".format(i, str(e)))
         db_session.rollback()
         raise e
 

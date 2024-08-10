@@ -42,9 +42,7 @@ def main(db_session: Session, api_key: str, logger: Logger):
         logger.info("Getting variables from API for station: {0:} - {1:}".format(station.code, station.name))
         variables = get_station_variables_list(api_key, station.code)
         for variable in variables:
-            print(dict(variable))
             variable_db: MeteocatVariable = db_session.execute(select(MeteocatVariable).where(MeteocatVariable.code == variable.code)).unique().scalar_one()
-            print(dict(variable_db))
             for state in variable.meteocat_variable_states:
                 new_state = MeteocatVariableState(state=state)
                 new_state.meteocat_variable_id = variable_db.id

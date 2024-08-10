@@ -1176,14 +1176,12 @@ def test_api_user_put_05(db_session: Session, api: FlaskClient, user_list) -> No
     assert db_session.execute(select(func.count(User.id))).scalar_one() == 2
     old_token = db_session.execute(select(User.token).where(User.username == 'jack')).scalar_one()
     assert old_token == '5678'
-    print(datetime.datetime.now(pytz.utc))
     # Tests the API
     headers = {'Authorization': 'Basic {}'.format(b64encode(b"admin:1234").decode("utf-8"))}
     data = {'token': 'new'}
     response = api.put('/v2/user/jack', headers=headers, data=data)
     assert response.content_type == 'application/json'
     data = json.loads(response.get_data(as_text=True))
-    print(datetime.datetime.now(pytz.utc))
     assert len(data) == 4
     assert data['username'] == 'jack'
     assert data['valid_until'] == '2024-01-01T12:00:00+0000'

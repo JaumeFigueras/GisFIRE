@@ -127,6 +127,5 @@ def meteocat_api_station_variables_multivariable(request: pytest.FixtureRequest)
             with open(json_file, 'r') as file:
                 data = file.read()
                 dct[station] = data
-        print(dct)
         return dct
     return dict()

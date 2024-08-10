@@ -19,7 +19,6 @@ def meteocat_lightnings_csv_reader(request: pytest.FixtureRequest) -> Union[_csv
     """
     if hasattr(request, 'param'):
         year = str(request.param['year']) if 'year' in request.param else None
-        print(year)
         if year is None or year not in ['2000', '2013', '2017']:
             yield None
         else:
