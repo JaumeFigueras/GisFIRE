@@ -63,7 +63,6 @@ def process_measures(db_session: Session, csv_reader: csv.reader, logger: Logger
     for row in csv_reader:
         measure: MeteocatMeasure = MeteocatMeasure()
         try:
-            print(str(row))
             measure.meteocat_id = row[0]
             station_code = str(row[1])
             if station_code not in stations:
@@ -109,6 +108,7 @@ def process_measures(db_session: Session, csv_reader: csv.reader, logger: Logger
                         if station_code == 'Z8':
                             valid_states.append(MeteocatVariableState(code=MeteocatVariableStateCategory.ACTIVE, valid_from=datetime.datetime(1990, 1, 1, 0, 0, 0, tzinfo=pytz.UTC)))
                         else:
+                            logger.error('Error in row: {0:}'.format(str(row)))
                             raise ValueError("No active states for station: {0:} and variable: {1:} found".format(station_code, variable_code))
                     states[station_code + str(variable_code)] = valid_states
                 except SQLAlchemyError as xcpt:  # pragma: no cover
@@ -129,6 +129,7 @@ def process_measures(db_session: Session, csv_reader: csv.reader, logger: Logger
                         if station_code == 'Z8':
                             available_time_bases.append(MeteocatVariableTimeBase(code=MeteocatVariableTimeBaseCategory[time_base_category], valid_from=datetime.datetime(1990, 1, 1, 0, 0, 0, tzinfo=pytz.UTC)))
                         else:
+                            logger.error('Error in row: {0:}'.format(str(row)))
                             raise ValueError("No available time_bases for station: {0:} and variable: {1:} found".format(station_code, variable_code))
                     time_bases[station_code + str(variable_code)] = available_time_bases
                 except SQLAlchemyError as xcpt:  # pragma: no cover
@@ -142,7 +143,8 @@ def process_measures(db_session: Session, csv_reader: csv.reader, logger: Logger
                     if time_base.code == time_base_category:
                         valid = True
             if not valid:
-                raise ValueError("Measure {0:} in CSV out of time base for station {1:} and variable {2:}".format(measure.meteocat_id, station_code, variable_code))
+                logger.error('Error in row: {0:}'.format(str(row)))
+                logger.error("Measure {0:} in CSV out of time base for station {1:} and variable {2:}".format(measure.meteocat_id, station_code, variable_code))
             measure.meteocat_weather_station_id = station.id
             measure.meteocat_variable_id = variable.id
         except ValueError as e:
