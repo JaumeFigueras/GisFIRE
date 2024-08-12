@@ -24,7 +24,6 @@ postgresql_schema = factories.postgresql('postgresql_session', dbname='test', lo
     str(test_folder.parent) + '/src/meteocat/data_model/database/variable.sql',
     str(test_folder.parent) + '/src/meteocat/data_model/database/variable_state.sql',
     str(test_folder.parent) + '/src/meteocat/data_model/database/variable_time_base.sql',
-    str(test_folder.parent) + '/src/meteocat/data_model/database/variable_station_relations.sql',
     str(test_folder.parent) + '/src/data_model/database/measure.sql',
     str(test_folder.parent) + '/src/meteocat/data_model/database/measure.sql',
 ])
@@ -38,6 +37,6 @@ pytest_plugins = [
     'test.fixtures.meteocat.weather_stations',
     'test.fixtures.meteocat.variables',
     'test.fixtures.meteocat.measures.measures',
-    # 'test.fixtures.meteocat.relations.relations',
+    'test.fixtures.meteocat.gisfire_api.api',
     'test.fixtures.meteocat.remote_api.api',
 ]

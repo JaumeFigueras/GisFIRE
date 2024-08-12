@@ -7,7 +7,7 @@ from . import Base
 import datetime
 import pytz
 
-from sqlalchemy import String
+from sqlalchemy import Integer
 from sqlalchemy import Float
 from sqlalchemy import ForeignKey
 from sqlalchemy.orm import relationship
@@ -32,7 +32,7 @@ class Measure(Base, DateTimeMixIn, TimeStampMixIn):
     tzinfo_measure_date_time: str
     # SQLAlchemy columns
     __tablename__ = "measure"
-    id: Mapped[str] = mapped_column('id', String, primary_key=True)
+    id: Mapped[int] = mapped_column('id', Integer, primary_key=True, autoincrement=True)
     value: Mapped[float] = mapped_column('value', Float, nullable=False)
     type: Mapped[str]
     # SQLAlchemy relations

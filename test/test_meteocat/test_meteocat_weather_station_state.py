@@ -45,6 +45,12 @@ def test_meteocat_weather_station_state_01() -> None:
     assert state.tzinfo_valid_from == 'UTC'
     assert state.valid_until == datetime.datetime(2024, 1, 1, 0, 0, 0, tzinfo=pytz.UTC)
     assert state.tzinfo_valid_until == 'UTC'
+    new_state = MeteocatWeatherStationState(state=state)
+    assert new_state.code == MeteocatWeatherStationStateCategory.REPAIR
+    assert new_state.valid_from == datetime.datetime(2024, 1, 1, 0, 0, 0, tzinfo=pytz.UTC)
+    assert new_state.tzinfo_valid_from == 'UTC'
+    assert new_state.valid_until == datetime.datetime(2024, 1, 1, 0, 0, 0, tzinfo=pytz.UTC)
+    assert new_state.tzinfo_valid_until == 'UTC'
 
 
 def test_meteocat_weather_station_state_equals_01() -> None:
@@ -94,3 +100,24 @@ def test_meteocat_weather_station_state_json_parser(meteocat_api_weather_station
     assert element.tzinfo_valid_from == 'UTC'
     assert element.valid_until == datetime.datetime(2002, 10, 29, 5, 0, tzinfo=pytz.UTC)
     assert element.tzinfo_valid_until == 'UTC'
+
+
+def test_meteocat_variable_time_base_json_encoder_01() -> None:
+    """
+    Test the creation of a JSON with the data of a Meteocat Variable time base
+
+    :return: None
+    """
+    state = MeteocatWeatherStationState(code=MeteocatWeatherStationStateCategory.REPAIR,
+                                        valid_from=datetime.datetime(2023, 1, 1, 0, 0, 0, tzinfo=pytz.UTC),
+                                        valid_until=datetime.datetime(2024, 1, 1, 0, 0, 0, tzinfo=pytz.UTC))
+    state_dict = {
+        'id': None,
+        'ts': None,
+        'code': 'REPAIR',
+        'valid_from': "2023-01-01T00:00:00+0000",
+        'valid_until': "2024-01-01T00:00:00+0000",
+        'weather_station_id': None,
+    }
+    assert json.loads(json.dumps(state, cls=MeteocatWeatherStationState.JSONEncoder)) == state_dict
+

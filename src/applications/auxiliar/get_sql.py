@@ -1,34 +1,34 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-import argparse
-import sys
+import argparse  # pragma: no cover
+import sys  # pragma: no cover
 
-from sqlalchemy import create_engine
-from sqlalchemy import URL
-from sqlalchemy import Engine
-from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy.schema import CreateTable
+from sqlalchemy import create_engine  # pragma: no cover
+from sqlalchemy import URL  # pragma: no cover
+from sqlalchemy import Engine  # pragma: no cover
+from sqlalchemy.exc import SQLAlchemyError  # pragma: no cover
+from sqlalchemy.schema import CreateTable  # pragma: no cover
 
-from src.data_model import Base
-from src.data_model.data_provider import DataProvider
-from src.data_model.lightning import Lightning
-from src.data_model.request import Request
-from src.meteocat.data_model.lightning import MeteocatLightning
-from src.data_model.user import User
-from src.data_model.user_access import UserAccess
-from src.data_model.weather_station import WeatherStation
-from src.data_model.variable import Variable
-from src.data_model.measure import Measure
-from src.meteocat.data_model.weather_station import MeteocatWeatherStation
-from src.meteocat.data_model.weather_station import MeteocatWeatherStationState
-from src.meteocat.data_model.variable import MeteocatVariable
-from src.meteocat.data_model.variable import MeteocatVariableState
-from src.meteocat.data_model.variable import MeteocatVariableTimeBase
-from src.meteocat.data_model.measure import MeteocatMeasure
+from src.data_model import Base  # pragma: no cover
+from src.data_model.data_provider import DataProvider  # pragma: no cover
+from src.data_model.lightning import Lightning  # pragma: no cover
+from src.data_model.request import Request  # pragma: no cover
+from src.meteocat.data_model.lightning import MeteocatLightning  # pragma: no cover
+from src.data_model.user import User  # pragma: no cover
+from src.data_model.user_access import UserAccess  # pragma: no cover
+from src.data_model.weather_station import WeatherStation  # pragma: no cover
+from src.data_model.variable import Variable  # pragma: no cover
+from src.data_model.measure import Measure  # pragma: no cover
+from src.meteocat.data_model.weather_station import MeteocatWeatherStation  # pragma: no cover
+from src.meteocat.data_model.weather_station import MeteocatWeatherStationState  # pragma: no cover
+from src.meteocat.data_model.variable import MeteocatVariable  # pragma: no cover
+from src.meteocat.data_model.variable import MeteocatVariableState  # pragma: no cover
+from src.meteocat.data_model.variable import MeteocatVariableTimeBase  # pragma: no cover
+from src.meteocat.data_model.measure import MeteocatMeasure  # pragma: no cover
 
 
-def main(e: Engine):
+def main(e: Engine):  # pragma: no cover
     print(Base.metadata.tables.keys())
     # Base.metadata.create_all(e)
     print(CreateTable(DataProvider.__table__).compile(e))

@@ -61,40 +61,7 @@ class State(Base, DateTimeMixIn, TimeStampMixIn):
         self.valid_from = valid_from
         self.valid_until = valid_until
 
-    def __eq__(self, other: State) -> bool:
-        """
-        Equality comparison, necessary to solve an error in the MeteoCat API
-
-        :param other: The other State to compare
-        :type other: State
-        :return: Self == Other
-        :rtype: bool
-        """
-        if isinstance(other, State):
-            return DateTimeMixIn.__eq__(self, other)
-        else:
-            return False
-
     def __iter__(self):
         yield 'id', self.id
         yield from DateTimeMixIn.__iter__(self)
         yield from TimeStampMixIn.__iter__(self)
-
-    class JSONEncoder(json.JSONEncoder):
-        """
-        JSON Encoder to convert a States to JSON
-        """
-
-        def default(self, obj: object) -> Dict[str, Any]:
-            """
-            Default procedure to create a dictionary with the Lightning data
-
-            :param obj: Object to encode to JSON
-            :type obj: State
-            :return: dict
-            """
-            if isinstance(obj, State):
-                obj: State
-                dct_state = dict(obj)
-                return dct_state
-            return json.JSONEncoder.default(self, obj)  # pragma: no cover

@@ -17,9 +17,14 @@ from src.meteocat.data_model.weather_station import MeteocatWeatherStationCatego
 from src.meteocat.data_model.weather_station import MeteocatWeatherStationState
 from src.meteocat.data_model.weather_station import MeteocatWeatherStationStateCategory
 from src.meteocat.data_model.variable import MeteocatVariable
+from src.meteocat.data_model.variable import MeteocatVariableState
+from src.meteocat.data_model.variable import MeteocatVariableTimeBase
 
 from test.fixtures.database.database import populate_data_providers
 from test.fixtures.database.database import populate_meteocat_weather_stations
+from test.fixtures.database.database import populate_meteocat_variables
+from test.fixtures.database.database import populate_meteocat_variable_states
+from test.fixtures.database.database import populate_meteocat_variable_time_bases
 
 from typing import List
 from typing import Union
@@ -699,23 +704,46 @@ def test_meteocat_weather_station_geojson_encoder_01(db_session: Session, data_p
 @pytest.mark.parametrize('data_provider_list', [
     {'data_providers': ['Meteo.cat', 'Bombers.cat']},
 ], indirect=True)
-@pytest.mark.parametrize('meteocat_weather_station_list', [
-    {'weather_stations': ['CA']},
+@pytest.mark.parametrize('gisfire_weather_station_list', [
+    {'weather_stations': ['all']},
 ], indirect=True)
-@pytest.mark.parametrize('meteocat_api_station_variables_mesurades', [
-    {'weather_stations': ['CA']},
-], indirect=True)
-@pytest.mark.parametrize('meteocat_api_station_variables_auxiliars', [
-    {'weather_stations': ['CA']},
-], indirect=True)
-@pytest.mark.parametrize('meteocat_api_station_variables_multivariable', [
-    {'weather_stations': ['CA']},
-], indirect=True)
-def no_test_meteocat_weather_station_variables_01(db_session: Session, data_provider_list: Union[List[DataProvider], None],
-                 meteocat_weather_station_list: Union[List[MeteocatWeatherStation], None],
-                 meteocat_variables_list: Union[List[MeteocatVariable]],
-                 meteocat_api_station_variables_mesurades: Dict[str, str],
-                 meteocat_api_station_variables_auxiliars: Dict[str, str],
-                 meteocat_api_station_variables_multivariable: Dict[str, str]) -> None:
-    # TODO: Falta codi per guardar variables a la base de dades
-    pass
+def test_weather_station_variables_01(db_session: Session, data_provider_list: Union[List[DataProvider], None],
+                                      gisfire_weather_station_list: Union[List[MeteocatWeatherStation], None],
+                                      gisfire_variables_list: Union[List[MeteocatVariable], None],
+                                      gisfire_variable_states_list: Union[List[MeteocatVariableState], None],
+                                      gisfire_variable_time_bases_list: Union[List[MeteocatVariableTimeBase], None]
+                                      ) -> None:
+    """
+    Tests all is OK
+
+    :param db_session:
+    :param data_provider_list:
+    :param gisfire_weather_station_list:
+    :param gisfire_variables_list:
+    :param gisfire_variable_states_list:
+    :param gisfire_variable_time_bases_list:
+    :return:
+    """
+    # Assert the database is OK
+    assert db_session.execute(select(func.count(DataProvider.name))).scalar_one() == 0
+    assert db_session.execute(select(func.count(MeteocatWeatherStation.id))).scalar_one() == 0
+    assert db_session.execute(select(func.count(MeteocatVariable.id))).scalar_one() == 0
+    assert db_session.execute(select(func.count(MeteocatVariableState.id))).scalar_one() == 0
+    assert db_session.execute(select(func.count(MeteocatVariableTimeBase.id))).scalar_one() == 0
+    populate_data_providers(db_session, data_provider_list)
+    assert db_session.execute(select(func.count(DataProvider.name))).scalar_one() == 2
+    populate_meteocat_weather_stations(db_session, gisfire_weather_station_list)
+    assert db_session.execute(select(func.count(MeteocatWeatherStation.id))).scalar_one() == 241
+    populate_meteocat_variables(db_session, gisfire_variables_list)
+    assert db_session.execute(select(func.count(MeteocatVariable.id))).scalar_one() == 90
+    populate_meteocat_variable_states(db_session, gisfire_variable_states_list)
+    assert db_session.execute(select(func.count(MeteocatVariableState.id))).scalar_one() == 9191
+    populate_meteocat_variable_time_bases(db_session, gisfire_variable_time_bases_list)
+    assert db_session.execute(select(func.count(MeteocatVariableTimeBase.id))).scalar_one() == 12744
+    # Test function
+    station = db_session.execute(select(MeteocatWeatherStation).where(MeteocatWeatherStation.code == 'CA')).unique().scalar_one()
+    variables = station.meteocat_variables
+    assert len(variables) == 23
+
+
+

@@ -1,24 +1,24 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-import argparse
-import sys
-import json
+import argparse  # pragma: no cover
+import sys  # pragma: no cover
+import json  # pragma: no cover
 
-from sqlalchemy import create_engine
-from sqlalchemy import URL
-from sqlalchemy import Engine
-from sqlalchemy import select
-from sqlalchemy.orm import Session
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy import create_engine  # pragma: no cover
+from sqlalchemy import URL  # pragma: no cover
+from sqlalchemy import Engine  # pragma: no cover
+from sqlalchemy import select  # pragma: no cover
+from sqlalchemy.orm import Session  # pragma: no cover
+from sqlalchemy.exc import SQLAlchemyError  # pragma: no cover
 
-from src.meteocat.data_model.weather_station import MeteocatWeatherStation
-from src.meteocat.data_model.variable import MeteocatVariable
-from src.meteocat.data_model.variable import MeteocatVariableState
-from src.meteocat.data_model.variable import MeteocatVariableTimeBase
+from src.meteocat.data_model.weather_station import MeteocatWeatherStation  # pragma: no cover
+from src.meteocat.data_model.variable import MeteocatVariable  # pragma: no cover
+from src.meteocat.data_model.variable import MeteocatVariableState  # pragma: no cover
+from src.meteocat.data_model.variable import MeteocatVariableTimeBase  # pragma: no cover
 
 
-def main(db_session: Session):
+def main(db_session: Session):  # pragma: no cover
     stations = list(db_session.execute(select(MeteocatWeatherStation)).unique().scalars().all())
     with open('meteocat_weather_stations.json', 'w', encoding='utf-8') as f:
         json.dump(stations, f, cls=MeteocatWeatherStation.JSONEncoder, ensure_ascii=False, indent=4)

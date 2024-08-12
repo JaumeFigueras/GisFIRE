@@ -231,8 +231,8 @@ class MeteocatVariableTimeBase(State):
             time_base.valid_from = datetime.datetime.strptime(dct['valid_from'], "%Y-%m-%dT%H:%M:%S%z")
             if dct['valid_until'] is not None:
                 time_base.valid_until = datetime.datetime.strptime(dct['valid_until'], "%Y-%m-%dT%H:%M:%S%z")
-            time_base.meteocat_variable_id = dct['meteocat_variable_id']
-            time_base.meteocat_weather_station_id = dct['meteocat_weather_station_id']
+            time_base.meteocat_variable_id = dct['variable_id']
+            time_base.meteocat_weather_station_id = dct['weather_station_id']
             return time_base
         return None  # pragma: no cover
 
@@ -339,6 +339,23 @@ class MeteocatVariable(Variable):
             variable.decimal_positions = int(dct['decimals'])
             return variable
         return None  # pragma: no cover
+
+    @staticmethod
+    def object_hook_gisfire_api(dct: Dict[str, Any]) -> Union[MeteocatVariable, None]:
+        if all(k in dct for k in ('id', 'name', 'ts', 'code', 'unit', 'acronym', 'category', 'decimal_positions', 'data_provider')):
+            variable = MeteocatVariable()
+            variable.id = dct['id']
+            variable.name = dct['name']
+            variable.code = dct['code']
+            variable.unit = dct['unit']
+            variable.acronym = dct['acronym']
+            variable.category = MeteocatVariableCategory(dct['category'])
+            variable.decimal_positions = dct['decimal_positions']
+            variable.data_provider_name = dct['data_provider']
+            print(dict(variable))
+            return variable
+        return None  # pragma: no cover
+
 
     @staticmethod
     def object_hook_variables_of_station_meteocat_api(dct: Dict[str, Any]) -> Union[MeteocatVariable, MeteocatVariableTimeBase, MeteocatVariableState, None]:

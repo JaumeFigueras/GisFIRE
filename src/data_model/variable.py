@@ -52,4 +52,5 @@ class Variable(Base, TimeStampMixIn):
         """
         yield 'id', self.id
         yield 'name', self.name
+        yield 'data_provider', self.data_provider_name
         yield from TimeStampMixIn.__iter__(self)

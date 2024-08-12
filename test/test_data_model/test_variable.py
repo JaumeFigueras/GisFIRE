@@ -26,4 +26,5 @@ def test_variable_iter_01() -> None:
         'id': None,
         'name': 'var',
         'ts': None,
+        'data_provider': None
     }

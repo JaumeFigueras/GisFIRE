@@ -36,3 +36,28 @@ def meteocat_weather_station_list(request, meteocat_api_weather_stations: str) -
                 station.data_provider_name = "Meteo.cat"
             return weather_stations
     return None
+
+
+@pytest.fixture(scope='function')
+def gisfire_weather_station_list(request, gisfire_api_weather_stations: str) -> Union[List[MeteocatWeatherStation], None]:
+    """
+    Provides the list of data providers to insert in the database requested in the request
+
+    :param request:
+    :param gisfire_api_weather_stations:
+    :return:
+    """
+    if hasattr(request, 'param'):
+        codes: List[str] = request.param['weather_stations'] if 'weather_stations' in request.param else None
+        if codes is not None:
+            stations: List[MeteocatWeatherStation] = json.loads(gisfire_api_weather_stations, cls=NoNoneInList,
+                                                                object_hook=MeteocatWeatherStation.object_hook_gisfire_api)
+            stations_dict = {station.code: station for station in stations}
+            weather_stations: List[MeteocatWeatherStation] = list()
+            if codes[0] == 'all':
+                weather_stations = stations
+            else:
+                for code in codes:
+                    weather_stations.append(stations_dict[code])
+            return weather_stations
+    return None

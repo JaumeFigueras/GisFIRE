@@ -293,7 +293,6 @@ class MeteocatWeatherStation(WeatherStation):
                                                  where(MeteocatVariableState.meteocat_weather_station_id == self.id)).
                     unique().scalars().all())
 
-
     @staticmethod
     def object_hook_meteocat_api(dct: Dict[str, Any]) -> Union[WeatherStation, Dict[str, Any], MeteocatWeatherStation, MeteocatWeatherStationState, None]:
         """
@@ -336,6 +335,47 @@ class MeteocatWeatherStation(WeatherStation):
             state: MeteocatWeatherStationState
             station.meteocat_weather_station_states.append(state)
         return station
+
+    @staticmethod
+    def object_hook_gisfire_api(dct: Dict[str, Any]) -> Union[WeatherStation, Dict[str, Any], MeteocatWeatherStation, MeteocatWeatherStationState, None]:
+        """
+        Decodes a JSON originated dict from the Meteocat API to a Lightning object
+
+        :param dct: Dictionary with the standard parsing of the json library
+        :type dct: dict
+        :return: Lightning
+        """
+        # weather station status dict of the Meteocat API JSON
+        if all(k in dct for k in ('id', 'valid_from', 'valid_until', 'ts', 'code', 'weather_station_id')):
+            state = MeteocatWeatherStationState.object_hook_gisfire_api(dct)
+            return state
+        # Lat-lon coordinates dict of the Meteocat API JSON
+        if all(k in dct for k in ('id', 'name', 'altitude', 'x_4258', 'y_4258', 'data_provider', 'code', 'category',
+                                  'placement', 'municipality_code', 'municipality_name', 'county_code', 'county_name',
+                                  'province_code', 'province_name', 'network_code', 'network_name')):
+            station = MeteocatWeatherStation()
+            station.id = dct['id']
+            station.name = dct['name']
+            station.altitude = dct['altitude']
+            station.x_4258 = dct['x_4258']
+            station.y_4258 = dct['y_4258']
+            station.data_provider_name = dct['data_provider']
+            station.code = dct['code']
+            station.category = MeteocatWeatherStationCategory[dct['category']]
+            station.placement = dct['placement']
+            station.municipality_code = dct['municipality_code']
+            station.municipality_name = dct['municipality_name']
+            station.county_code = dct['county_code']
+            station.county_name = dct['county_name']
+            station.province_code = dct['province_code']
+            station.province_name = dct['province_name']
+            station.network_code = dct['network_code']
+            station.network_name = dct['network_name']
+            for state in dct['states']:
+                state: MeteocatWeatherStationState
+                station.meteocat_weather_station_states.append(state)
+            return station
+        return None  # pragma: no cover
 
     class JSONEncoder(json.JSONEncoder):
         """

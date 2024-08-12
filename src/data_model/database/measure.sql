@@ -1,7 +1,7 @@
 -- meteocat_measure.sql
 
 CREATE TABLE measure (
-        id VARCHAR NOT NULL,
+        id SERIAL NOT NULL,
         value FLOAT NOT NULL,
         type VARCHAR NOT NULL,
         data_provider_name VARCHAR NOT NULL,

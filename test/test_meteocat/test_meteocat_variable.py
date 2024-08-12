@@ -97,6 +97,7 @@ def test_variable_iter_01() -> None:
         'category': 'DAT',
         'decimal_positions': 3,
         'ts': None,
+        'data_provider': None,
     }
 
 
@@ -294,6 +295,83 @@ def test_variable_json_parser_06(meteocat_api_station_variables_multivariable) -
         assert time_base.tzinfo_valid_until is None
 
 
+@pytest.mark.parametrize('meteocat_api_station_variables_multivariable', [{'weather_stations': ['CA']}], indirect=True)
+def test_variable_json_parser_06(meteocat_api_station_variables_multivariable) -> None:
+    """
+    Tests the METEOCAT API parsing of a variable of a specific station (variables calculades multivariable)
+
+    :param meteocat_api_station_variables_multivariable:
+    :return:
+    """
+    for key, data in meteocat_api_station_variables_multivariable.items():
+        variables: List[MeteocatVariable] = json.loads(data, cls=NoNoneInList,
+                                                       object_hook=MeteocatVariable.object_hook_variables_of_station_meteocat_api)
+        assert len(variables) == 1
+        for variable in variables:
+            assert isinstance(variable, MeteocatVariable)
+        variable = variables[0]
+        assert variable.name == 'Evapotranspiració de referència'
+        assert variable.code == 6006
+        assert variable.unit == 'mm'
+        assert variable.acronym == 'ETo'
+        assert variable.category == MeteocatVariableCategory.CMV
+        assert variable.decimal_positions == 2
+        assert len(variable.meteocat_variable_states) == 0
+        assert len(variable.meteocat_variable_time_bases) == 1
+        time_base = variable.meteocat_variable_time_bases[0]
+        assert time_base.code == MeteocatVariableTimeBaseCategory.HO
+        assert time_base.valid_from == datetime.datetime(1995, 12, 1, 17, 30, tzinfo=pytz.UTC)
+        assert time_base.tzinfo_valid_from == 'UTC'
+        assert time_base.valid_until is None
+        assert time_base.tzinfo_valid_until is None
+
+
+@pytest.mark.parametrize('meteocat_api_station_variables_auxiliars', [{'weather_stations': ['CA']}], indirect=True)
+def test_variable_json_parser_07(meteocat_api_station_variables_auxiliars) -> None:
+    """
+    Tests the METEOCAT API parsing of a variable of a specific station (variables auxiliars) with a dataFi in a Time
+    Base because there is not any in the default api calls
+
+    :param meteocat_api_station_variables_auxiliars:
+    :return:
+    """
+    for key, data in meteocat_api_station_variables_auxiliars.items():
+        data = data.replace('"basesTemporals":[{"codi":"DM","dataInici":"2007-07-01T17:40Z","dataFi":null}]',
+                            '"basesTemporals":[{"codi":"DM","dataInici":"2007-07-01T17:40Z","dataFi":"2017-07-01T17:40Z"}]')
+        variables: List[MeteocatVariable] = json.loads(data, cls=NoNoneInList,
+                                                       object_hook=MeteocatVariable.object_hook_variables_of_station_meteocat_api)
+        assert len(variables) == 2
+        for variable in variables:
+            assert isinstance(variable, MeteocatVariable)
+        variable = variables[0]
+        assert variable.name == 'Precipitació acumulada en 10 min'
+        assert variable.code == 900
+        assert variable.unit == 'mm'
+        assert variable.acronym == 'PPT10min'
+        assert variable.category == MeteocatVariableCategory.AUX
+        assert variable.decimal_positions == 1
+        assert len(variable.meteocat_variable_states) == 2
+        state = variable.meteocat_variable_states[0]
+        assert state.code == MeteocatVariableStateCategory.ACTIVE
+        assert state.valid_from == datetime.datetime(2007, 7, 1, 17, 40, tzinfo=pytz.UTC)
+        assert state.tzinfo_valid_from == 'UTC'
+        assert state.valid_until == datetime.datetime(2012, 7, 10, 13, 0, tzinfo=pytz.UTC)
+        assert state.tzinfo_valid_until == 'UTC'
+        state = variable.meteocat_variable_states[1]
+        assert state.code == MeteocatVariableStateCategory.DISMANTLED
+        assert state.valid_from == datetime.datetime(2012, 7, 10, 13, 0, tzinfo=pytz.UTC)
+        assert state.tzinfo_valid_from == 'UTC'
+        assert state.valid_until is None
+        assert state.tzinfo_valid_until is None
+        assert len(variable.meteocat_variable_time_bases) == 1
+        time_base = variable.meteocat_variable_time_bases[0]
+        assert time_base.code == MeteocatVariableTimeBaseCategory.DM
+        assert time_base.valid_from == datetime.datetime(2007, 7, 1, 17, 40, tzinfo=pytz.UTC)
+        assert time_base.tzinfo_valid_from == 'UTC'
+        assert time_base.valid_until == datetime.datetime(2017, 7, 1, 17, 40, tzinfo=pytz.UTC)
+        assert time_base.tzinfo_valid_until == 'UTC'
+
+
 @pytest.mark.parametrize('data_provider_list', [
     {'data_providers': ['Meteo.cat', 'Bombers.cat']},
 ], indirect=True)
@@ -325,6 +403,7 @@ def test_meteocat_weather_station_json_encoder_01(db_session: Session, data_prov
             'category': 'DAT',
             'decimal_positions': 1,
             'ts': "2024-01-01T12:00:00+0000",
+            'data_provider': 'Meteo.cat',
         }
         assert json.loads(json.dumps(variable, cls=MeteocatVariable.JSONEncoder)) == variable_dict
         variable = db_session.execute(select(MeteocatVariable).where(MeteocatVariable.category == MeteocatVariableCategory.AUX).order_by(MeteocatVariable.id)).unique().scalars().first()
@@ -337,6 +416,7 @@ def test_meteocat_weather_station_json_encoder_01(db_session: Session, data_prov
             'category': 'AUX',
             'decimal_positions': 1,
             'ts': "2024-01-01T12:00:00+0000",
+            'data_provider': 'Meteo.cat',
         }
         assert json.loads(json.dumps(variable, cls=MeteocatVariable.JSONEncoder)) == variable_dict
         variable = db_session.execute(select(MeteocatVariable).where(MeteocatVariable.category == MeteocatVariableCategory.CMV).order_by(MeteocatVariable.id)).unique().scalars().first()
@@ -349,6 +429,7 @@ def test_meteocat_weather_station_json_encoder_01(db_session: Session, data_prov
             'category': 'CMV',
             'decimal_positions': 2,
             'ts': "2024-01-01T12:00:00+0000",
+            'data_provider': 'Meteo.cat',
         }
         assert json.loads(json.dumps(variable, cls=MeteocatVariable.JSONEncoder)) == variable_dict
 

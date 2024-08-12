@@ -26,7 +26,7 @@ def meteocat_measures_csv_reader(request: pytest.FixtureRequest) -> Union[_csv.r
             csv_file: str = os.path.join(str(current_dir), os.path.join("csvs", "xema-{0:}-short.csv".format(year)))
             try:
                 csv_file: TextIO = open(csv_file)
-                reader: _csv.reader = csv.reader(csv_file, delimiter=';')
+                reader: _csv.reader = csv.reader(csv_file, delimiter=',')
                 yield reader
                 csv_file.close()
             except Exception as ex:
