@@ -39,6 +39,8 @@ def main(db_session: Session, api_key: str, logger: Logger):
     logger.info("Getting stations from API.")
     stations = db_session.execute(select(MeteocatWeatherStation)).unique().scalars().all()
     for station in stations:
+        if station.code == 'Z8':
+            continue
         logger.info("Getting variables from API for station: {0:} - {1:}".format(station.code, station.name))
         variables = get_station_variables_list(api_key, station.code)
         for variable in variables:
