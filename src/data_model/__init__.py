@@ -17,3 +17,4 @@ from src.data_model.lightning import *  # noqa: E402
 from src.data_model.weather_station import *  # noqa: E402
 from src.data_model.variable import *  # noqa: E402
 from src.data_model.request import *  # noqa: E402
+from src.data_model.wildfire_ignition import *  # noqa: E402
