@@ -398,7 +398,7 @@ def test_process_measures_07(db_session: Session, meteocat_measures_csv_reader: 
                              gisfire_variables_list: Union[List[MeteocatVariable], None],
                              gisfire_variable_states_list: Union[List[MeteocatVariableState], None],
                              gisfire_variable_time_bases_list: Union[List[MeteocatVariableTimeBase], None],
-                             ) -> None:
+                             caplog) -> None:
     """
     Tests missing time base type in variable measure
 
@@ -439,5 +439,6 @@ def test_process_measures_07(db_session: Session, meteocat_measures_csv_reader: 
         time_base.code = MeteocatVariableTimeBaseCategory.D5
     db_session.commit()
     # Test function
-    with pytest.raises(ValueError):
-        process_measures(db_session, meteocat_measures_csv_reader, logger)
+    process_measures(db_session, meteocat_measures_csv_reader, logger)
+    assert len([record for record in caplog.records if record.levelname == 'ERROR']) == 6
+

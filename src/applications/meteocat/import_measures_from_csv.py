@@ -121,7 +121,7 @@ def process_measures(db_session: Session, csv_reader: csv.reader, logger: Logger
                 if (valid_state.valid_from <= measure_date and valid_state.valid_until is None) or (valid_state.valid_from <= measure_date <= valid_state.valid_until):
                     valid = True
             if not valid:
-                raise ValueError("Measure {0:} in CSV out of validity range for station {1:} and variable {2:}".format(measure.meteocat_id, station_code, variable_code))
+                logger.error("Measure {0:} in CSV out of validity range for station {1:} and variable {2:}".format(measure.meteocat_id, station_code, variable_code))
             if (station_code + str(variable_code)) not in time_bases:
                 try:
                     available_time_bases = list(db_session.execute(select(MeteocatVariableTimeBase).where(MeteocatVariableTimeBase.meteocat_weather_station_id == station.id).where(MeteocatVariableTimeBase.meteocat_variable_id == variable.id)).scalars())

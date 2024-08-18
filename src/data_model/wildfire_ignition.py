@@ -55,11 +55,11 @@ class WildfireIgnition(Base, LocationMixIn, DateTimeMixIn, TimeStampMixIn):
     geometry_4326: Union[str, Point]
     # Metaclass date_time attributes
     __date__ = [
-        {'name': 'date_time', 'nullable': False}
+        {'name': 'start_date_time', 'nullable': False}
     ]
     # Type hint for generated attributes by the metaclass
-    date_time: datetime.datetime
-    tzinfo_date_time: str
+    start_date_time: datetime.datetime
+    tzinfo_start_date_time: str
     # SQLAlchemy columns
     __tablename__ = "wildfire_ignition"
     id: Mapped[int] = mapped_column('id', Integer, primary_key=True, autoincrement=True)
@@ -77,10 +77,12 @@ class WildfireIgnition(Base, LocationMixIn, DateTimeMixIn, TimeStampMixIn):
     }
 
     def __init__(self, name: Optional[str] = None, ignition_cause: Optional[WildfireIgnitionCategory] = None,
-                 longitude_epsg_4326: Optional[float] = None, latitude_epsg_4326: Optional[float] = None) -> None:
+                 start_date_time: Optional[datetime.datetime] = None, longitude_epsg_4326: Optional[float] = None,
+                 latitude_epsg_4326: Optional[float] = None) -> None:
         super().__init__()
         self.name = name
         self.ignition_cause = ignition_cause
+        self.start_date_time = start_date_time
         self.x_4326 = longitude_epsg_4326
         self.y_4326 = latitude_epsg_4326
 

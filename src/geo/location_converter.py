@@ -33,10 +33,10 @@ class LocationConverter:
                 return
         if (getattr(obj, self.src_x_attr) is not None) and (getattr(obj, self.src_y_attr) is not None):
             setattr(obj, self.src_geom_attr, "SRID={2:};POINT({0:} {1:})".format(getattr(obj, self.src_x_attr), getattr(obj, self.src_y_attr), self.src_epsg))
-            transformer = Transformer.from_crs("EPSG:{0:}".format(self.src_epsg), "EPSG:{0:}".format(self.dst_epsg))
+            transformer = Transformer.from_crs("EPSG:{0:}".format(self.src_epsg), "EPSG:{0:}".format(self.dst_epsg), always_xy=True)
             tmp_x, tmp_y = transformer.transform(getattr(obj, self.src_x_attr), getattr(obj, self.src_y_attr))
             setattr(obj, self.dst_x_attr, tmp_x)
             setattr(obj, self.dst_y_attr, tmp_y)
-            setattr(obj, self.dst_geom_attr, "SRID={2};POINT({0:} {1:})".format(tmp_x,tmp_y, self.dst_epsg))
+            setattr(obj, self.dst_geom_attr, "SRID={2};POINT({0:} {1:})".format(tmp_x, tmp_y, self.dst_epsg))
 
 

@@ -302,9 +302,9 @@ def test_lightning_01() -> None:
     assert lightning.x_4258 == 2.18969857
     assert lightning.y_4258 == 41.77052639
     assert lightning.geometry_4258 == "SRID=4258;POINT(2.18969857 41.77052639)"
-    assert lightning.x_25831 == 5185363.987287801
-    assert lightning.y_25831 == 311007.0448608123
-    assert lightning.geometry_25831 == "SRID=25831;POINT(5185363.987287801 311007.0448608123)"
+    assert lightning.x_25831 == 432651.9440920378
+    assert lightning.y_25831 == 4624615.796608334
+    assert lightning.geometry_25831 == "SRID=25831;POINT(432651.9440920378 4624615.796608334)"
 
 
 def test_lightning_02() -> None:
@@ -394,9 +394,9 @@ def test_lightning_latitude_etrs89_01() -> None:
     assert lightning.x_4326 == 2.18969857
     assert lightning.y_4326 == 41.77052639
     assert lightning.geometry_4326 == "SRID=4326;POINT(2.18969857 41.77052639)"
-    assert lightning.x_25831 == 5185363.987287801
-    assert lightning.y_25831 == 311007.0448608123
-    assert lightning.geometry_25831 == "SRID=25831;POINT(5185363.987287801 311007.0448608123)"
+    assert lightning.x_25831 == 432651.9440920378
+    assert lightning.y_25831 == 4624615.796608334
+    assert lightning.geometry_25831 == "SRID=25831;POINT(432651.9440920378 4624615.796608334)"
     lightning.y_4258 = None
     lightning.x_4258 = 23.45
     assert lightning.x_4258 == 23.45
@@ -486,9 +486,9 @@ def test_lightning_longitude_etrs89_01() -> None:
     assert lightning.x_4326 == 2.18969857
     assert lightning.y_4326 == 41.77052639
     assert lightning.geometry_4326 == "SRID=4326;POINT(2.18969857 41.77052639)"
-    assert lightning.x_25831 == 5185363.987287801
-    assert lightning.y_25831 == 311007.0448608123
-    assert lightning.geometry_25831 == "SRID=25831;POINT(5185363.987287801 311007.0448608123)"
+    assert lightning.x_25831 == 432651.9440920378
+    assert lightning.y_25831 == 4624615.796608334
+    assert lightning.geometry_25831 == "SRID=25831;POINT(432651.9440920378 4624615.796608334)"
     lightning.x_4258 = None
     lightning.y_4258 = 23.45
     assert lightning.x_4258 is None
@@ -532,7 +532,7 @@ def test_lightning_geometry_etrs89_01() -> None:
                                   longitude_epsg_4258=2.18969857)
     assert lightning.geometry_4258 == "SRID=4258;POINT(2.18969857 41.77052639)"
     assert lightning.geometry_4326 == "SRID=4326;POINT(2.18969857 41.77052639)"
-    assert lightning.geometry_25831 == "SRID=25831;POINT(5185363.987287801 311007.0448608123)"
+    assert lightning.geometry_25831 == "SRID=25831;POINT(432651.9440920378 4624615.796608334)"
 
 
 @pytest.mark.parametrize('data_provider_list', [{'data_providers': ['Meteo.cat']},], indirect=True)
@@ -551,8 +551,8 @@ def test_geometries_01(db_session: Session, data_provider_list: Union[List[DataP
     assert point.x == 2.18969857
     assert point.y == 41.77052639
     point: Point = lightning.geometry_25831
-    assert point.x == 5185363.987287801
-    assert point.y == 311007.0448608123
+    assert point.x == 432651.9440920378
+    assert point.y == 4624615.796608334
     point: Point = lightning.geometry_4326
     assert point.x == 2.18969857
     assert point.y == 41.77052639
@@ -582,8 +582,8 @@ def test_iter_01() -> None:
         'municipality_code': '08233',
         'x_4258': 2.18969857,
         'y_4258': 41.77052639,
-        'x_25831': 5185363.987287801,
-        'y_25831': 311007.0448608123,
+        'x_25831': 432651.9440920378,
+        'y_25831': 4624615.796608334,
         'data_provider': None
     }
 
@@ -617,7 +617,7 @@ def test_iter_02(db_session: Session, data_provider_list: Union[List[DataProvide
         'municipality_code': '08233',
         'x_4258': 2.18969857,
         'y_4258': 41.77052639,
-        'x_25831': 5185363.987287801,
-        'y_25831': 311007.0448608123,
+        'x_25831': 432651.9440920378,
+        'y_25831': 4624615.796608334,
         'data_provider': 'Meteo.cat'
     }

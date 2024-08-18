@@ -402,9 +402,9 @@ def test_meteocat_weather_station_01() -> None:
     assert station.province_name == 'PROV'
     assert station.network_code == '1'
     assert station.network_name == 'XEMA'
-    assert station.x_25831 == 5131215.529498735
-    assert station.y_25831 == 308107.46729102544
-    assert station.geometry_25831 == "SRID=25831;POINT(5131215.529498735 308107.46729102544)"
+    assert station.x_25831 == 431520.6685930927
+    assert station.y_25831 == 4582380.322073667
+    assert station.geometry_25831 == "SRID=25831;POINT(431520.6685930927 4582380.322073667)"
     assert station.data_provider_name is None
 
 
@@ -433,8 +433,8 @@ def test_meteocat_weather_station_dict_01() -> None:
         'province_name': 'PROV',
         'network_code': '1',
         'network_name': 'XEMA',
-        'x_25831': 5131215.529498735,
-        'y_25831': 308107.46729102544,
+        'x_25831': 431520.6685930927,
+        'y_25831': 4582380.322073667,
         'states': [],
         'data_provider': None,
         'ts': None,
@@ -477,8 +477,8 @@ def test_meteocat_weather_station_dict_02(db_session: Session, data_provider_lis
             'province_name': 'Lleida',
             'network_code': '1',
             'network_name': 'XEMA',
-            'x_25831': 5213867.008915531,
-            'y_25831': 225755.54260222084,
+            'x_25831': 382735.30061883596,
+            'y_25831': 4645612.566118578,
             'states': [
                 {
                     'code': 'ACTIVE',
@@ -533,9 +533,9 @@ def test_meteocat_weather_station_json_parser(meteocat_api_weather_stations: str
     assert station.province_name == 'Barcelona'
     assert station.network_code == '1'
     assert station.network_name == 'XEMA'
-    assert station.x_25831 == 5131215.529498735
-    assert station.y_25831 == 308107.46729102544
-    assert station.geometry_25831 == "SRID=25831;POINT(5131215.529498735 308107.46729102544)"
+    assert station.x_25831 == 431520.6685930927
+    assert station.y_25831 == 4582380.322073667
+    assert station.geometry_25831 == "SRID=25831;POINT(431520.6685930927 4582380.322073667)"
     assert len(station.meteocat_weather_station_states) == 2
     state_1 = station.meteocat_weather_station_states[0]
     assert isinstance(state_1, MeteocatWeatherStationState)
@@ -597,8 +597,8 @@ def test_meteocat_weather_station_json_encoder_01(db_session: Session, data_prov
             'province_name': 'Lleida',
             'network_code': '1',
             'network_name': 'XEMA',
-            'x_25831': 5213867.008915531,
-            'y_25831': 225755.54260222084,
+            'x_25831': 382735.30061883596,
+            'y_25831': 4645612.566118578,
             'states': [
                 {
                     'code': 'ACTIVE',
@@ -661,8 +661,8 @@ def test_meteocat_weather_station_geojson_encoder_01(db_session: Session, data_p
                 "altitude": 693.0,
                 "x_4258": 1.5851,
                 "y_4258": 41.95378,
-                "x_25831": 5213867.008915531,
-                "y_25831": 225755.54260222084,
+                'x_25831': 382735.30061883596,
+                'y_25831': 4645612.566118578,
                 "x_4326": 1.5851,
                 "y_4326": 41.95378,
                 "ts": "2024-01-01T12:00:00+0000",

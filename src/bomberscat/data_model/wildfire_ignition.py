@@ -79,15 +79,17 @@ class BomberscatWildfireIgnition(WildfireIgnition):
     __tablename__ = 'bomberscat_wildfire_ignition'
     id: Mapped[int] = mapped_column(ForeignKey("wildfire_ignition.id"), primary_key=True)
     region: Mapped[str] = mapped_column('region', String, nullable=False)
-    burned_surface: Mapped[float] = mapped_column('burned_surface', Float)
+    burned_surface: Mapped[float] = mapped_column('burned_surface', Float, nullable=False, default=0.0)
     validation_level: Mapped[BomberscatValidationLevelCategory] = mapped_column('validation_level', Enum(BomberscatValidationLevelCategory, name='bomberscat_validation_level_category'), nullable=False)
+    service_id: Mapped[str] = mapped_column('service_id', String, nullable=True)
     # SQLAlchemy Inheritance options
     __mapper_args__ = {
         "polymorphic_identity": "meteocat_weather_station",
     }
 
     def __init__(self, name: Optional[str] = None, ignition_cause: Optional[WildfireIgnitionCategory] = None,
-                 x_epsg_25831: Optional[float] = None, y_epsg_25831: Optional[float] = None,
+                 start_date_time: Optional[datetime.datetime] = None, x_epsg_25831: Optional[float] = None,
+                 y_epsg_25831: Optional[float] = None,
                  region: Optional[str] = None, burned_surface: Optional[float] = None,
                  validation_level: Optional[BomberscatValidationLevelCategory] = None) -> None:
         """
@@ -100,7 +102,7 @@ class BomberscatWildfireIgnition(WildfireIgnition):
         :param burned_surface:
         :param validation_level:
         """
-        super().__init__(name, ignition_cause)
+        super().__init__(name, ignition_cause, start_date_time)
         self.x_25831 = x_epsg_25831
         self.y_25831 = y_epsg_25831
         self.region = region
@@ -125,17 +127,18 @@ class BomberscatWildfireIgnition(WildfireIgnition):
         # Lat-lon coordinates dict of the Meteocat API JSON
         if all(k in dct for k in ('id', 'name', 'ignition_cause', 'region', 'burned_surface', 'validation_level',
                                   'data_provider', 'x_4326', 'y_4326', 'x_25831', 'y_25831', 'x_4258', 'y_4258',
-                                  'date_time', 'ts')):
+                                  'start_date_time', 'ts')):
             ignition = BomberscatWildfireIgnition()
             ignition.id = dct['id']
             ignition.name = dct['name']
             ignition.ignition_cause = dct['ignition_cause']
-            ignition.x_25831 = dct['x_4258']
-            ignition.y_25831 = dct['y_4258']
+            ignition.x_25831 = dct['x_25831']
+            ignition.y_25831 = dct['y_25831']
             ignition.data_provider_name = dct['data_provider']
-            ignition.date_time = datetime.datetime.strptime(dct['date_time'], "%Y-%m-%dT%H:%M:%S%z")
+            ignition.start_date_time = datetime.datetime.strptime(dct['start_date_time'], "%Y-%m-%dT%H:%M:%S%z")
             ignition.validation_level = BomberscatValidationLevelCategory[dct['validation_level']]
             ignition.burned_surface = dct['burned_surface']
+            ignition.region = dct['region']
             return ignition
         return None  # pragma: no cover
 

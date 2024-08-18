@@ -21,6 +21,7 @@ from src.meteocat.data_model.weather_station import MeteocatWeatherStation
 from src.meteocat.data_model.variable import MeteocatVariable
 from src.meteocat.data_model.variable import MeteocatVariableState
 from src.meteocat.data_model.variable import MeteocatVariableTimeBase
+from src.bomberscat.data_model.wildfire_ignition import BomberscatWildfireIgnition
 from src.data_model import Base
 
 from typing import Any
@@ -155,6 +156,16 @@ def populate_meteocat_variable_time_bases(db_session: Session, meteocat_variable
     if meteocat_variable_time_bases is not None:
         db_session.add_all(meteocat_variable_time_bases)
         db_session.commit()
+
+
+def populate_bomberscat_wildfire_ignitions(db_session: Session, bomberscat_wildfire_ignitions: Union[List[BomberscatWildfireIgnition], None]) -> None:
+    """
+    Adds data providers data to the database
+    """
+    if bomberscat_wildfire_ignitions is not None:
+        db_session.add_all(bomberscat_wildfire_ignitions)
+        db_session.commit()
+
 
 #
 # def populate_meteocat_assoc_states(db_session: Session, meteocat_assoc_states: Union[List[MeteocatAssociationStationVariableState], None]) -> None:

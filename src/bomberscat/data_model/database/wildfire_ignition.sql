@@ -13,6 +13,7 @@ CREATE TABLE bomberscat_wildfire_ignition (
         region VARCHAR NOT NULL,
         burned_surface FLOAT NOT NULL,
         validation_level bomberscat_validation_level_category NOT NULL,
+        service_id VARCHAR,
         PRIMARY KEY (id),
         FOREIGN KEY(id) REFERENCES wildfire_ignition (id)
 )
