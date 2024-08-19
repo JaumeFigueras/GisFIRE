@@ -374,3 +374,52 @@ def test_bomberscat_wildfire_ignition_json_encoder_01(db_session: Session,
         assert json.loads(json.dumps(station, cls=BomberscatWildfireIgnition.JSONEncoder)) == ignition_dict
 
 
+@pytest.mark.parametrize('data_provider_list', [
+    {'data_providers': ['Meteo.cat', 'Bombers.cat']},
+], indirect=True)
+def test_meteocat_weather_station_geojson_encoder_01(db_session: Session, data_provider_list: Union[List[DataProvider], None],
+                                                     bomberscat_wildfire_ignitions_list: List[BomberscatWildfireIgnition],
+                                                     patch_postgresql_time) -> None:
+    """
+    TODO
+    :param db_session:
+    :param data_provider_list:
+    :param bomberscat_wildfire_ignitions_list:
+    :param patch_postgresql_time:
+    :return:
+    """
+    with patch_postgresql_time("2024-01-01 12:00:00", tzinfo=pytz.UTC, tick=False):
+        assert db_session.execute(select(func.count(DataProvider.name))).scalar_one() == 0
+        assert db_session.execute(select(func.count(BomberscatWildfireIgnition.id))).scalar_one() == 0
+        populate_data_providers(db_session, data_provider_list)
+        populate_bomberscat_wildfire_ignitions(db_session, bomberscat_wildfire_ignitions_list)
+        assert db_session.execute(select(func.count(DataProvider.name))).scalar_one() == 2
+        assert db_session.execute(select(func.count(BomberscatWildfireIgnition.id))).scalar_one() == 4
+        ignition = db_session.execute(select(BomberscatWildfireIgnition).where(BomberscatWildfireIgnition.id == 1)).unique().scalar_one()
+        ignition_dict = {
+            "type": "Feature",
+            "id": 1,
+            "geometry": {
+                "type": "Point",
+                "coordinates": [0.21445579662077788, 41.12865189782346]
+            },
+            "properties": {
+                "id": 1,
+                "name": "Batea - Pinyeres",
+                "ignition_cause": "LIGHTNING",
+                "x_25831": 266175.0,
+                "y_25831": 4556779.0,
+                "x_4258": 0.21445579662077788,
+                "y_4258": 41.12865189782346,
+                "x_4326": 0.21445579662077788,
+                "y_4326": 41.12865189782346,
+                "start_date_time": "2006-06-09T20:24:00+0200",
+                "ts": "2024-01-01T12:00:00+0000",
+                "data_provider": "Bombers.cat",
+                "region": "RETE",
+                "validation_level": "NONE",
+                "burned_surface": 0.0,
+            }
+        }
+        assert json.loads(json.dumps(ignition, cls=BomberscatWildfireIgnition.GeoJSONEncoder)) == ignition_dict
+

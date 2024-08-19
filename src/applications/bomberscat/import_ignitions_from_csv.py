@@ -16,9 +16,6 @@ from sqlalchemy import Engine
 from sqlalchemy import create_engine
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
-from sqlalchemy import select
-from sqlalchemy import func
-
 
 from src.bomberscat.data_model.wildfire_ignition import BomberscatWildfireIgnition
 from src.bomberscat.data_model.wildfire_ignition import BomberscatValidationLevelCategory
@@ -27,10 +24,10 @@ from src.data_model.wildfire_ignition import WildfireIgnitionCategory
 from typing import TextIO
 
 
-def process_ignitions(db_session: Session, csv_reader: csv.reader, logger: Logger):
+def process_ignitions(db_session: Session, csv_reader: csv.reader, logger: Logger) -> None:
     """
-    Process a CSV file with the lightning information (the CSV file is obtained from MeteoCat) and stores in a database.
-    In case of error the data insertions are rolled back.
+    Process a CSV file with the ignitions information (the CSV file is provided by Bombers of Catalonia) and stores them
+    a database. In case of error the data insertions are rolled back.
 
     :param db_session: SQLAlchemy database session
     :type db_session: sqlalchemy.orm.Session
@@ -38,10 +35,9 @@ def process_ignitions(db_session: Session, csv_reader: csv.reader, logger: Logge
     :type csv_reader: csvs.Reader
     :param logger: Logger to log progress or errors
     :type logger: Logger
-    :return: The processed year
-    :rtype: int
+    :return: None
     """
-    logger.info("Starting lightning import to database.")
+    logger.info("Starting ignition import to database.")
     next(csv_reader)  # Remove the header
     i: int = 0
     for row in csv_reader:
@@ -72,7 +68,7 @@ def process_ignitions(db_session: Session, csv_reader: csv.reader, logger: Logge
                 ignition.validation_level = BomberscatValidationLevelCategory.UNUSABLE
             ignition.ignition_cause = WildfireIgnitionCategory.LIGHTNING
             ignition.data_provider_name = 'Bombers.cat'
-        except ValueError as e:
+        except ValueError as e:  # pragma: no cover
             logger.error("Error found in record {0:}. Rolling back all changes. Exception text: {1:}".format(i, str(e)))
             db_session.rollback()
             raise e

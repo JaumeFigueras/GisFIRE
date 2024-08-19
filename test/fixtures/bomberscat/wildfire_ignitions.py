@@ -25,7 +25,7 @@ def meteocat_ignition_csv_reader() -> Union[_csv.reader, None]:
     current_dir: Path = Path(__file__).parent
     csv_file_name: str = os.path.join(str(current_dir), os.path.join("csvs", "llamps.csv"))
     csv_file: TextIO = open(csv_file_name)
-    reader: _csv.reader = csv.reader(csv_file, delimiter=';')
+    reader: _csv.reader = csv.reader(csv_file, delimiter=',')
     yield reader
     csv_file.close()
 
