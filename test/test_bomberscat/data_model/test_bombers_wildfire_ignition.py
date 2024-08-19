@@ -9,7 +9,6 @@ import json
 from sqlalchemy.orm import Session
 from sqlalchemy import select
 from sqlalchemy import func
-from shapely.geometry import Point
 
 from src.bomberscat.data_model.wildfire_ignition import BomberscatWildfireIgnition
 from src.bomberscat.data_model.wildfire_ignition import BomberscatValidationLevelCategory
@@ -22,6 +21,7 @@ from test.fixtures.database.database import populate_bomberscat_wildfire_ignitio
 
 from typing import Union
 from typing import List
+from typing import Callable
 
 
 def test_bomberscat_wildfire_ignition_01() -> None:
@@ -242,6 +242,11 @@ def test_wildfire_ignition_02() -> None:
 
 
 def test_iter_01() -> None:
+    """
+    Tests the iterator function of a naive ignition to obtain a Dict
+
+    :return None:
+    """
     ignition = BomberscatWildfireIgnition(name='Wildfire', ignition_cause=WildfireIgnitionCategory.REKINDLED_WILDFIRE,
                                           start_date_time=datetime.datetime(2024, 1, 1, 16, 0, 0, tzinfo=pytz.UTC),
                                           x_epsg_25831=330207, y_epsg_25831=4594229, region='RMN',
@@ -268,7 +273,17 @@ def test_iter_01() -> None:
 
 @pytest.mark.parametrize('data_provider_list', [{'data_providers': ['Bombers.cat']},], indirect=True)
 def test_iter_02(db_session: Session, data_provider_list: Union[List[DataProvider], None],
-                 patch_postgresql_time) -> None:
+                 patch_postgresql_time: Callable) -> None:
+    """
+    Tests the iterator function of an ignition stored in a database to obtain a Dict
+
+    :param db_session: SQLAlchemy database session
+    :type db_session: Session
+    :param data_provider_list: List of data providers
+    :type data_provider_list: Union[List[DataProvider], None]
+    :param patch_postgresql_time: Patch PostgreSQL date and time
+    :return None:
+    """
     with patch_postgresql_time("2024-02-01 16:00:00", tzinfo=pytz.UTC, tick=False):
         populate_data_providers(db_session, data_provider_list)
         ignition = BomberscatWildfireIgnition(name='Wildfire',
@@ -302,9 +317,11 @@ def test_iter_02(db_session: Session, data_provider_list: Union[List[DataProvide
 
 def test_bomberscat_wildfire_ignition_json_parser_01(gisfire_api_bomberscat_wildfire_ignition: str) -> None:
     """
-    TODO
-    :param gisfire_api_bomberscat_wildfire_ignition:
-    :return:
+    Tests the parsing of a JSON with a wildfire ignition using the GisFIRE API syntax
+
+    :param gisfire_api_bomberscat_wildfire_ignition: The JSON with a wildfire ignitions
+    :type gisfire_api_bomberscat_wildfire_ignition: str
+    :return: None
     """
     ignitions: List[BomberscatWildfireIgnition] = json.loads(gisfire_api_bomberscat_wildfire_ignition, cls=NoNoneInList,
                                                              object_hook=BomberscatWildfireIgnition.object_hook_gisfire_api)
@@ -337,13 +354,18 @@ def test_bomberscat_wildfire_ignition_json_parser_01(gisfire_api_bomberscat_wild
 def test_bomberscat_wildfire_ignition_json_encoder_01(db_session: Session,
                                                       data_provider_list: Union[List[DataProvider], None],
                                                       bomberscat_wildfire_ignitions_list: List[BomberscatWildfireIgnition],
-                                                      patch_postgresql_time) -> None:
+                                                      patch_postgresql_time: Callable) -> None:
     """
-    TODO
-    :param db_session:
-    :param data_provider_list:
-    :param bomberscat_wildfire_ignitions_list:
-    :param patch_postgresql_time:
+    Tests the generation of a JSON from an ignition in a database using the GisFIRE API syntax
+
+    :param db_session: SQLAlchemy database session
+    :type db_session: Session
+    :param data_provider_list: List of data providers
+    :type data_provider_list: Union[List[DataProvider], None]
+    :param bomberscat_wildfire_ignitions_list: List of bomberscat ignitions
+    :type bomberscat_wildfire_ignitions_list: List[BomberscatWildfireIgnition]
+    :param patch_postgresql_time: Patch PostgreSQL date and time
+    :type patch_postgresql_time: Callable
     :return:
     """
     with patch_postgresql_time("2024-01-01 12:00:00", tzinfo=pytz.UTC, tick=False):
@@ -379,13 +401,18 @@ def test_bomberscat_wildfire_ignition_json_encoder_01(db_session: Session,
 ], indirect=True)
 def test_meteocat_weather_station_geojson_encoder_01(db_session: Session, data_provider_list: Union[List[DataProvider], None],
                                                      bomberscat_wildfire_ignitions_list: List[BomberscatWildfireIgnition],
-                                                     patch_postgresql_time) -> None:
+                                                     patch_postgresql_time: Callable) -> None:
     """
-    TODO
-    :param db_session:
-    :param data_provider_list:
-    :param bomberscat_wildfire_ignitions_list:
-    :param patch_postgresql_time:
+    Tests the generation of a GeoJSON from an ignition in a database using the GisFIRE API syntax
+
+    :param db_session: SQLAlchemy database session
+    :type db_session: Session
+    :param data_provider_list: List of data providers
+    :type data_provider_list: Union[List[DataProvider], None]
+    :param bomberscat_wildfire_ignitions_list: List of bomberscat ignitions
+    :type bomberscat_wildfire_ignitions_list: List[BomberscatWildfireIgnition]
+    :param patch_postgresql_time: Patch PostgreSQL date and time
+    :type patch_postgresql_time: Callable
     :return:
     """
     with patch_postgresql_time("2024-01-01 12:00:00", tzinfo=pytz.UTC, tick=False):

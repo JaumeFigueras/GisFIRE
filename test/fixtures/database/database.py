@@ -6,6 +6,9 @@ import datetime
 import pytz
 
 from freezegun import freeze_time
+from freezegun.api import StepTickTimeFactory
+from freezegun.api import TickingDateTimeFactory
+from freezegun.api import FrozenDateTimeFactory
 from sqlalchemy import create_engine
 from sqlalchemy import Engine
 from sqlalchemy import event
@@ -13,7 +16,6 @@ from sqlalchemy.orm import scoped_session
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.orm import Session
 from contextlib import contextmanager
-
 
 from src.data_model.data_provider import DataProvider
 from src.data_model.user import User
@@ -25,9 +27,10 @@ from src.bomberscat.data_model.wildfire_ignition import BomberscatWildfireIgniti
 from src.data_model import Base
 
 from typing import Any
+from typing import Generator
+from typing import Callable
 from typing import Union
 from typing import List
-from typing import Optional
 
 
 @pytest.fixture(scope='function')
@@ -76,7 +79,7 @@ def db_session(db_session_factory: scoped_session[Union[Session, Any]]) -> Sessi
 
 
 @contextmanager
-def patch_time(time_to_freeze: str, tzinfo: Any = pytz.UTC, tick: bool = True):
+def patch_time(time_to_freeze: str, tzinfo: Any = pytz.UTC, tick: bool = True) -> Generator[StepTickTimeFactory | TickingDateTimeFactory | FrozenDateTimeFactory, Any, None]:
     """
     Time Patcher for timestamps in Postgresql database
     :param time_to_freeze:
@@ -96,7 +99,7 @@ def patch_time(time_to_freeze: str, tzinfo: Any = pytz.UTC, tick: bool = True):
 
 
 @pytest.fixture(scope='function')
-def patch_postgresql_time():
+def patch_postgresql_time() -> Callable:
     """
     Fixture time patcher for timestamps in Postgresql database
     :return:
