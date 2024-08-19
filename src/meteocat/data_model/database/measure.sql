@@ -25,3 +25,6 @@ ALTER TABLE public.meteocat_measure
   OWNER TO gisfire_user
 ;
 GRANT ALL on public.meteocat_measure to gisfire_remoteuser;
+
+CREATE INDEX meteocat_weather_station_id_idx ON meteocat_measure (meteocat_weather_station_id);
+CREATE INDEX meteocat_variable_id_idx ON meteocat_measure (meteocat_variable_id);
