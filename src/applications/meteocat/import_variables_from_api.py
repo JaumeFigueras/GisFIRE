@@ -16,10 +16,21 @@ from sqlalchemy.orm import Session
 from src.meteocat.data_model.variable import MeteocatVariable
 from src.meteocat.remote_api.meteocat_api import get_variables_list
 
-from typing import List, Sequence
+from typing import List
 
 
-def main(db_session: Session, api_key: str, logger: Logger):
+def main(db_session: Session, api_key: str, logger: Logger) -> None:
+    """
+    Gets from the Meteo.cat API and stores in a database the Meteo.cat variables that are used in the weather stations
+
+    :param db_session: SQLAlchemy database session
+    :type db_session: Session
+    :param api_key: Meteo.cat API key
+    :type api_key: str
+    :param logger: Logger instance to record process and errors
+    :type logger: Logger
+    :return: None
+    """
     logger.info("Getting variables from API.")
     variables: List[MeteocatVariable] = get_variables_list(api_key=api_key)
     for variable in variables:

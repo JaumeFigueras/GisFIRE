@@ -17,11 +17,8 @@ from sqlalchemy import create_engine
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 from sqlalchemy import select
-from sqlalchemy import func
-
 
 from src.meteocat.data_model.weather_station import MeteocatWeatherStation
-from src.meteocat.data_model.weather_station import MeteocatWeatherStationStateCategory
 from src.meteocat.data_model.variable import MeteocatVariable
 from src.meteocat.data_model.variable import MeteocatVariableState
 from src.meteocat.data_model.variable import MeteocatVariableStateCategory
@@ -30,30 +27,29 @@ from src.meteocat.data_model.variable import MeteocatVariableTimeBaseCategory
 from src.meteocat.data_model.measure import MeteocatMeasure
 from src.meteocat.data_model.measure import MeteocatMeasureValidityCategory
 
-from src.meteocat.remote_api.meteocat_api import get_lightning_request_equivalent
-
 from typing import TextIO
 from typing import List
 from typing import Dict
 from typing import Union
-from typing import Any
 
 
-def process_measures(db_session: Session, csv_reader: csv.reader, logger: Logger):
+def process_measures(db_session: Session, csv_reader: csv.reader, logger: Logger) -> None:
     """
-    Process a CSV file with the lightning information (the CSV file is obtained from MeteoCat) and stores in a database.
-    In case of error the data insertions are rolled back.
+    Reads the CSV file obtained in the Gencat Dades Obertes with the records of all the measures of the weather
+    stations. Then it stores in the database. The reader checks the validity os the variable and time base except
+    for the Z8 station that has an error in the Meteo.cat API, we consider its data valid. The errors are detected and
+    logged but except for those that are critical, the data is accepted since all detected errors are just data that
+    is in the Meteo.cat database during weather stations dismantling process.
 
     :param db_session: SQLAlchemy database session
-    :type db_session: sqlalchemy.orm.Session
+    :type db_session: Session
     :param csv_reader: CSV file reader
     :type csv_reader: csvs.Reader
     :param logger: Logger to log progress or errors
     :type logger: Logger
-    :return: The processed year
-    :rtype: int
+    :return: None
     """
-    logger.info("Starting lightning import to database.")
+    logger.info("Starting measures import to database.")
     next(csv_reader)  # Remove the header
     i: int = 0  # Counter for information purposes
     stations: Dict[str, MeteocatWeatherStation] = dict()

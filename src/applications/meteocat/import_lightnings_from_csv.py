@@ -16,13 +16,8 @@ from sqlalchemy import Engine
 from sqlalchemy import create_engine
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
-from sqlalchemy import select
-from sqlalchemy import func
 
-
-from src.data_model.lightning import Lightning
 from src.meteocat.data_model.lightning import MeteocatLightning
-from src.data_model.request import Request
 from src.meteocat.remote_api.meteocat_api import get_lightning_request_equivalent
 
 from typing import TextIO
