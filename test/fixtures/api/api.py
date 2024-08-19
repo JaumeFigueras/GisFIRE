@@ -2,6 +2,9 @@
 # -*- coding: utf-8 -*-
 
 import pytest
+
+from sqlalchemy.orm import Session
+
 from src.api import create_app
 
 

@@ -86,9 +86,10 @@ def create_app(db_connection=None, params=None):
         return jsonify(status_code=500), 500
 
     from src.api.user import user
+    from src.api.lightning import lightning
 
     app.register_blueprint(user.bp)
-    # app.register_blueprint(lightning.bp)
+    app.register_blueprint(lightning.bp)
     # app.register_blueprint(stations.bp)
     # app.register_blueprint(data.bp)
 
