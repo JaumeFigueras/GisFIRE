@@ -19,3 +19,5 @@ ALTER TABLE public.measure
   OWNER TO gisfire_user
 ;
 GRANT ALL on public.measure to gisfire_remoteuser;
+
+CREATE INDEX measure_date_time_idx ON measure (measure_date_time);

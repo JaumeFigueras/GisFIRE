@@ -2,11 +2,8 @@
 # -*- coding: utf-8 -*-
 
 import argparse
-import datetime
 import logging
 import sys
-import csv
-import pytz
 
 from logging.handlers import RotatingFileHandler
 from logging import Logger
@@ -17,8 +14,6 @@ from sqlalchemy import create_engine
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 from sqlalchemy import select
-from sqlalchemy import func
-
 
 from src.meteocat.data_model.weather_station import MeteocatWeatherStation
 from src.meteocat.data_model.variable import MeteocatVariable
@@ -26,15 +21,19 @@ from src.meteocat.data_model.variable import MeteocatVariableState
 from src.meteocat.data_model.variable import MeteocatVariableTimeBase
 from src.meteocat.remote_api.meteocat_api import get_station_variables_list
 
-from typing import List
 
-
-def main(db_session: Session, api_key: str, logger: Logger):
+def main(db_session: Session, api_key: str, logger: Logger) -> None:
     """
-    Process a CSV file with the lightning information (the CSV file is obtained from MeteoCat) and stores in a database.
-    In case of error the data insertions are rolled back.
+    Gets from Meteo.cat API the variables with its state and time base for all the stations. The station Z8 had a
+    problem in the API and it is skipped
 
-
+    :param db_session: SQLAlchemy database session
+    :type db_session: Session
+    :param api_key: Meteo.cat API key
+    :type api_key: str
+    :param logger: Logger to store the progress and problems
+    :type logger: Logger
+    :return: None
     """
     logger.info("Getting stations from API.")
     stations = db_session.execute(select(MeteocatWeatherStation)).unique().scalars().all()

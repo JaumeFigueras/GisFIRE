@@ -336,7 +336,7 @@ def test_process_measures_06(db_session: Session, meteocat_measures_csv_reader: 
                              gisfire_variables_list: Union[List[MeteocatVariable], None],
                              gisfire_variable_states_list: Union[List[MeteocatVariableState], None],
                              gisfire_variable_time_bases_list: Union[List[MeteocatVariableTimeBase], None],
-                             ) -> None:
+                             caplog) -> None:
     """
     Tests measure out of validity in variable state
 
@@ -378,9 +378,10 @@ def test_process_measures_06(db_session: Session, meteocat_measures_csv_reader: 
             state.valid_from = datetime.datetime(2023, 1, 1, 0, 0, 0, tzinfo=pytz.UTC)
             state.valid_until = datetime.datetime(2024, 1, 1, 0, 0, 0, tzinfo=pytz.UTC)
     db_session.commit()
+    assert len([record for record in caplog.records if record.levelname == 'ERROR']) == 0
     # Test function
-    with pytest.raises(ValueError):
-        process_measures(db_session, meteocat_measures_csv_reader, logger)
+    process_measures(db_session, meteocat_measures_csv_reader, logger)
+    assert len([record for record in caplog.records if record.levelname == 'ERROR']) == 3
 
 
 @pytest.mark.parametrize('meteocat_measures_csv_reader', [

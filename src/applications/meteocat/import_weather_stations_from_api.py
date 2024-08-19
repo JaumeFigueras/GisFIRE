@@ -16,30 +16,21 @@ from sqlalchemy import Engine
 from sqlalchemy import create_engine
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
-from sqlalchemy import select
-from sqlalchemy import func
 
-
-from src.meteocat.data_model.weather_station import MeteocatWeatherStation
-from src.meteocat.data_model.weather_station import MeteocatWeatherStationState
 from src.meteocat.remote_api.meteocat_api import get_weather_stations_list
 
-from typing import List
 
-
-def main(db_session: Session, api_key: str, logger: Logger):
+def main(db_session: Session, api_key: str, logger: Logger) -> None:
     """
-    Process a CSV file with the lightning information (the CSV file is obtained from MeteoCat) and stores in a database.
-    In case of error the data insertions are rolled back.
+    Gets from the Meteo.cat API all the weather stations and stores in a database
 
     :param db_session: SQLAlchemy database session
     :type db_session: sqlalchemy.orm.Session
-    :param csv_reader: CSV file reader
-    :type csv_reader: csvs.Reader
+    :param api_key: Meteo.cat API key
+    :type api_key: str
     :param logger: Logger to log progress or errors
     :type logger: Logger
-    :return: The processed year
-    :rtype: int
+    :return: None
     """
     logger.info("Getting stations from API.")
     stations = get_weather_stations_list(api_key)
