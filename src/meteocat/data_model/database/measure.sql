@@ -1,6 +1,6 @@
 -- meteocat_measure.sql
 
-CREATE TYPE meteocat_measure_validity_category AS ENUM ('PENDING', 'VALID', 'VALIDATING');
+CREATE TYPE meteocat_measure_validity_category AS ENUM ('NO_DATA', 'PENDING', 'VALID', 'VALIDATING');
 
 CREATE TABLE meteocat_measure (
         meteocat_id VARCHAR NOT NULL,

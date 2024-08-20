@@ -23,6 +23,7 @@ class MeteocatMeasureValidityCategory(str, enum.Enum):
     """
     Defines the three types of measure validity
     """
+    NO_DATA = ''
     PENDING = ' '
     VALID = 'V'
     VALIDATING = 'T'
