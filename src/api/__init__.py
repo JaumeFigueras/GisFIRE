@@ -12,7 +12,33 @@ from sqlalchemy import URL
 from src.api.auth import auth
 from src.data_model.user_access import UserAccess
 
+from flask import Request
+from flask_httpauth import HTTPBasicAuth
+from flask import Response
+from typing import Optional
+from typing import Tuple
+
 db = SQLAlchemy()
+
+
+def error_response(request_obj: Request, auth_obj: HTTPBasicAuth, status_code: int,
+                   message: Optional[str] = None) -> Tuple[Response, int]:
+    """
+    Generates an API error Response with User access information stored in the database
+    :param request_obj:
+    :param auth_obj:
+    :param status_code:
+    :param message:
+    :return:
+    """
+    user_access = UserAccess(request_obj.remote_addr, request_obj.url, request_obj.method, dict(request_obj.values),
+                             status_code, auth_obj.current_user())
+    db.session.add(user_access)
+    db.session.commit()
+    if message is None:
+        return jsonify(status_code=status_code), status_code
+    else:
+        return jsonify({"error": message, "status_code": status_code}), status_code
 
 
 def create_app(db_connection=None, params=None):
@@ -36,54 +62,27 @@ def create_app(db_connection=None, params=None):
 
     @app.errorhandler(400)
     def page_error_400(error):
-
-        user_access = UserAccess(request.remote_addr, request.url, request.method, dict(request.values), 400,
-                                 auth.current_user())
-        db.session.add(user_access)
-        db.session.commit()
-        return jsonify(status_code=400), 400
+        return error_response(request, auth, 400)
 
     @app.errorhandler(401)
     def page_error_401(error):
-
-        user_access = UserAccess(request.remote_addr, request.url, request.method, dict(request.values), 401,
-                                 auth.current_user())
-        db.session.add(user_access)
-        db.session.commit()
-        return jsonify(status_code=401), 401
+        return error_response(request, auth, 401)
 
     @app.errorhandler(403)
     def page_error_403(error):
-
-        user_access = UserAccess(request.remote_addr, request.url, request.method, dict(request.values), 403,
-                                 auth.current_user())
-        db.session.add(user_access)
-        db.session.commit()
-        return jsonify(status_code=403), 403
+        return error_response(request, auth, 403)
 
     @app.errorhandler(404)
     def page_error_404(error):
-        user_access = UserAccess(request.remote_addr, request.url, request.method, dict(request.values), 404,
-                                 auth.current_user())
-        db.session.add(user_access)
-        db.session.commit()
-        return jsonify(status_code=404), 404
+        return error_response(request, auth, 404)
 
     @app.errorhandler(405)
     def page_error_405(error):
-        user_access = UserAccess(request.remote_addr, request.url, request.method, dict(request.values), 405,
-                                 auth.current_user())
-        db.session.add(user_access)
-        db.session.commit()
-        return jsonify(status_code=405), 405
+        return error_response(request, auth, 405)
 
     @app.route('/')
     def main():
-        user_access = UserAccess(request.remote_addr, request.url, request.method, dict(request.values), 500,
-                                 auth.current_user())
-        db.session.add(user_access)
-        db.session.commit()
-        return jsonify(status_code=500), 500
+        return error_response(request, auth, 500)
 
     from src.api.user import user
     from src.api.lightning import lightning

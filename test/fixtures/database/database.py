@@ -19,6 +19,7 @@ from contextlib import contextmanager
 
 from src.data_model.data_provider import DataProvider
 from src.data_model.user import User
+from src.meteocat.data_model.lightning import MeteocatLightning
 from src.meteocat.data_model.weather_station import MeteocatWeatherStation
 from src.meteocat.data_model.variable import MeteocatVariable
 from src.meteocat.data_model.variable import MeteocatVariableState
@@ -125,6 +126,16 @@ def populate_users(db_session: Session, user_list: Union[List[User], None]) -> N
         db_session.commit()
 
 
+def populate_lightnings(db_session: Session, lightning_list: Union[List[MeteocatLightning], None]) -> None:
+    """
+    Adds lightning data to the database
+    """
+    if lightning_list is not None:
+        db_session.add_all(lightning_list)
+        db_session.commit()
+
+
+
 def populate_meteocat_weather_stations(db_session: Session, meteocat_weather_stations: Union[List[MeteocatWeatherStation], None]) -> None:
     """
     Adds data providers data to the database
@@ -170,21 +181,3 @@ def populate_bomberscat_wildfire_ignitions(db_session: Session, bomberscat_wildf
         db_session.commit()
 
 
-#
-# def populate_meteocat_assoc_states(db_session: Session, meteocat_assoc_states: Union[List[MeteocatAssociationStationVariableState], None]) -> None:
-#     """
-#     Adds data providers data to the database
-#     """
-#     if meteocat_assoc_states is not None:
-#         db_session.add_all(meteocat_assoc_states)
-#         db_session.commit()
-#
-#
-# def populate_meteocat_assoc_time_bases(db_session: Session, meteocat_assoc_time_bases: Union[List[MeteocatAssociationStationVariableTimeBase], None]) -> None:
-#     """
-#     Adds data providers data to the database
-#     """
-#     if meteocat_assoc_time_bases is not None:
-#         db_session.add_all(meteocat_assoc_time_bases)
-#         db_session.commit()
-#

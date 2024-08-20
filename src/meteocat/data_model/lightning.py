@@ -5,6 +5,7 @@
 from __future__ import annotations  # Needed to allow returning type of enclosing class PEP 563
 
 import datetime
+import json
 
 from src.data_model.lightning import Lightning
 
@@ -19,6 +20,8 @@ from shapely.geometry import Point
 
 from typing import Optional
 from typing import Union
+from typing import Dict
+from typing import Any
 
 
 class MeteocatLightning(Lightning):
@@ -86,7 +89,5 @@ class MeteocatLightning(Lightning):
         yield "number_of_sensors", self.number_of_sensors
         yield "hit_ground", self.hit_ground
         yield "municipality_code", self.municipality_code
-
-
 
 
