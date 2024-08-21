@@ -1,6 +1,6 @@
 import logging
 import sys
-sys.path.insert(0, '/home/gisfire/soft/GisFIRE/src')
+sys.path.insert(0, '/home/gisfire/soft/GisFIRE')
 from src.api import create_app
 
 logging.basicConfig(stream=sys.stderr)
