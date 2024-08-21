@@ -86,9 +86,11 @@ def create_app(db_connection=None, params=None):
 
     from src.api.user import user
     from src.api.lightning import lightning
+    from src.api.ignition import ignition
 
     app.register_blueprint(user.bp)
     app.register_blueprint(lightning.bp)
+    app.register_blueprint(ignition.bp)
     # app.register_blueprint(stations.bp)
     # app.register_blueprint(data.bp)
 

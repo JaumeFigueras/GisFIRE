@@ -374,7 +374,7 @@ def test_bomberscat_wildfire_ignition_json_encoder_01(db_session: Session,
         populate_data_providers(db_session, data_provider_list)
         populate_bomberscat_wildfire_ignitions(db_session, bomberscat_wildfire_ignitions_list)
         assert db_session.execute(select(func.count(DataProvider.name))).scalar_one() == 2
-        assert db_session.execute(select(func.count(BomberscatWildfireIgnition.id))).scalar_one() == 4
+        assert db_session.execute(select(func.count(BomberscatWildfireIgnition.id))).scalar_one() == 21
         station = db_session.execute(select(BomberscatWildfireIgnition).where(BomberscatWildfireIgnition.id == 1)).unique().scalar_one()
         ignition_dict = {
             "id": 1,
@@ -421,7 +421,7 @@ def test_meteocat_weather_station_geojson_encoder_01(db_session: Session, data_p
         populate_data_providers(db_session, data_provider_list)
         populate_bomberscat_wildfire_ignitions(db_session, bomberscat_wildfire_ignitions_list)
         assert db_session.execute(select(func.count(DataProvider.name))).scalar_one() == 2
-        assert db_session.execute(select(func.count(BomberscatWildfireIgnition.id))).scalar_one() == 4
+        assert db_session.execute(select(func.count(BomberscatWildfireIgnition.id))).scalar_one() == 21
         ignition = db_session.execute(select(BomberscatWildfireIgnition).where(BomberscatWildfireIgnition.id == 1)).unique().scalar_one()
         ignition_dict = {
             "type": "Feature",
