@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 
 import datetime
+import dateutil.parser
 
 from flask import Blueprint
 from flask import jsonify
@@ -42,7 +43,7 @@ def main() -> Tuple[Response, int]:
     from_date: Union[str, datetime.datetime, None] = request.args.get("from")
     if from_date is not None:
         try:
-            from_date = datetime.datetime.strptime(from_date, '%Y-%m-%dT%H:%M:%S%z')
+            from_date = dateutil.parser.isoparse(from_date)
             args['from_date'] = from_date
         except ValueError:
             return error_response(request, auth, 404, "No valid from date provided")

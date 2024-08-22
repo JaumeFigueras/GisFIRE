@@ -20,6 +20,7 @@ from sqlalchemy.orm import Session
 from src.meteocat.data_model.lightning import MeteocatLightning
 from src.bomberscat.data_model.wildfire_ignition import BomberscatWildfireIgnition
 from src.gisfire_api.remote_api import get_bomberscat_ignition_list
+from src.gisfire_api.remote_api import get_meteocat_lightnings_list
 
 from typing import TextIO
 
@@ -61,7 +62,13 @@ if __name__ == "__main__":  # pragma: no cover
                                                  to_date=datetime.datetime(year+1, 1, 1, 0, 0, 0, tzinfo=pytz.UTC),
                                                  order='date:asc')
         for ignition in ignitions:
-            print(year, ignition)
+            data = get_meteocat_lightnings_list(args.username, args.token,
+                                                from_date=ignition.start_date_time-datetime.timedelta(days=14),
+                                                to_date=ignition.start_date_time+datetime.timedelta(days=1),
+                                                order='date:asc', x=ignition.x_25831, y=ignition.y_25831,
+                                                epsg=25831, radius=10000)
+            print(len(data))
+
 
     csv_file.close()
 
