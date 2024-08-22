@@ -46,7 +46,7 @@ def main() -> Tuple[Response, int]:
             from_date = dateutil.parser.isoparse(from_date)
             args['from_date'] = from_date
         except ValueError:
-            return error_response(request, auth, 404, "No valid from date provided")
+            return error_response(request, auth, 404, "No valid from date provided: {}".format(from_date))
     # Check to date
     to_date: Union[str, datetime.datetime, None] = request.args.get("to")
     if to_date is not None:
