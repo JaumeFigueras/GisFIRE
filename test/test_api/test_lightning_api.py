@@ -1351,6 +1351,7 @@ def test_api_lightning_query_08(db_session: Session, api: FlaskClient, user_list
     assert user_access.method == HttpMethods.GET
     assert user_access.params == {**params, 'x': str(x), 'y': str(y), 'epsg': '25831', 'radius': '5000'}
     assert user_access.result == 200
+    assert False
 
 
 @pytest.mark.parametrize('meteocat_lightnings_list', [

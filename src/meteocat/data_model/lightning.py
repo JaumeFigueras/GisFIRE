@@ -93,7 +93,7 @@ class MeteocatLightning(Lightning):
         yield "municipality_code", self.municipality_code
 
     @staticmethod
-    def object_hook_gisfire_api(dct: Dict[str, Any]) -> Union[MeteocatLightning, None]:
+    def object_hook_gisfire_api(dct: Dict[str, Any]) -> Union[MeteocatLightning, Dict[str, Any], None]:
         """
         Decodes a JSON originated dict from the GisFIRE API to a MeteocatLightning object
 
@@ -101,14 +101,18 @@ class MeteocatLightning(Lightning):
         :type dct: dict
         :return: Lightning
         """
-        if all(k in dct for k in ("meteocat_id", "peak_current", "multiplicity", "chi_squared", "ellipse_major_axis",
-                                  "ellipse_minor_axis", "ellipse_angle", "number_of_sensors", "hit_ground",
-                                  "municipality_code", "id", "data_provider", "x_25831", "y_25831", "x_4258", "y_4258",
+
+        if all(k in dct for k in ('lightning', 'distance')):
+            return dct
+        if all(k in dct for k in ("meteocat_id", "peak_current", "multiplicity", "chi_squared",
+                                  "ellipse_major_axis", "ellipse_minor_axis", "ellipse_angle",
+                                  "number_of_sensors", "hit_ground", "municipality_code", "id",
+                                  "data_provider", "x_25831", "y_25831", "x_4258", "y_4258",
                                   "date_time")):
             lightning = MeteocatLightning()
             lightning.meteocat_id = int(dct['meteocat_id'])
             lightning.peak_current = float(dct['peak_current'])
-            lightning.multiplicity = int(dct['multiplicity'])
+            lightning.multiplicity = int(dct['multiplicity']) if dct['multiplicity'] is not None else None
             lightning.chi_squared = float(dct['chi_squared'])
             lightning.ellipse_major_axis = float(dct['ellipse_major_axis'])
             lightning.ellipse_minor_axis = float(dct['ellipse_minor_axis'])

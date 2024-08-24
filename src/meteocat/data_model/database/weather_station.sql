@@ -33,3 +33,4 @@ ALTER TABLE public.meteocat_weather_station
   OWNER TO gisfire_user
 ;
 GRANT ALL on public.meteocat_weather_station to gisfire_remoteuser;
+CREATE INDEX meteocat_weather_station_code_idx ON meteocat_weather_station (meteocat_code);

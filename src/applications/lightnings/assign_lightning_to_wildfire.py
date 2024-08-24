@@ -25,8 +25,6 @@ from src.gisfire_api.remote_api import get_meteocat_lightnings_list
 from typing import TextIO
 
 
-
-
 if __name__ == "__main__":  # pragma: no cover
     # Config the program arguments
     # noinspection DuplicatedCode
@@ -63,11 +61,28 @@ if __name__ == "__main__":  # pragma: no cover
                                                  order='date:asc')
         for ignition in ignitions:
             data = get_meteocat_lightnings_list(args.username, args.token,
-                                                from_date=ignition.start_date_time-datetime.timedelta(days=14),
-                                                to_date=ignition.start_date_time+datetime.timedelta(days=1),
+                                                from_date=ignition.start_date_time-datetime.timedelta(days=7),
+                                                to_date=ignition.start_date_time,
                                                 order='date:asc', x=ignition.x_25831, y=ignition.y_25831,
-                                                epsg=25831, radius=10000)
-            print(len(data))
+                                                epsg=25831, radius=5000)
+            for elem in data:
+                lightning: MeteocatLightning = elem['lightning']
+                distance: float = elem['distance'] / 1000
+                T = (ignition.start_date_time - lightning.date_time).total_seconds() / 3600
+                a = (1 - (T / (24 * 7))) * (1 - (distance / 5))
+                elem['a'] = a
+            mult = 1
+            suma = 0
+            for elem in data:
+                mult = mult * (1 - elem['a']) if elem['a'] > 0 else mult
+                suma = suma + elem['a']
+            for elem in data:
+                elem['B'] = 1 - mult
+                elem['P'] = elem['B'] * (elem['a'] / suma)
+                print(elem['lightning'].meteocat_id, elem['a'], elem['B'], elem['P'])
+
+
+
 
 
     csv_file.close()

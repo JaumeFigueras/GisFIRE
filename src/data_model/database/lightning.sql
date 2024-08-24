@@ -21,4 +21,4 @@ ALTER TABLE public.lightning
   OWNER TO gisfire_user
 ;
 GRANT ALL on public.lightning to gisfire_remoteuser;
-
+CREATE INDEX lightning_date_time_idx ON lightning (date_time);

@@ -1,6 +1,5 @@
 -- lightning.sql
 
-
 CREATE TABLE meteocat_lightning (
         id INTEGER NOT NULL,
         meteocat_id INTEGER NOT NULL,
@@ -31,3 +30,4 @@ ALTER TABLE public.meteocat_lightning
   OWNER TO gisfire_user
 ;
 GRANT ALL on public.meteocat_lightning to gisfire_remoteuser;
+CREATE INDEX meteocat_lightning_meteocat_id_idx ON meteocat_lightning (meteocat_id);
