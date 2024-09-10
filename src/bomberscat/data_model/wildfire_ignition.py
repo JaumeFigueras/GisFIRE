@@ -82,6 +82,7 @@ class BomberscatWildfireIgnition(WildfireIgnition):
     burned_surface: Mapped[float] = mapped_column('burned_surface', Float, nullable=False, default=0.0)
     validation_level: Mapped[BomberscatValidationLevelCategory] = mapped_column('validation_level', Enum(BomberscatValidationLevelCategory, name='bomberscat_validation_level_category'), nullable=False)
     service_id: Mapped[str] = mapped_column('service_id', String, nullable=True)
+    comments: Mapped[str] = mapped_column('comments', String, nullable=True)
     # SQLAlchemy Inheritance options
     __mapper_args__ = {
         "polymorphic_identity": "meteocat_weather_station",

@@ -28,6 +28,7 @@ from src.meteocat.data_model.variable import MeteocatVariableState  # pragma: no
 from src.meteocat.data_model.variable import MeteocatVariableTimeBase  # pragma: no cover
 from src.meteocat.data_model.measure import MeteocatMeasure  # pragma: no cover
 from src.bomberscat.data_model.wildfire_ignition import BomberscatWildfireIgnition  # pragma: no cover
+from src.data_model.experiment import Experiment
 
 
 def main(e: Engine):  # pragma: no cover
@@ -50,6 +51,7 @@ def main(e: Engine):  # pragma: no cover
     print(CreateTable(MeteocatMeasure.__table__).compile(e))
     print(CreateTable(WildfireIgnition.__table__).compile(e))
     print(CreateTable(BomberscatWildfireIgnition.__table__).compile(e))
+    print(CreateTable(Experiment.__table__).compile(e))
 
 
 if __name__ == "__main__":  # pragma: no cover

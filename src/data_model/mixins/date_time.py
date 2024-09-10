@@ -48,8 +48,8 @@ class DateTimeMixIn(object):
                     else:
                         if tzinfo.startswith('tzoffset'):
                             tmp = date_time.astimezone(pytz.UTC)
-                            yield attribute_name, tmp.astimezone(eval(tzinfo)).strftime("%Y-%m-%dT%H:%M:%S%z")
+                            yield attribute_name, tmp.astimezone(eval(tzinfo)).strftime("%Y-%m-%dT%H:%M:%S.%f%z")
                         elif tzinfo.startswith('UTC+') or tzinfo.startswith('UTC-'):
-                            yield attribute_name, date_time.strftime("%Y-%m-%dT%H:%M:%S") + str(tzinfo[3:6]) + str(tzinfo[7:9])
+                            yield attribute_name, date_time.strftime("%Y-%m-%dT%H:%M:%S.%f") + str(tzinfo[3:6]) + str(tzinfo[7:9])
                         else:
-                            yield attribute_name, date_time.astimezone(pytz.timezone(tzinfo)).strftime("%Y-%m-%dT%H:%M:%S%z")
+                            yield attribute_name, date_time.astimezone(pytz.timezone(tzinfo)).strftime("%Y-%m-%dT%H:%M:%S.%f%z")

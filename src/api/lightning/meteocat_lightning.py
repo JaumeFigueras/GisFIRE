@@ -70,7 +70,6 @@ def get_meteocat_lightning(from_date: Optional[datetime.datetime] = None, to_dat
                 else:
                     stmt = stmt.order_by(literal_column('dista').desc())
     stmt = stmt.offset(offset).limit(limit)
-    print(stmt)
     rows = db.session.execute(stmt).all()
     lightnings = list()
     for row in rows:

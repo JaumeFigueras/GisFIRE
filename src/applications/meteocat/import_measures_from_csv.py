@@ -7,6 +7,7 @@ import logging
 import sys
 import csv
 import pytz
+import time
 
 from logging.handlers import RotatingFileHandler
 from logging import Logger
@@ -56,6 +57,8 @@ def process_measures(db_session: Session, csv_reader: csv.reader, logger: Logger
     variables: Dict[int, MeteocatVariable] = dict()
     states: Dict[str, List[MeteocatVariableState]] = dict()
     time_bases: Dict[str, List[MeteocatVariableTimeBase]] = dict()
+    start_time = time.time()
+    i = 0
     for row in csv_reader:
         measure: MeteocatMeasure = MeteocatMeasure()
         try:
@@ -149,6 +152,8 @@ def process_measures(db_session: Session, csv_reader: csv.reader, logger: Logger
             raise e
         measure.data_provider_name = "Meteo.cat"
         db_session.add(measure)
+        if i % 100 == 0:
+            logger.info("Processed {} in {} seconds".format(i, time.time() - start_time))
         if i % 10000 == 0:
             logger.info("Processed {0:} measure records.".format(i))
             logger.info("Committing all {0:} records.".format(i))

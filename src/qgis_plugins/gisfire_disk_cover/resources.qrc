@@ -1,0 +1,6 @@
+<RCC>
+    <qresource prefix="/gisfire_dudcs">
+      <file alias="lightnings.png">/icons/gisfire-lightning-64px.png</file>
+      <file alias="disks.png">/icons/disks-64px.png</file>
+    </qresource>
+</RCC>

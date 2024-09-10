@@ -28,7 +28,9 @@ def main(db_session: Session) -> None:
     i = 0
     lightnings = db_session.execute(select(MeteocatLightning)).scalars()
     for lightning in lightnings:
-        multiplicity = db_session.execute(select(func.count(MeteocatLightning.meteocat_id)).where(MeteocatLightning.meteocat_id == lightning.meteocat_id)).scalar()
+        multiplicity = (db_session.execute(select(func.count(MeteocatLightning.meteocat_id)).
+                                          where(MeteocatLightning.meteocat_id == lightning.meteocat_id)).
+                        scalar())
         lightning.multiplicity = multiplicity
         i += 1
         if i % 10000 == 0:

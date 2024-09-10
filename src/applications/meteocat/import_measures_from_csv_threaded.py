@@ -81,6 +81,7 @@ def populate_shared_data(db_session: Session, shared_data: List):
     shared_data[STATES] = dct_states
     shared_data[TIME_BASES] = dct_time_bases
 
+
 def process_measures(rows: List[Any]) -> None:
     """
     Reads the CSV file obtained in the Gencat Dades Obertes with the records of all the measures of the weather
@@ -101,26 +102,50 @@ def process_measures(rows: List[Any]) -> None:
         my_id = shared_data[PROCESS_ID]
         shared_data[PROCESS_ID] += 1
         logger.info("Process: {} - Processing measures chunk of: {} measures".format(my_id, len(rows)))
-    start_time = time.time()
+    start_time: float = time.time()
     measures: List[Any] = list()
+    stations = {station.code: station.id for key, station in shared_data[STATIONS].items()}
+    variables = {variable.code: variable.id for key, variable in shared_data[VARIABLES].items()}
+    states = dict()
+    for key, states_list in shared_data[STATES].items():
+        new_states = list()
+        for state in states_list:
+            from_date = state.valid_from
+            until_date = state.valid_until
+            new_from_date = datetime.datetime(from_date.year, from_date.month, from_date.day, from_date.hour, from_date.minute, from_date.second, tzinfo=datetime.timezone(datetime.timedelta(seconds=from_date.utcoffset().total_seconds())))
+            new_until_date = datetime.datetime(until_date.year, until_date.month, until_date.day, until_date.hour, until_date.minute, until_date.second, tzinfo=datetime.timezone(datetime.timedelta(seconds=until_date.utcoffset().total_seconds()))) if until_date is not None else None
+            new_state = {'valid_from': new_from_date, 'valid_until': new_until_date}
+            new_states.append(new_state)
+        states[key] = new_states
+    time_bases = dict()
+    for key, time_bases_list in shared_data[TIME_BASES].items():
+        new_time_bases = list()
+        for time_base in time_bases_list:
+            from_date = time_base.valid_from
+            until_date = time_base.valid_until
+            new_from_date = datetime.datetime(from_date.year, from_date.month, from_date.day, from_date.hour, from_date.minute, from_date.second, tzinfo=datetime.timezone(datetime.timedelta(seconds=from_date.utcoffset().total_seconds())))
+            new_until_date = datetime.datetime(until_date.year, until_date.month, until_date.day, until_date.hour, until_date.minute, until_date.second, tzinfo=datetime.timezone(datetime.timedelta(seconds=until_date.utcoffset().total_seconds()))) if until_date is not None else None
+            new_state = {'valid_from': new_from_date, 'valid_until': new_until_date, 'code': MeteocatVariableTimeBaseCategory(time_base.code)}
+            new_time_bases.append(new_state)
+        time_bases[key] = new_time_bases
     for row in rows:
         measure: MeteocatMeasure = MeteocatMeasure()
         try:
             measure.meteocat_id = row[0]
             station_code = str(row[1])
-            if station_code not in shared_data[STATIONS]:
+            if station_code not in stations:
                 with lock:
                     logger.error("Station {0:} in CSV not found in station list".format(station_code))
                     logger.error("Data that caused the error: {}".format(str(row)))
                 continue
-            measure.meteocat_weather_station_id = shared_data[STATIONS][station_code].id
+            measure.meteocat_weather_station_id = stations[station_code]
             variable_code: int = int(row[2])
-            if variable_code not in shared_data[VARIABLES]:
+            if variable_code not in variables:
                 with lock:
                     logger.error("Variable {0:} in CSV not found in variable list".format(variable_code))
                     logger.error("Data that caused the error: {}".format(str(row)))
                 continue
-            measure.meteocat_variable_id = shared_data[VARIABLES][variable_code].id
+            measure.meteocat_variable_id = variables[variable_code]
             utc_tz = pytz.timezone("UTC")
             measure_date: datetime.datetime = datetime.datetime.strptime(row[3], "%d/%m/%Y %I:%M:%S %p")
             measure_date = utc_tz.localize(measure_date)
@@ -136,11 +161,11 @@ def process_measures(rows: List[Any]) -> None:
             measure.validity_state = measure_status
             time_base_category: MeteocatVariableTimeBaseCategory = MeteocatVariableTimeBaseCategory(str(row[7]))
             measure.time_base_category = time_base_category
-            valid_states = shared_data[STATES][station_code + str(variable_code)]
+            measure.data_provider_name = 'Meteo.cat'
+            valid_states = states[station_code + str(variable_code)] if station_code + str(variable_code) in states else []
             valid = False
             for valid_state in valid_states:
-                if (valid_state.valid_from <= measure_date and valid_state.valid_until is None) or (
-                        valid_state.valid_from <= measure_date <= valid_state.valid_until):
+                if (valid_state['valid_from'] <= measure_date and valid_state['valid_until'] is None) or (valid_state['valid_from'] <= measure_date <= valid_state['valid_until']):
                     valid = True
             if not valid:
                 if station_code == 'Z8':
@@ -150,12 +175,12 @@ def process_measures(rows: List[Any]) -> None:
                     logger.warning("Measure {0:} in CSV out of validity range for station {1:} and variable {2:}".
                                    format(measure.meteocat_id, station_code, variable_code))
                     logger.warning("Data that caused the error: {}".format(str(row)))
-            available_time_bases = shared_data[TIME_BASES][station_code + str(variable_code)]
+            available_time_bases = time_bases[station_code + str(variable_code)] if station_code + str(variable_code) in time_bases else []
             valid = False
             for time_base in available_time_bases:
-                if (time_base.valid_from <= measure_date and time_base.valid_until is None) or (
-                        time_base.valid_from <= measure_date <= time_base.valid_until):
-                    if time_base.code == time_base_category:
+                if (time_base['valid_from'] <= measure_date and time_base['valid_until'] is None) or (
+                        time_base['valid_from'] <= measure_date <= time_base['valid_until']):
+                    if time_base['code'] == time_base_category:
                         valid = True
             if not valid:
                 if station_code == 'Z8':
@@ -212,10 +237,7 @@ if __name__ == "__main__":  # pragma: no cover
         sys.exit(-1)
 
     # Set up the CSV file
-    lines = 0
     try:
-        with open(args.file) as f:
-            lines = sum(1 for line in f)
         csv_file: TextIO = open(args.file)
         reader: csv.reader = csv.reader(csv_file, delimiter=',')
     except Exception as ex:
@@ -231,9 +253,6 @@ if __name__ == "__main__":  # pragma: no cover
     shared_data.append(None)
     logger.info("Reading current stations and variables data")
     populate_shared_data(session, shared_data)
-    print(shared_data[STATIONS])
-    print(shared_data[VARIABLES])
-    print(shared_data[STATES])
     session.close()
     # Create the CSV rows to process
     logger.info("Starting read CSV File: {}".format(args.file))
@@ -243,17 +262,18 @@ if __name__ == "__main__":  # pragma: no cover
         idx = 0
         shared_result_list = mg.list()
         csv_rows = list()
-        while (row := next(reader, False)) and (idx < 2000000):
+        row: Any
+        while (idx < 2200000) and (row := next(reader, False)):  # Va primer el IDX pe no llegir la fila
             csv_rows.append(row)
             idx += 1
         if not row:
             end = True
-        logger.info("Finished read CSV File with {0:} records".format(len(csv_rows)))
+        logger.info("Finished read CSV partial file with {0:} records".format(len(csv_rows)))
         # Create the chunks to process in parallel
         logger.info("splitting measures in processable chunks")
-        chunks = [csv_rows[i:i + 10000] for i in range(0, len(csv_rows), 10000)]
+        chunks = [csv_rows[i:i + 100000] for i in range(0, len(csv_rows), 100000)]
         logger.info("Starting processing all measures in parallel")
-        pool = mp.Pool(mp.cpu_count() - 10, initializer=init_pool, initargs=(lock, logger, shared_result_list, shared_data))
+        pool = mp.Pool(mp.cpu_count() - 1, initializer=init_pool, initargs=(lock, logger, shared_result_list, shared_data))
         pool.map(func=process_measures, iterable=chunks)
         pool.close()
         pool.join()
@@ -281,8 +301,8 @@ if __name__ == "__main__":  # pragma: no cover
             logger.error("Error connecting to database: {0:}".format(str(ex)))
             sys.exit(-1)
         logger.info("Starting insert to the database")
-        # session.add_all(processed_measures)
-        # session.commit()
+        session.add_all(processed_measures)
+        session.commit()
         logger.info("Finished insert to the database")
 
 

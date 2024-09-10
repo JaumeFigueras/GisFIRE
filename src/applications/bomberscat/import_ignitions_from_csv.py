@@ -48,7 +48,7 @@ def process_ignitions(db_session: Session, csv_reader: csv.reader, logger: Logge
                 date_time = str(row[1]) + ' 00:00:00'
             else:
                 date_time = str(row[1]) + ' ' + str(row[2])
-            ignition.start_date_time = datetime.datetime.strptime(date_time, '%Y-%m-%d %H:%M:%S').replace(tzinfo=pytz.timezone('Europe/Andorra'))
+            ignition.start_date_time = datetime.datetime.strptime(date_time, '%Y-%m-%d %H:%M:%S').replace(tzinfo=pytz.timezone('Europe/Andorra')) + datetime.timedelta(days=1)
             ignition.x_25831 = float(str(row[3]).replace(',', '.'))
             ignition.y_25831 = float(str(row[4]).replace(',', '.'))
             ignition.name = str(row[5])
@@ -57,7 +57,8 @@ def process_ignitions(db_session: Session, csv_reader: csv.reader, logger: Logge
                 ignition.burned_surface = None
             else:
                 ignition.burned_surface = float(str(row[7]).replace(',', '.'))
-            validity = str(row[8])
+            ignition.comments = str(row[8])
+            validity = str(row[9])
             if validity == '' or validity is None:
                 ignition.validation_level = BomberscatValidationLevelCategory.NONE
             elif validity == 'C':

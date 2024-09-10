@@ -1,0 +1,5 @@
+<RCC>
+    <qresource prefix="/gisfire_tsp">
+      <file alias="routing.png">/icons/routing-64px.png</file>
+    </qresource>
+</RCC>

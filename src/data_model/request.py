@@ -2,7 +2,9 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations  # Needed to allow returning type of enclosing class PEP 563
 
-from . import Base
+from src.data_model import Base
+from src.data_model import HashableMutableDict
+from src.data_model import HashableHSTORE
 
 import json
 import datetime
@@ -10,31 +12,15 @@ import datetime
 from sqlalchemy import DateTime
 from sqlalchemy import String
 from sqlalchemy import ForeignKey
-from sqlalchemy import TypeDecorator
 from sqlalchemy import func
 from sqlalchemy.orm import Mapped
 from sqlalchemy.orm import mapped_column
 from sqlalchemy.orm import relationship
 from sqlalchemy.ext.mutable import MutableDict
-from sqlalchemy.dialects.postgresql import HSTORE
 
 from typing import Optional
 from typing import Dict
 from typing import Union
-
-
-class HashableMutableDict(MutableDict):
-    def __hash__(self):
-        text = json.dumps(self, sort_keys=True)
-        return hash(text)
-
-
-class HashableHSTORE(TypeDecorator):
-    impl = HSTORE
-    cache_ok = True
-
-    def process_result_value(self, value, dialect):
-        return HashableMutableDict(value)
 
 
 class Request(Base):
