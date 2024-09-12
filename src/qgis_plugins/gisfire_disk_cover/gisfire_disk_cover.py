@@ -30,6 +30,8 @@ from ortools.constraint_solver import pywrapcp
 from ortools. constraint_solver.pywrapcp import RoutingIndexManager
 from ortools. constraint_solver.pywrapcp import RoutingModel
 
+import networkx as nx
+
 from typing import List
 from typing import Dict
 from typing import Any
@@ -701,10 +703,38 @@ class GisFIREDiskCover:
         vector_layer.setCrs(current_project.instance().crs())
         current_project.instance().addMapLayer(vector_layer, True)
 
+    def __on_step_5(self) -> None:
+        """
+        TODO: Describe
 
-level = 5
-while level > 0:
-    c = itertools.combinations(list(range(5)), level)
-    for elem in c:
-        print(elem)
-    level -= 1
+        :return: None
+        """
+        # Get current layer
+        layer: QgsVectorLayer = self.iface.activeLayer()
+        # Get the features
+        features: List[QgsFeature] = list(layer.getFeatures())
+        num_points: int = len(features)
+        graph = nx.Graph()
+        for feature_index in range(num_points):
+            node = dict()
+            geom: QgsGeometry = features[feature_index].geometry()
+            point: QgsPointXY = geom.asPoint()
+            node['feature'] = features[feature_index]
+            node['feature_index'] = feature_index
+            node['geometry'] = geom
+            node['x'] = point.x()
+            node['y'] = point.y()
+            graph.add_node(feature_index, **node)
+        distance_matrix: List[List[int]] = [[0 for x in range(num_points)] for y in range(num_points)]
+        for node_a_index in range(num_points):
+            node_a_attrs = graph.nodes[node_a_index]
+            for node_b_index in range(node_a_index + 1, num_points):
+                node_b_attrs = graph.nodes[node_b_index]
+
+                geom_b: QgsGeometry = features[y].geometry()
+                distance: int = int(geom_a.distance(geom_b))
+                distance_matrix[x][y] = distance
+                distance_matrix[y][x] = distance
+
+
+
