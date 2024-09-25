@@ -1,0 +1,27 @@
+# Mandatory metadata
+
+[general]
+name=GisFIRE Lightnings
+email=jaume.figueras@upc.edu
+author=Jaume Figueras
+qgisMinimumVersion=3.34
+description=GisFIRE module to find helicopter lightning routes
+about=GisFIRE is a plugin for QGIS that implements several tools used by fire agencies for wildfire management. The
+    lightnings module implements DUDC, VRP and other tools to calculate helicopter flights for aerial inspection of
+    possible wildfire ignitions.
+version=0.1
+tracker=https://github.com/JaumeFigueras/GisFIRE/issues
+repository=https://github.com/JaumeFigueras/GisFIRE
+
+# Optional metadata
+category=Vector
+changelog=Project start
+tags=wildfire,lightning
+homepage=https://github.com/JaumeFigueras/GisFIRE
+icon=icons/gisfire-lightning-64px.png
+experimental=True
+deprecated=False
+qgisMaximumVersion=3.99
+plugin_dependencies=networkx, ortools
+server=False
+hasProcessingProvider=no
