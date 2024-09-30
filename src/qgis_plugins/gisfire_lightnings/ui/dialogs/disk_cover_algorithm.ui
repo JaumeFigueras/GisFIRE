@@ -27,6 +27,11 @@
       <widget class="QComboBox" name="combo_box_algorithm">
        <item>
         <property name="text">
+         <string>Isolated</string>
+        </property>
+       </item>
+       <item>
+        <property name="text">
          <string>Naive</string>
         </property>
        </item>

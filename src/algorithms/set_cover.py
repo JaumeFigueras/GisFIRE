@@ -3,12 +3,15 @@
 
 import math
 import random
+import numpy as np
 
 from typing import Dict
 from typing import Any
 from typing import List
 from typing import Tuple
 from typing import Optional
+
+
 
 def order_points_x(points: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """
@@ -42,10 +45,51 @@ def remove_duplicates(points: List[Dict[str, Any]]) -> Tuple[List[Dict[str, Any]
         del points[i]
     return points, removed_points
 
+def isolated(points: List[Dict[str, Any]], radius: float) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+    """
+
+    :param points:
+    :param radius:
+    :return:
+    """
+    points = [dict(point, **{'covered_by': None}) for point in points]
+    disks: List[Dict[str, Any]] = list()
+    disk_id: int = 0
+    adjacency_matrix = np.zeros((len(points), len(points)), dtype=np.int16)
+    for i in range(len(points)):
+        for j in range(i + 1, len(points)):
+            if math.sqrt((points[i]['x'] - points[j]['x']) ** 2 + (points[i]['y'] - points[j]['y']) ** 2) <= 2 * radius:
+                adjacency_matrix[i, j] = 1
+                adjacency_matrix[j, i] = 1
+    for i in range(len(points)):
+        if points[i]['covered_by'] is None:
+            num_adjacencies = np.sum(adjacency_matrix[i, :])
+            if num_adjacencies == 0:
+                disks.append({
+                    'id': disk_id,
+                    'x': points[i]['x'],
+                    'y': points[i]['y'],
+                })
+                points[i]['covered_by'] = disk_id
+                disk_id += 1
+            elif num_adjacencies == 1:
+                j = np.where(adjacency_matrix[i, :] == 1)[0][0]
+                if np.sum(adjacency_matrix[j, :]) == 1:
+                    disks.append({
+                        'id': disk_id,
+                        'x': (points[i]['x'] + points[j]['x']) / 2,
+                        'y': (points[i]['y'] + points[j]['y']) / 2,
+                    })
+                    points[i]['covered_by'] = disk_id
+                    points[j]['covered_by'] = disk_id
+                    disk_id += 1
+    return disks, [point for point in points if point['covered_by'] is not None]
+
 def naive(points: List[Dict[str, Any]], radius: float) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
     """
     Return a list of discs of provided radius covering all points in the points list using a naive algorithm, locating
     a disc center in a point and testing if the disc contains any other point inside
+
     :param points: List with all points to be covered, the elements of the list must be a dict with at least an 'x' and
     'y' components of type float
     :type points: List[Dict[str, Any]]
@@ -112,6 +156,21 @@ def greedy_naive(points: List[Dict[str, Any]], radius: float) -> Tuple[List[Dict
             disks.append(current_disk)
             disk_id += 1
     return disks, [point for point in points if point['covered_by'] is not None]
+
+
+def greedy_cliques(points: List[Dict[str, Any]], radius: float) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+    pass
+
+def greedy_max_cliques(points: List[Dict[str, Any]], radius: float) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+    pass
+
+def ip_max_cliques(points: List[Dict[str, Any]], radius: float) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+    pass
+
+def ip_complete_cliques(points: List[Dict[str, Any]], radius: float) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+    pass
+
+
 
 
 def minimum_enclosing_circle(points: List[Tuple[float, float]]) -> Dict[str, float]:

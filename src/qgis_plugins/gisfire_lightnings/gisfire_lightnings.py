@@ -8,7 +8,6 @@ import itertools
 import time
 import random
 
-from PyQt5.QtWidgets import QDialog
 from networkx.algorithms.approximation import max_clique
 from qgis.PyQt.QtCore import QSettings
 from qgis.PyQt.QtCore import QTranslator
@@ -17,6 +16,7 @@ from qgis.PyQt.QtCore import QVariant
 from qgis.PyQt.QtGui import QIcon
 from qgis.PyQt.QtWidgets import QAction
 from qgis.PyQt.QtWidgets import QMenu
+from qgis.PyQt.QtWidgets import QDialog
 
 import qgis.utils
 from qgis.core import QgsMapLayer
@@ -47,6 +47,7 @@ from .resources import *  # noqa
 from .ui.dialogs.disk_cover_algorithm import DlgDiskCoverAlgorithm
 from .algorithms.set_cover import order_points_x
 from .algorithms.set_cover import remove_duplicates
+from .algorithms.set_cover import isolated
 from .algorithms.set_cover import naive
 from .algorithms.set_cover import greedy_naive
 from .helpers.geometry import interpolate_circle
@@ -232,12 +233,13 @@ class GisFIRELightnings:
                     'y': pt.y()
                 }
                 points.append(point)
-            points = order_points_x(points)
             points, _ = remove_duplicates(points)
             selected_algorithm = dlg.algorithm
-            if selected_algorithm == 0: # Naive
+            if selected_algorithm == 0: # Remove isolated lightnings
+                disks, covered_points = isolated(points, self._default_radius)
+            elif selected_algorithm == 1: # Naive
                 disks, covered_points = naive(points, self._default_radius)
-            elif selected_algorithm == 1: # Greedy Naive
+            elif selected_algorithm == 2: # Greedy Naive
                 disks, covered_points = greedy_naive(points, self._default_radius)
 
             vector_layer: QgsVectorLayer = QgsVectorLayer("linestring", "disks", "memory")
