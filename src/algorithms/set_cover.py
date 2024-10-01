@@ -4,14 +4,13 @@
 import math
 import random
 import numpy as np
+import networkx as nx
 
 from typing import Dict
 from typing import Any
 from typing import List
 from typing import Tuple
 from typing import Optional
-
-
 
 def order_points_x(points: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """
@@ -159,7 +158,17 @@ def greedy_naive(points: List[Dict[str, Any]], radius: float) -> Tuple[List[Dict
 
 
 def greedy_cliques(points: List[Dict[str, Any]], radius: float) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
-    pass
+    """
+
+    """
+    points = [dict(point, **{'covered_by': None}) for point in points]
+    disks: List[Dict[str, Any]] = list()
+    disk_id: int = 0
+    points = order_points_x(points)
+    isolated_disks, covered_points = isolated(points, radius)
+    points = [point for point in points if point['id'] not in [point['id'] for point in covered_points]]
+
+
 
 def greedy_max_cliques(points: List[Dict[str, Any]], radius: float) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
     pass
@@ -171,7 +180,93 @@ def ip_complete_cliques(points: List[Dict[str, Any]], radius: float) -> Tuple[Li
     pass
 
 
+def export_to_ampl_ip_max_cliques(points: List[Dict[str, Any]], radius: float) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+    """
+    TODO
 
+    :param points: List with all points to be covered, the elements of the list must be a dict with at least an 'x' and
+    'y' components of type float
+    :type points: List[Dict[str, Any]]
+    :param radius: Radius of the disc
+    :type radius: float
+    :return: Return a list of discs. The discs are modeled with a numeric 'id', and the 'x' and 'y' components of the
+    center in the Euclidean space
+    :rtype: List[Dict[str, Any]]
+    """
+    # Rearrange IDs
+    points = [dict(point, **{'covered_by': None, 'local_id': i}) for i, point in enumerate(points, 1)]
+    points = order_points_x(points)
+    points, duplicated = remove_duplicates(points)
+    # Build the graph
+    graph = nx.Graph()
+    for i in range(len(points)):
+        graph.add_node(i, **points[i])
+    r_sqrt_3 = math.sqrt(3) * radius
+    for i in range(len(points)):
+        for j in range(i + 1, len(points)):
+            if math.sqrt((points[i]['x'] - points[j]['x']) ** 2 + (points[i]['y'] - points[j]['y']) ** 2) <= r_sqrt_3:
+                graph.add_edge(i, j)
+    # Compute connected components
+    connected_components = [graph.subgraph(c).copy() for c in nx.connected_components(graph)]
+    connected_components.sort(key=lambda x: len(x), reverse=True)
+    # Keep the larger subgraph
+    subgraph = connected_components[1]
+    # Compute all the maximal cliques for every node in the subgraph removing duplicated cliques
+    cliques = set()
+    for node in subgraph.nodes():
+        cliques_of_node = list(nx.find_cliques(subgraph, [node]))
+        cliques = cliques.union([frozenset(clique_of_node) for clique_of_node in cliques_of_node])
+    cliques = list(cliques)
+    for i, clique in enumerate(cliques, 0):
+        print(i, clique)
+    cliques_centers = list()
+    for clique in cliques:
+        clique_points = [(subgraph.nodes[node]['x'], subgraph.nodes[node]['y']) for node in clique]
+        center = minimum_enclosing_circle(clique_points)
+        cliques_centers.append(center)
+    distance_matrix = np.zeros((len(cliques), len(cliques)), dtype=int)
+    for i in range(len(cliques)):
+        for j in range(i, len(cliques)):
+            distance = int(math.sqrt((cliques_centers[i]['x'] - cliques_centers[j]['x']) ** 2 + (cliques_centers[i]['y'] - cliques_centers[j]['y']) ** 2))
+            distance_matrix[i, j] = distance
+            distance_matrix[j, i] = distance
+
+    # Build the set cover matrix
+    cover_matrix = np.zeros((len(subgraph.nodes), len(cliques)))
+    tr_local_id_to_row = {node: i for i, node in enumerate(subgraph.nodes, 0)}
+    for i in range(len(cliques)):
+        for node in cliques[i]:
+            cover_matrix[tr_local_id_to_row[node], i] = 1
+    file = open("coverage_matrix.txt", "w")
+    file.write("set C :=\n")
+    for i in range(len(cliques)):
+        file.write("  ({}, *) ".format(i))
+        for node in cliques[i]:
+            file.write("  {}".format(node))
+        file.write("\n")
+    file = open("distance_matrix.txt", "w")
+    file.write("param d : ")
+    for i in range(len(cliques)):
+        file.write("{:6d} ".format(i))
+    file.write(":=\n")
+    for i in range(len(cliques)):
+        file.write("          {:6d} ".format(i))
+        for j in range(len(cliques)):
+            file.write("  {:6d}".format(distance_matrix[i, j]))
+        file.write("\n")
+    file.write(";\n")
+    file = open("llamps.txt", "w")
+    file.write("set LL := ")
+    for node in subgraph.nodes():
+        file.write("  {}".format(node))
+    file.write(";\n")
+    # Create disks
+    return ([{'x': centre['x'], 'y': centre['y'], 'id': i} for i, centre in enumerate(cliques_centers, 1)],
+            [point for point in points if point['covered_by'] is not None])
+
+
+def create_graph(points, radius):
+    pass
 
 def minimum_enclosing_circle(points: List[Tuple[float, float]]) -> Dict[str, float]:
     """

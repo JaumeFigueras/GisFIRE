@@ -45,7 +45,7 @@ from typing import Union
 
 from .resources import *  # noqa
 from .ui.dialogs.disk_cover_algorithm import DlgDiskCoverAlgorithm
-from .algorithms.set_cover import order_points_x
+from .algorithms.set_cover import export_to_ampl_ip_max_cliques, order_points_x
 from .algorithms.set_cover import remove_duplicates
 from .algorithms.set_cover import isolated
 from .algorithms.set_cover import naive
@@ -224,15 +224,19 @@ class GisFIRELightnings:
             # Get the features
             points: List[Dict[str, Any]] = list()
             features: List[QgsFeature] = list(layer.getFeatures())
+            point_id: int = 0
             for feature in features:
                 geom: QgsGeometry = feature.geometry()
                 pt: QgsPointXY = geom.asPoint()
                 point = {
-                    'id': feature.id(),
+                    'fid': feature.id(),
+                    'id': point_id,
                     'x': pt.x(),
                     'y': pt.y()
                 }
+                point_id += 1
                 points.append(point)
+            points = order_points_x(points)
             points, _ = remove_duplicates(points)
             selected_algorithm = dlg.algorithm
             if selected_algorithm == 0: # Remove isolated lightnings
@@ -241,6 +245,8 @@ class GisFIRELightnings:
                 disks, covered_points = naive(points, self._default_radius)
             elif selected_algorithm == 2: # Greedy Naive
                 disks, covered_points = greedy_naive(points, self._default_radius)
+            elif selected_algorithm == 3: # Export AMPL
+                disks, covered_points = export_to_ampl_ip_max_cliques(points, self._default_radius)
 
             vector_layer: QgsVectorLayer = QgsVectorLayer("linestring", "disks", "memory")
             provider: QgsVectorDataProvider = vector_layer.dataProvider()
