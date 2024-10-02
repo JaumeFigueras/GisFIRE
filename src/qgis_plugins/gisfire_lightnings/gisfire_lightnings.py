@@ -50,6 +50,8 @@ from .algorithms.set_cover import remove_duplicates
 from .algorithms.set_cover import isolated
 from .algorithms.set_cover import naive
 from .algorithms.set_cover import greedy_naive
+from .algorithms.set_cover import greedy_cliques
+from .algorithms.set_cover import ip_max_cliques
 from .helpers.geometry import interpolate_circle
 
 class GisFIRELightnings:
@@ -224,39 +226,41 @@ class GisFIRELightnings:
             # Get the features
             points: List[Dict[str, Any]] = list()
             features: List[QgsFeature] = list(layer.getFeatures())
-            point_id: int = 0
-            for feature in features:
+            for i, feature in enumerate(features, 0):
                 geom: QgsGeometry = feature.geometry()
                 pt: QgsPointXY = geom.asPoint()
                 point = {
                     'fid': feature.id(),
-                    'id': point_id,
+                    'id': i,
                     'x': pt.x(),
                     'y': pt.y()
                 }
-                point_id += 1
                 points.append(point)
             points = order_points_x(points)
             points, _ = remove_duplicates(points)
             selected_algorithm = dlg.algorithm
             if selected_algorithm == 0: # Remove isolated lightnings
-                disks, covered_points = isolated(points, self._default_radius)
+                disks, covered_points, _ = isolated(points, self._default_radius)
             elif selected_algorithm == 1: # Naive
-                disks, covered_points = naive(points, self._default_radius)
+                disks, covered_points, _ = naive(points, self._default_radius)
             elif selected_algorithm == 2: # Greedy Naive
-                disks, covered_points = greedy_naive(points, self._default_radius)
-            elif selected_algorithm == 3: # Export AMPL
-                disks, covered_points = export_to_ampl_ip_max_cliques(points, self._default_radius)
+                disks, covered_points, _ = greedy_naive(points, self._default_radius)
+            elif selected_algorithm == 3: # Greedy Cliques
+                disks, covered_points, _ = greedy_cliques(points, self._default_radius)
+            elif selected_algorithm == 4:  # IP Max Cliques
+                disks, covered_points, _ = ip_max_cliques(points, self._default_radius)
+            elif selected_algorithm == 5: # Export AMPL
+                disks, covered_points, _ = export_to_ampl_ip_max_cliques(points, self._default_radius)
 
             vector_layer: QgsVectorLayer = QgsVectorLayer("linestring", "disks", "memory")
             provider: QgsVectorDataProvider = vector_layer.dataProvider()
-            provider.addAttributes([QgsField("fid", QVariant.Int)])
+            provider.addAttributes([QgsField("fid", QVariant.Int), QgsField("covers", QVariant.String)])
             vector_layer.updateFields()  # tell the vector layer to fetch changes from the provider
             print(len(disks))
             for disk in disks:
                 feat: QgsFeature = QgsFeature()
                 feat.setGeometry(QgsGeometry.fromPolylineXY(interpolate_circle(QgsPointXY(disk['x'], disk['y']), self._default_radius)))
-                feat.setAttributes([disk['id']])
+                feat.setAttributes([disk['id'], ','.join(map(str, disk['covers']))])
                 provider.addFeatures([feat])
             vector_layer.updateExtents()
             current_project: QgsProject = QgsProject()
@@ -266,13 +270,13 @@ class GisFIRELightnings:
             vector_layer: QgsVectorLayer = QgsVectorLayer("point", "points", "memory")
             provider: QgsVectorDataProvider = vector_layer.dataProvider()
             provider.addAttributes(
-                [QgsField("fid", QVariant.Int), QgsField("point", QVariant.Int), QgsField("covered_by", QVariant.Int)])
+                [QgsField("fid", QVariant.Int), QgsField("point", QVariant.Int), QgsField("covered_by", QVariant.String)])
             vector_layer.updateFields()  # tell the vector layer to fetch changes from the provider
             fid = 1
             for point in covered_points:
                 feat: QgsFeature = QgsFeature()
                 feat.setGeometry(QgsGeometry.fromPointXY(QgsPointXY(point['x'], point['y'])))
-                feat.setAttributes([fid, point['id'], point['covered_by']])
+                feat.setAttributes([fid, point['id'], ','.join(map(str, point['covered_by']))])
                 fid += 1
                 provider.addFeatures([feat])
             vector_layer.updateExtents()

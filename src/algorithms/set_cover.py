@@ -3,6 +3,7 @@
 
 import math
 import random
+import time
 import numpy as np
 import networkx as nx
 
@@ -44,22 +45,36 @@ def remove_duplicates(points: List[Dict[str, Any]]) -> Tuple[List[Dict[str, Any]
         del points[i]
     return points, removed_points
 
-def isolated(points: List[Dict[str, Any]], radius: float) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
-    """
 
-    :param points:
-    :param radius:
-    :return:
+def isolated(points: List[Dict[str, Any]], radius: float, start_disk_id: Optional[int] = 0) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], float]:
     """
+    Covers all isolated points with a disk.
+
+    :param points: A list of points to compute the isolation and coverage. A point must contain at least the id, x and
+    y fields
+    :type points: List[Dict[str, Any]]
+    :param radius: Radius of the disk
+    :type radius: float
+    :param start_disk_id: Identifier to assign to the first computed disk
+    :type start_disk_id: int
+    :return: The list of disks tha covers all the isolated points, the list of covered points and the execution time
+    of the function
+    :rtype: Tuple[List[Dict[str, Any]], List[Dict[str, Any]], float]
+    """
+    # Record processing time
+    start_time: float = time.time()
+    # Data initialization
     points = [dict(point, **{'covered_by': None}) for point in points]
     disks: List[Dict[str, Any]] = list()
-    disk_id: int = 0
+    disk_id: int = start_disk_id
     adjacency_matrix = np.zeros((len(points), len(points)), dtype=np.int16)
+    # Compute adjacency matrix using radius as threshold
     for i in range(len(points)):
         for j in range(i + 1, len(points)):
             if math.sqrt((points[i]['x'] - points[j]['x']) ** 2 + (points[i]['y'] - points[j]['y']) ** 2) <= 2 * radius:
                 adjacency_matrix[i, j] = 1
                 adjacency_matrix[j, i] = 1
+    # Search isolated points and cover them with a disk
     for i in range(len(points)):
         if points[i]['covered_by'] is None:
             num_adjacencies = np.sum(adjacency_matrix[i, :])
@@ -68,8 +83,9 @@ def isolated(points: List[Dict[str, Any]], radius: float) -> Tuple[List[Dict[str
                     'id': disk_id,
                     'x': points[i]['x'],
                     'y': points[i]['y'],
+                    'covers': [points[i]['id']],
                 })
-                points[i]['covered_by'] = disk_id
+                points[i]['covered_by'] = [disk_id]
                 disk_id += 1
             elif num_adjacencies == 1:
                 j = np.where(adjacency_matrix[i, :] == 1)[0][0]
@@ -78,15 +94,16 @@ def isolated(points: List[Dict[str, Any]], radius: float) -> Tuple[List[Dict[str
                         'id': disk_id,
                         'x': (points[i]['x'] + points[j]['x']) / 2,
                         'y': (points[i]['y'] + points[j]['y']) / 2,
+                        'covers': [points[i]['id'], points[j]['id']],
                     })
-                    points[i]['covered_by'] = disk_id
-                    points[j]['covered_by'] = disk_id
+                    points[i]['covered_by'] = [disk_id]
+                    points[j]['covered_by'] = [disk_id]
                     disk_id += 1
-    return disks, [point for point in points if point['covered_by'] is not None]
+    return disks, [point for point in points if point['covered_by'] is not None], time.time() - start_time
 
-def naive(points: List[Dict[str, Any]], radius: float) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+def naive(points: List[Dict[str, Any]], radius: float, start_disk_id: Optional[int] = 0) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], float]:
     """
-    Return a list of discs of provided radius covering all points in the points list using a naive algorithm, locating
+    Computes a list of discs of provided radius covering all points in the points list using a naive algorithm, locating
     a disc center in a point and testing if the disc contains any other point inside
 
     :param points: List with all points to be covered, the elements of the list must be a dict with at least an 'x' and
@@ -94,93 +111,219 @@ def naive(points: List[Dict[str, Any]], radius: float) -> Tuple[List[Dict[str, A
     :type points: List[Dict[str, Any]]
     :param radius: Radius of the disc
     :type radius: float
-    :return: Return a list of discs. The discs are modeled with a numeric 'id', and the 'x' and 'y' components of the
-    center in the Euclidean space
-    :rtype: List[Dict[str, Any]]
+    :param start_disk_id: Identifier to assign to the first computed disk
+    :type start_disk_id: int
+    :return: Return a list of discs. The discs are modeled with a numeric 'id', the 'x' and 'y' components and the
+    coverage information. The covered points and the execution time of the function are also returned
+    :rtype: Tuple[List[Dict[str, Any]], List[Dict[str, Any]], float]
     """
+    # Record processing time
+    start_time: float = time.time()
+    # Data initialization
     points = [dict(point, **{'covered_by': None}) for point in points]
     disks: List[Dict[str, Any]] = list()
-    disk_id: int = 0
+    disk_id: int = start_disk_id
+    # Iterate over all points
     for i in range(len(points)):
         if points[i]['covered_by'] is None:
+            # Create a disk if the point is not covered
             current_disk = {
                 'id': disk_id,
                 'x': points[i]['x'],
-                'y': points[i]['y']
+                'y': points[i]['y'],
+                'covers': [points[i]['id']]
             }
-            points[i]['covered_by'] = current_disk['id']
+            points[i]['covered_by'] = [disk_id]
+            # Iterate over non processed points
             for j in range(i + 1, len(points)):
                 if points[j]['covered_by'] is None:
                     if math.sqrt((points[j]['x'] - current_disk['x']) ** 2 + (points[j]['y'] - current_disk['y']) ** 2) <= radius:
-                        points[j]['covered_by'] = current_disk['id']
+                        # Add coverage if the point lies inside the proposed disk
+                        points[j]['covered_by'] = [disk_id]
+                        current_disk['covers'].append(points[j]['id'])
             disks.append(current_disk)
             disk_id += 1
-    return disks, [point for point in points if point['covered_by'] is not None]
+    points, disks, _ = adjust_coverage(points, disks, radius)
+    return disks, [point for point in points if point['covered_by'] is not None], time.time() - start_time
 
 
-def greedy_naive(points: List[Dict[str, Any]], radius: float) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+def greedy_naive(points: List[Dict[str, Any]], radius: float, start_disk_id: Optional[int] = 0) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], float]:
     """
+    Computes a list of discs of provided radius covering all points in the points list using a naive greedy algorithm,
+    locating a disc center in a point and testing if the disc contains any other point inside adjusting the disk center
+    allowing to cover other points not covered by the initial disk
 
-    :param points:
-    :param radius:
-    :return:
+    :param points: List with all points to be covered, the elements of the list must be a dict with at least an 'x' and
+    'y' components of type float
+    :type points: List[Dict[str, Any]]
+    :param radius: Radius of the disc
+    :type radius: float
+    :param start_disk_id: Identifier to assign to the first computed disk
+    :type start_disk_id: int
+    :return: Return a list of discs. The discs are modeled with a numeric 'id', the 'x' and 'y' components and the
+    coverage information. The covered points and the execution time of the function are also returned
+    :rtype: Tuple[List[Dict[str, Any]], List[Dict[str, Any]], float]
     """
+    # Record processing time
+    start_time: float = time.time()
+    # Data initialization
     points = [dict(point, **{'covered_by': None}) for point in points]
     disks: List[Dict[str, Any]] = list()
-    disk_id: int = 0
+    disk_id: int = start_disk_id
+    # Iterate over all points
     for i in range(len(points)):
         if points[i]['covered_by'] is None:
+            # If not covered, create the disk and the list (cluster) of points covered by the disk
             cluster: List[int] = [i]
-            points[i]['covered_by'] = disk_id
+            points[i]['covered_by'] = [disk_id]
             current_disk = {
                 'id': disk_id,
                 'x': points[i]['x'],
-                'y': points[i]['y']
+                'y': points[i]['y'],
+                'covers': [points[i]['id']],
             }
             changed = True
             while changed:
+                # While the cluster does not change add new uncovered points if lie inside the disk and adjust the
+                # circle center
                 changed = False
                 for j in range(i + 1, len(points)):
                     if points[j]['covered_by'] is None:
                         if math.sqrt((points[j]['x'] - current_disk['x']) ** 2 + (points[j]['y'] - current_disk['y']) ** 2) <= radius:
-                            points[j]['covered_by'] = disk_id
+                            points[j]['covered_by'] = [disk_id]
+                            current_disk['covers'].append(points[j]['id'])
                             cluster.append(j)
                             changed = True
                 circle = minimum_enclosing_circle([(points[j]['x'], points[j]['y']) for j in cluster])
-                current_disk = {
-                    'id': disk_id,
-                    'x': circle['x'],
-                    'y': circle['y']
-                }
+                current_disk['x'] = circle['x']
+                current_disk['y'] = circle['y']
             disks.append(current_disk)
             disk_id += 1
-    return disks, [point for point in points if point['covered_by'] is not None]
+    points, disks, _ = adjust_coverage(points, disks, radius)
+    return disks, [point for point in points if point['covered_by'] is not None], time.time() - start_time
 
 
-def greedy_cliques(points: List[Dict[str, Any]], radius: float) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+def greedy_cliques(points: List[Dict[str, Any]], radius: float, start_disk_id: Optional[int] = 0) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], float]:
     """
+    Computes a list of discs of provided radius covering all points in the points list using a greedy clique algorithm,
+    cliques can be used to solve the disk cover problem as Disk Cover Problem can be reduced to Minimal Clique Cover
+    problem. The algorith converts the points to a graph, fins the graph cliques and using a greedy strategy start
+    covering the points with the maximum cardinality cliques and removing the covered points from the graph.
 
+    :param points: List with all points to be covered, the elements of the list must be a dict with at least an 'x' and
+    'y' components of type float
+    :type points: List[Dict[str, Any]]
+    :param radius: Radius of the disc
+    :type radius: float
+    :param start_disk_id: Identifier to assign to the first computed disk
+    :type start_disk_id: int
+    :return: Return a list of discs. The discs are modeled with a numeric 'id', the 'x' and 'y' components and the
+    coverage information. The covered points and the execution time of the function are also returned
+    :rtype: Tuple[List[Dict[str, Any]], List[Dict[str, Any]], float]
     """
+    # Record processing time
+    start_time: float = time.time()
+    # Data initialization
     points = [dict(point, **{'covered_by': None}) for point in points]
-    disks: List[Dict[str, Any]] = list()
-    disk_id: int = 0
-    points = order_points_x(points)
-    isolated_disks, covered_points = isolated(points, radius)
-    points = [point for point in points if point['id'] not in [point['id'] for point in covered_points]]
+    # Remove isolated points from the problem
+    disks, isolated_points, _ = isolated(points, radius, start_disk_id)
+    # Update the points
+    disk_id = start_disk_id + len(disks)
+    points = [point for point in points if point['id'] not in [point['id'] for point in isolated_points]]
+    points_lut = {point['id']: point for point in points}
+    # Build the graph. Remember that threshold is not 2R since the maximum distance between 3 points to be inside a
+    # circle of radius R is R√3
+    graph: nx.Graph = create_graph(points, radius * math.sqrt(3))
+    connected_components = [graph.subgraph(c).copy() for c in nx.connected_components(graph)]
+    for subgraph in connected_components:
+        while subgraph.number_of_nodes() != 0:
+            covered_nodes = set()
+            cliques = list(nx.enumerate_all_cliques(subgraph))[::-1]
+            if len(cliques[0]) > 1:
+                cliques = cliques[:next(i for i, clique in enumerate(cliques) if len(clique) < len(cliques[0]))]
+            for clique in cliques:
+                clique_set = set(clique)
+                if clique_set.isdisjoint(covered_nodes):
+                    clique_points = [points_lut[elem] for elem in clique]
+                    circle = minimum_enclosing_circle([(clique_point['x'], clique_point['y']) for clique_point in clique_points])
+                    disks.append({
+                        'id': disk_id,
+                        'x': circle['x'],
+                        'y': circle['y'],
+                        'covers': clique,
+                    })
+                    for clique_point in clique_points:
+                        if clique_point['covered_by'] is None:
+                            clique_point['covered_by'] = [disk_id]
+                    disk_id += 1
+                    covered_nodes |= clique_set
+            subgraph.remove_nodes_from(covered_nodes)
+    points, disks, _ = adjust_coverage(points, disks, radius)
+    disks, _ = remove_redundant_disks(disks)
+    return disks, [point for point in points + isolated_points if point['covered_by'] is not None], time.time() - start_time
 
 
+def ip_max_cliques(points: List[Dict[str, Any]], radius: float, start_disk_id: Optional[int] = 0) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], float]:
+    """
+    Computes a list of discs of provided radius covering all points in the points list using a greedy clique algorithm,
+    cliques can be used to solve the disk cover problem as Disk Cover Problem can be reduced to Minimal Clique Cover
+    problem. The algorith converts the points to a graph, fins the graph cliques and using a greedy strategy start
+    covering the points with the maximum cardinality cliques and removing the covered points from the graph.
 
-def greedy_max_cliques(points: List[Dict[str, Any]], radius: float) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
-    pass
+    :param points: List with all points to be covered, the elements of the list must be a dict with at least an 'x' and
+    'y' components of type float
+    :type points: List[Dict[str, Any]]
+    :param radius: Radius of the disc
+    :type radius: float
+    :param start_disk_id: Identifier to assign to the first computed disk
+    :type start_disk_id: int
+    :return: Return a list of discs. The discs are modeled with a numeric 'id', the 'x' and 'y' components and the
+    coverage information. The covered points and the execution time of the function are also returned
+    :rtype: Tuple[List[Dict[str, Any]], List[Dict[str, Any]], float]
+    """
+    # Record processing time
+    start_time: float = time.time()
+    # Data initialization
+    points = [dict(point, **{'covered_by': None}) for point in points]
+    # Remove isolated points from the problem
+    isolated_disks, isolated_points, _ = isolated(points, radius, start_disk_id)
+    # Update the points
+    disk_id = start_disk_id + len(isolated_disks)
+    points = [point for point in points if point['id'] not in [point['id'] for point in isolated_points]]
+    points_lut = {point['id']: point for point in points}
+    new_points = isolated_points[:]
+    new_disks = isolated_disks[:]
+    # Build the graph. Remember that threshold is not 2R since the maximum distance between 3 points to be inside a
+    # circle of radius R is R√3
+    graph: nx.Graph = create_graph(points, radius * math.sqrt(3))
+    connected_components = [graph.subgraph(c).copy() for c in nx.connected_components(graph)]
+    for subgraph in connected_components:
+        subgraph_disks: List[Dict[str, Any]] = list()
+        subgraph_points: List[Dict[str, Any]] = [point for point in points if point['id'] in subgraph.nodes]
+        for node in subgraph.nodes:
+            cliques = list(nx.find_cliques(subgraph, [node]))
+            for clique in cliques:
+                clique_points = [points_lut[elem] for elem in clique]
+                circle = minimum_enclosing_circle([(clique_point['x'], clique_point['y']) for clique_point in clique_points])
+                subgraph_disks.append({
+                    'id': disk_id,
+                    'x': circle['x'],
+                    'y': circle['y'],
+                    'covers': clique,
+                })
+                disk_id += 1
+        subgraph_points, subgraph_disks, _ = adjust_coverage(subgraph_points, subgraph_disks, radius)
+        subgraph_disks, _ = remove_redundant_disks(subgraph_disks)
+        new_points += subgraph_points
+        new_disks += subgraph_disks
+    return new_disks, [point for point in new_points if point['covered_by'] is not None], time.time() - start_time
 
-def ip_max_cliques(points: List[Dict[str, Any]], radius: float) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
-    pass
 
 def ip_complete_cliques(points: List[Dict[str, Any]], radius: float) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
     pass
 
 
-def export_to_ampl_ip_max_cliques(points: List[Dict[str, Any]], radius: float) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+def export_to_ampl_ip_max_cliques(points: List[Dict[str, Any]], radius: float, start_disk_id: Optional[int] = 0) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], float]:
     """
     TODO
 
@@ -193,19 +336,18 @@ def export_to_ampl_ip_max_cliques(points: List[Dict[str, Any]], radius: float) -
     center in the Euclidean space
     :rtype: List[Dict[str, Any]]
     """
+    # Record processing time
+    start_time: float = time.time()
     # Rearrange IDs
-    points = [dict(point, **{'covered_by': None, 'local_id': i}) for i, point in enumerate(points, 1)]
-    points = order_points_x(points)
-    points, duplicated = remove_duplicates(points)
+    points = [dict(point, **{'covered_by': None}) for point in points]
+    # Remove isolated points from the problem
+    isolated_disks, isolated_points, _ = isolated(points, radius, start_disk_id)
+    # Update the points
+    disks: List[Dict[str, Any]] = list()
+    disk_id = start_disk_id + len(disks)
+    points = [point for point in points if point['id'] not in [point['id'] for point in isolated_points]]
     # Build the graph
-    graph = nx.Graph()
-    for i in range(len(points)):
-        graph.add_node(i, **points[i])
-    r_sqrt_3 = math.sqrt(3) * radius
-    for i in range(len(points)):
-        for j in range(i + 1, len(points)):
-            if math.sqrt((points[i]['x'] - points[j]['x']) ** 2 + (points[i]['y'] - points[j]['y']) ** 2) <= r_sqrt_3:
-                graph.add_edge(i, j)
+    graph = create_graph(points, radius * math.sqrt(3))
     # Compute connected components
     connected_components = [graph.subgraph(c).copy() for c in nx.connected_components(graph)]
     connected_components.sort(key=lambda x: len(x), reverse=True)
@@ -217,41 +359,46 @@ def export_to_ampl_ip_max_cliques(points: List[Dict[str, Any]], radius: float) -
         cliques_of_node = list(nx.find_cliques(subgraph, [node]))
         cliques = cliques.union([frozenset(clique_of_node) for clique_of_node in cliques_of_node])
     cliques = list(cliques)
-    for i, clique in enumerate(cliques, 0):
-        print(i, clique)
-    cliques_centers = list()
     for clique in cliques:
         clique_points = [(subgraph.nodes[node]['x'], subgraph.nodes[node]['y']) for node in clique]
         center = minimum_enclosing_circle(clique_points)
-        cliques_centers.append(center)
-    distance_matrix = np.zeros((len(cliques), len(cliques)), dtype=int)
-    for i in range(len(cliques)):
-        for j in range(i, len(cliques)):
-            distance = int(math.sqrt((cliques_centers[i]['x'] - cliques_centers[j]['x']) ** 2 + (cliques_centers[i]['y'] - cliques_centers[j]['y']) ** 2))
+        disks.append({
+            'id': disk_id,
+            'x': center['x'],
+            'y': center['y'],
+            'covers': list(clique),
+        })
+        disk_id += 1
+    points, disks, _ = adjust_coverage(points, disks, radius)
+    # disks, _ = remove_redundant_disks(disks)
+    distance_matrix = np.zeros((len(disks), len(disks)), dtype=int)
+    for i in range(len(disks)):
+        for j in range(i, len(disks)):
+            distance = int(math.sqrt((disks[i]['x'] - disks[j]['x']) ** 2 + (disks[i]['y'] - disks[j]['y']) ** 2))
             distance_matrix[i, j] = distance
             distance_matrix[j, i] = distance
 
     # Build the set cover matrix
-    cover_matrix = np.zeros((len(subgraph.nodes), len(cliques)))
+    cover_matrix = np.zeros((len(subgraph.nodes), len(disks)))
     tr_local_id_to_row = {node: i for i, node in enumerate(subgraph.nodes, 0)}
-    for i in range(len(cliques)):
-        for node in cliques[i]:
+    for i in range(len(disks)):
+        for node in disks[i]['covers']:
             cover_matrix[tr_local_id_to_row[node], i] = 1
     file = open("coverage_matrix.txt", "w")
     file.write("set C :=\n")
-    for i in range(len(cliques)):
+    for i in range(len(disks)):
         file.write("  ({}, *) ".format(i))
-        for node in cliques[i]:
+        for node in disks[i]['covers']:
             file.write("  {}".format(node))
         file.write("\n")
     file = open("distance_matrix.txt", "w")
     file.write("param d : ")
-    for i in range(len(cliques)):
+    for i in range(len(disks)):
         file.write("{:6d} ".format(i))
     file.write(":=\n")
-    for i in range(len(cliques)):
+    for i in range(len(disks)):
         file.write("          {:6d} ".format(i))
-        for j in range(len(cliques)):
+        for j in range(len(disks)):
             file.write("  {:6d}".format(distance_matrix[i, j]))
         file.write("\n")
     file.write(";\n")
@@ -261,12 +408,81 @@ def export_to_ampl_ip_max_cliques(points: List[Dict[str, Any]], radius: float) -
         file.write("  {}".format(node))
     file.write(";\n")
     # Create disks
-    return ([{'x': centre['x'], 'y': centre['y'], 'id': i} for i, centre in enumerate(cliques_centers, 1)],
-            [point for point in points if point['covered_by'] is not None])
+    return disks, [point for point in points if point['covered_by'] is not None], time.time() - start_time
 
 
-def create_graph(points, radius):
-    pass
+def adjust_coverage(points: List[Dict[str, Any]], disks: List[Dict[str, Any]], radius: float) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], float]:
+    """
+    It is geometrically possible that several disks having different initial points end up covering points not 
+    intended by the used algorithm. So, for information purposes, it is useful to update the coverage information of 
+    points and disks 
+    :param points: 
+    :param disks: 
+    :param radius: 
+    :return: 
+    """
+    # Record processing time
+    start_time: float = time.time()
+    # Iterate to update coverage values
+    for disk in disks:
+        for point in points:
+            if math.sqrt((disk['x'] - point['x']) ** 2 + (disk['y'] - point['y']) ** 2) <= radius:
+                if point['covered_by'] is not None and disk['id'] not in point['covered_by']:
+                    point['covered_by'].append(disk['id'])
+                elif point['covered_by'] is None:
+                    point['covered_by'] = [disk['id']]
+                if disk['covers'] is not None and point['id'] not in disk['covers']:
+                    disk['covers'].append(point['id'])
+                elif disk['covers'] is None:
+                    disk['covers'] = [point['id']]
+    return points, disks, time.time() - start_time
+            
+
+def remove_redundant_disks(disks: List[Dict[str, Any]]) -> Tuple[List[Dict[str, Any]], float]:
+    """
+    Removes disks that cover exactly the same points. It is geometrically possible that several disks having different
+    initial points end up covering the same points, so it is better to remove them to reduce complexity.
+
+    :param disks: Disks covering lightning strikes. A disk is a dictionary with at least a x and y fields.
+    :type disks: List[Dict[str, Any]]
+    :return: The list of disks covering the provided points without redundancies
+    """
+    # Record processing time
+    start_time: float = time.time()
+    # Data initialization
+    disks = [dict(disk, **{'covers_set': set(disk['covers'])}) for disk in disks]
+    duplicated_disks = set()
+    # Iterate over disks
+    for i in range(len(disks)):
+        for j in range(i + 1, len(disks)):
+            if disks[i]['covers_set'] == disks[j]['covers_set']:
+                duplicated_disks.add(j)
+    # Remove indices backwards to avoid index modification
+    for i in sorted(list(duplicated_disks), reverse=True):
+        del disks[i]
+    return disks, time.time() - start_time
+
+def create_graph(points: List[Dict[str, Any]], distance: float) -> nx.Graph :
+    """
+    Creates a NetworkX Graph with the adjacency points using the provided distance. The provided points must contain
+    an id, x and y fields. The id field will be used as the node identifier
+
+    :param points: a list of points. A point is a dictionary with at lest an id, x and y field
+    :type points: List[Dict[str, Any]]
+    :param distance: Distance between points to consider them adjacent
+    :type distance: float
+    :return: A graph of adjacent nodes
+    :rtype: nx.Graph
+    """
+    graph = nx.Graph()
+    for i in range(len(points)):
+        graph.add_node(points[i]['id'], **points[i])
+    for i in range(len(points)):
+        for j in range(i + 1, len(points)):
+            if math.sqrt((points[i]['x'] - points[j]['x']) ** 2 + (points[i]['y'] - points[j]['y']) ** 2) <= distance:
+                graph.add_edge(points[i]['id'], points[j]['id'])
+    return graph
+
 
 def minimum_enclosing_circle(points: List[Tuple[float, float]]) -> Dict[str, float]:
     """
