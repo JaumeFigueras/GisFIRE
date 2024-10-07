@@ -52,6 +52,11 @@
        </item>
        <item>
         <property name="text">
+         <string>IP All Cliques</string>
+        </property>
+       </item>
+       <item>
+        <property name="text">
          <string>Export AMPL</string>
         </property>
        </item>

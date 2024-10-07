@@ -52,6 +52,7 @@ from .algorithms.set_cover import naive
 from .algorithms.set_cover import greedy_naive
 from .algorithms.set_cover import greedy_cliques
 from .algorithms.set_cover import ip_max_cliques
+from .algorithms.set_cover import ip_complete_cliques
 from .helpers.geometry import interpolate_circle
 
 class GisFIRELightnings:
@@ -249,7 +250,9 @@ class GisFIRELightnings:
                 disks, covered_points, _ = greedy_cliques(points, self._default_radius)
             elif selected_algorithm == 4:  # IP Max Cliques
                 disks, covered_points, _ = ip_max_cliques(points, self._default_radius)
-            elif selected_algorithm == 5: # Export AMPL
+            elif selected_algorithm == 5:  # IP All Cliques
+                disks, covered_points, _ = ip_complete_cliques(points, self._default_radius)
+            elif selected_algorithm == 6: # Export AMPL
                 disks, covered_points, _ = export_to_ampl_ip_max_cliques(points, self._default_radius)
 
             vector_layer: QgsVectorLayer = QgsVectorLayer("linestring", "disks", "memory")

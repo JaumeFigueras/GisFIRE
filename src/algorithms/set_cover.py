@@ -7,11 +7,16 @@ import time
 import numpy as np
 import networkx as nx
 
+from ortools.linear_solver import pywraplp
+from ortools.linear_solver.pywraplp import Solver
+
 from typing import Dict
 from typing import Any
 from typing import List
 from typing import Tuple
 from typing import Optional
+from typing import Union
+from networkx.classes.graph import Graph
 
 def order_points_x(points: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """
@@ -233,7 +238,7 @@ def greedy_cliques(points: List[Dict[str, Any]], radius: float, start_disk_id: O
     points_lut = {point['id']: point for point in points}
     # Build the graph. Remember that threshold is not 2R since the maximum distance between 3 points to be inside a
     # circle of radius R is R√3
-    graph: nx.Graph = create_graph(points, radius * math.sqrt(3))
+    graph: Graph = create_graph(points, radius * math.sqrt(3))
     connected_components = [graph.subgraph(c).copy() for c in nx.connected_components(graph)]
     for subgraph in connected_components:
         while subgraph.number_of_nodes() != 0:
@@ -295,7 +300,7 @@ def ip_max_cliques(points: List[Dict[str, Any]], radius: float, start_disk_id: O
     new_disks = isolated_disks[:]
     # Build the graph. Remember that threshold is not 2R since the maximum distance between 3 points to be inside a
     # circle of radius R is R√3
-    graph: nx.Graph = create_graph(points, radius * math.sqrt(3))
+    graph: Graph = create_graph(points, radius * math.sqrt(3))
     connected_components = [graph.subgraph(c).copy() for c in nx.connected_components(graph)]
     for subgraph in connected_components:
         subgraph_disks: List[Dict[str, Any]] = list()
@@ -314,13 +319,126 @@ def ip_max_cliques(points: List[Dict[str, Any]], radius: float, start_disk_id: O
                 disk_id += 1
         subgraph_points, subgraph_disks, _ = adjust_coverage(subgraph_points, subgraph_disks, radius)
         subgraph_disks, _ = remove_redundant_disks(subgraph_disks)
-        new_points += subgraph_points
-        new_disks += subgraph_disks
+        # Convert disks and points to IP
+        coverage_matrix = np.zeros([len(subgraph_points), len(subgraph_disks)], dtype=int)
+        subgraph_points = [dict(point, **{'ip_id': i}) for i, point in enumerate(subgraph_points, 0)]
+        subgraph_points_dict = {point['id']: point for point in subgraph_points}
+        for i, disk in enumerate(subgraph_disks, 0):
+            for cover in disk['covers']:
+                coverage_matrix[subgraph_points_dict[cover]['ip_id'], i] = 1
+        selected_columns = [None for x in range(len(subgraph_disks))]
+        solver = pywraplp.Solver.CreateSolver("SCIP")
+        if not solver:
+            raise RuntimeError("Failed to create SCIP solver")
+        for i in range(len(subgraph_disks)):
+            selected_columns[i] = solver.IntVar(0, 1, "")
+        for i in range(len(subgraph_points)):
+            solver.Add(solver.Sum(selected_columns[j] * coverage_matrix[i, j] for j in range(len(subgraph_disks))) >= 1)
+        solver.Minimize(solver.Sum(selected_columns))
+        status = solver.Solve()
+        if status == pywraplp.Solver.OPTIMAL:
+            # print("Optimal solution found: ", [col.solution_value() for col in selected_columns])
+            pass
+        elif status == pywraplp.Solver.FEASIBLE:
+            # print("Feasible solution found: ", [col.solution_value() for col in selected_columns])
+            pass
+        else:
+            # print("Solution not found")
+            pass
+        covered_points = set()
+        for i in range(len(subgraph_disks)):
+            if selected_columns[i].solution_value() == 1:
+                covered_points = covered_points.union(set(subgraph_disks[i]['covers']))
+        print(covered_points)
+        new_points += [subgraph_points_dict[covered] for covered in covered_points]
+        new_disks += [subgraph_disks[i] for i in range(len(subgraph_disks)) if selected_columns[i].solution_value() == 1]
     return new_disks, [point for point in new_points if point['covered_by'] is not None], time.time() - start_time
 
 
-def ip_complete_cliques(points: List[Dict[str, Any]], radius: float) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
-    pass
+def ip_complete_cliques(points: List[Dict[str, Any]], radius: float, start_disk_id: Optional[int] = 0) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], float]:
+    """
+    Computes a list of discs of provided radius covering all points in the points list using a greedy clique algorithm,
+    cliques can be used to solve the disk cover problem as Disk Cover Problem can be reduced to Minimal Clique Cover
+    problem. The algorith converts the points to a graph, fins the graph cliques and using a greedy strategy start
+    covering the points with the maximum cardinality cliques and removing the covered points from the graph.
+
+    :param points: List with all points to be covered, the elements of the list must be a dict with at least an 'x' and
+    'y' components of type float
+    :type points: List[Dict[str, Any]]
+    :param radius: Radius of the disc
+    :type radius: float
+    :param start_disk_id: Identifier to assign to the first computed disk
+    :type start_disk_id: int
+    :return: Return a list of discs. The discs are modeled with a numeric 'id', the 'x' and 'y' components and the
+    coverage information. The covered points and the execution time of the function are also returned
+    :rtype: Tuple[List[Dict[str, Any]], List[Dict[str, Any]], float]
+    """
+    # Record processing time
+    start_time: float = time.time()
+    # Data initialization
+    points = [dict(point, **{'covered_by': None}) for point in points]
+    # Remove isolated points from the problem
+    isolated_disks, isolated_points, _ = isolated(points, radius, start_disk_id)
+    # Update the points
+    disk_id = start_disk_id + len(isolated_disks)
+    points = [point for point in points if point['id'] not in [point['id'] for point in isolated_points]]
+    points_lut = {point['id']: point for point in points}
+    new_points = isolated_points[:]
+    new_disks = isolated_disks[:]
+    # Build the graph. Remember that threshold is not 2R since the maximum distance between 3 points to be inside a
+    # circle of radius R is R√3
+    graph: Graph = create_graph(points, radius * math.sqrt(3))
+    connected_components = [graph.subgraph(c).copy() for c in nx.connected_components(graph)]
+    for subgraph in connected_components:
+        subgraph_disks: List[Dict[str, Any]] = list()
+        subgraph_points: List[Dict[str, Any]] = [point for point in points if point['id'] in subgraph.nodes]
+        cliques = list(nx.enumerate_all_cliques(subgraph))
+        for clique in cliques:
+            clique_points = [points_lut[elem] for elem in clique]
+            circle = minimum_enclosing_circle([(clique_point['x'], clique_point['y']) for clique_point in clique_points])
+            subgraph_disks.append({
+                'id': disk_id,
+                'x': circle['x'],
+                'y': circle['y'],
+                'covers': clique,
+            })
+            disk_id += 1
+        subgraph_points, subgraph_disks, _ = adjust_coverage(subgraph_points, subgraph_disks, radius)
+        subgraph_disks, _ = remove_redundant_disks(subgraph_disks)
+        # Convert disks and points to IP
+        coverage_matrix = np.zeros([len(subgraph_points), len(subgraph_disks)], dtype=int)
+        subgraph_points = [dict(point, **{'ip_id': i}) for i, point in enumerate(subgraph_points, 0)]
+        subgraph_points_dict = {point['id']: point for point in subgraph_points}
+        for i, disk in enumerate(subgraph_disks, 0):
+            for cover in disk['covers']:
+                coverage_matrix[subgraph_points_dict[cover]['ip_id'], i] = 1
+        selected_columns: Union[Any, None] = [None for x in range(len(subgraph_disks))]
+        solver: Solver = pywraplp.Solver.CreateSolver("SCIP")
+        if not solver:
+            raise RuntimeError("Failed to create SCIP solver")
+        for i in range(len(subgraph_disks)):
+            selected_columns[i] = solver.IntVar(0, 1, "")
+        for i in range(len(subgraph_points)):
+            solver.Add(solver.Sum(selected_columns[j] * coverage_matrix[i, j] for j in range(len(subgraph_disks))) >= 1)
+        solver.Minimize(solver.Sum(selected_columns))
+        status = solver.Solve()
+        if status == pywraplp.Solver.OPTIMAL:
+            # print("Optimal solution found: ", [col.solution_value() for col in selected_columns])
+            pass
+        elif status == pywraplp.Solver.FEASIBLE:
+            # print("Feasible solution found: ", [col.solution_value() for col in selected_columns])
+            pass
+        else:
+            # print("Solution not found")
+            pass
+        covered_points = set()
+        for i in range(len(subgraph_disks)):
+            if selected_columns[i].solution_value() == 1:
+                covered_points = covered_points.union(set(subgraph_disks[i]['covers']))
+        print(covered_points)
+        new_points += [subgraph_points_dict[covered] for covered in covered_points]
+        new_disks += [subgraph_disks[i] for i in range(len(subgraph_disks)) if selected_columns[i].solution_value() == 1]
+    return new_disks, [point for point in new_points if point['covered_by'] is not None], time.time() - start_time
 
 
 def export_to_ampl_ip_max_cliques(points: List[Dict[str, Any]], radius: float, start_disk_id: Optional[int] = 0) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], float]:
