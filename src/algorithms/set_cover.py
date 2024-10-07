@@ -568,13 +568,15 @@ def remove_redundant_disks(disks: List[Dict[str, Any]]) -> Tuple[List[Dict[str, 
     # Record processing time
     start_time: float = time.time()
     # Data initialization
-    disks = [dict(disk, **{'covers_set': set(disk['covers'])}) for disk in disks]
-    duplicated_disks = set()
+    disks = [dict(disk, **{'covers_set': frozenset(disk['covers'])}) for disk in disks]
+    duplicated_disks = list()
+    aux_dict = {}
     # Iterate over disks
     for i in range(len(disks)):
-        for j in range(i + 1, len(disks)):
-            if disks[i]['covers_set'] == disks[j]['covers_set']:
-                duplicated_disks.add(j)
+        if disks[i]['covers_set'] in aux_dict:
+            duplicated_disks.append(i)
+        else:
+            aux_dict[disks[i]['covers_set']] = 1
     # Remove indices backwards to avoid index modification
     for i in sorted(list(duplicated_disks), reverse=True):
         del disks[i]

@@ -8,7 +8,6 @@ import itertools
 import time
 import random
 
-from networkx.algorithms.approximation import max_clique
 from qgis.PyQt.QtCore import QSettings
 from qgis.PyQt.QtCore import QTranslator
 from qgis.PyQt.QtCore import QCoreApplication
@@ -53,6 +52,7 @@ from .algorithms.set_cover import greedy_naive
 from .algorithms.set_cover import greedy_cliques
 from .algorithms.set_cover import ip_max_cliques
 from .algorithms.set_cover import ip_complete_cliques
+from .algorithms.set_cover_multiprocessing import ip_complete_cliques_multiprocessing
 from .helpers.geometry import interpolate_circle
 
 class GisFIRELightnings:
@@ -252,7 +252,9 @@ class GisFIRELightnings:
                 disks, covered_points, _ = ip_max_cliques(points, self._default_radius)
             elif selected_algorithm == 5:  # IP All Cliques
                 disks, covered_points, _ = ip_complete_cliques(points, self._default_radius)
-            elif selected_algorithm == 6: # Export AMPL
+            elif selected_algorithm == 6:  # IP All Cliques Multiprocessing
+                disks, covered_points, _ = ip_complete_cliques_multiprocessing(points, self._default_radius)
+            elif selected_algorithm == 7: # Export AMPL
                 disks, covered_points, _ = export_to_ampl_ip_max_cliques(points, self._default_radius)
 
             vector_layer: QgsVectorLayer = QgsVectorLayer("linestring", "disks", "memory")

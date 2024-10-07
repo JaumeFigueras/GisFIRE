@@ -57,6 +57,11 @@
        </item>
        <item>
         <property name="text">
+         <string>IP All Cliques Multiprocessing</string>
+        </property>
+       </item>
+       <item>
+        <property name="text">
          <string>Export AMPL</string>
         </property>
        </item>
