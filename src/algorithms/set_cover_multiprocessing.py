@@ -41,6 +41,27 @@ def init_pool(lock_instance, shared_result_list_instance, process_id_instance):
     process_id = process_id_instance
 
 
+def generate_cpu_load(arguments):
+    "Generate a utilization % for a duration of interval seconds"
+    global lock
+    global shared_result_list
+    global process_id
+    with lock:
+        my_id = process_id[0]
+        process_id[0] += 1
+        print("Start process {}".format(my_id))
+    interval: int = arguments[0]
+    utilization: int = arguments[1]
+    start_time = time.time()
+    for i in range(0,int(interval)):
+        print("About to do some arithmetic")
+        while time.time()-start_time < utilization/100.0:
+            a = math.sqrt(64*64*64*64*64)
+        print(str(i) + ". About to sleep")
+        time.sleep(1-utilization/100.0)
+        start_time += 1
+
+
 def process_disks_ip(args: List[Any]):
     global lock
     global shared_result_list
