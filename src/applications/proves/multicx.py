@@ -15,10 +15,7 @@ from typing import Optional
 from typing import Tuple
 from typing import Union
 from networkx.classes.graph import Graph
-global lock
-global logger
-global shared_result_list
-global process_id
+
 
 def init_pool(lock_instance, logger_instance, shared_result_list_instance, process_id_instance):
     global lock
@@ -53,11 +50,8 @@ def generate_cpu_load(arguments):
         start_time += 1
 
 
-def multics():
-    global lock
-    global logger
-    global shared_result_list
-    global process_id
+if __name__ == "__main__":  # pragma: no cover
+    # Setup a logger to stdout
     logger = logging.getLogger(__name__)
     handler = ch = logging.StreamHandler()
     logging.basicConfig(format='%(asctime)s.%(msecs)03d [%(levelname)s] %(message)s', handlers=[handler], encoding='utf-8', level=logging.DEBUG, datefmt="%Y-%m-%d %H:%M:%S")
@@ -69,9 +63,12 @@ def multics():
     shared_result_list = mg.list()
     process_id = mg.list()
     process_id.append(0)
-    chunks = [[10, 90] for i in range(100)]
+    chunks = [[100, 90] for i in range(100)]
     pool = mp.Pool(mp.cpu_count() - 1, initializer=init_pool, initargs=(lock, logger, shared_result_list, process_id))
     pool.map(func=generate_cpu_load, iterable=chunks)
     pool.close()
     pool.join()
     logger.info("Finished processing all lightnings in parallel")
+
+
+

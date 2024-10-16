@@ -441,6 +441,11 @@ def ip_complete_cliques(points: List[Dict[str, Any]], radius: float, start_disk_
     return new_disks, [point for point in new_points if point['covered_by'] is not None], time.time() - start_time
 
 
+def aprox_hochbaum_mass(points: List[Dict[str, Any]], radius: float, l: int, start_disk_id: Optional[int] = 0) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], float]:
+
+    pass
+
+
 def export_to_ampl_ip_max_cliques(points: List[Dict[str, Any]], radius: float, start_disk_id: Optional[int] = 0) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], float]:
     """
     TODO
@@ -458,73 +463,84 @@ def export_to_ampl_ip_max_cliques(points: List[Dict[str, Any]], radius: float, s
     start_time: float = time.time()
     # Rearrange IDs
     points = [dict(point, **{'covered_by': None}) for point in points]
+    points_lut = {point['id']: point for point in points}
     # Remove isolated points from the problem
+    print("Remove isolated points")
     isolated_disks, isolated_points, _ = isolated(points, radius, start_disk_id)
     # Update the points
-    disks: List[Dict[str, Any]] = list()
+    disks: List[Dict[str, Any]] = isolated_disks
     disk_id = start_disk_id + len(disks)
     points = [point for point in points if point['id'] not in [point['id'] for point in isolated_points]]
     # Build the graph
+    print("Build graph")
     graph = create_graph(points, radius * math.sqrt(3))
     # Compute connected components
+    print("Computing subgraphs")
     connected_components = [graph.subgraph(c).copy() for c in nx.connected_components(graph)]
     connected_components.sort(key=lambda x: len(x), reverse=True)
-    # Keep the larger subgraph
-    subgraph = connected_components[1]
-    # Compute all the maximal cliques for every node in the subgraph removing duplicated cliques
-    cliques = set()
-    for node in subgraph.nodes():
-        cliques_of_node = list(nx.find_cliques(subgraph, [node]))
-        cliques = cliques.union([frozenset(clique_of_node) for clique_of_node in cliques_of_node])
-    cliques = list(cliques)
-    for clique in cliques:
-        clique_points = [(subgraph.nodes[node]['x'], subgraph.nodes[node]['y']) for node in clique]
-        center = minimum_enclosing_circle(clique_points)
-        disks.append({
-            'id': disk_id,
-            'x': center['x'],
-            'y': center['y'],
-            'covers': list(clique),
-        })
-        disk_id += 1
-    points, disks, _ = adjust_coverage(points, disks, radius)
-    # disks, _ = remove_redundant_disks(disks)
-    distance_matrix = np.zeros((len(disks), len(disks)), dtype=int)
-    for i in range(len(disks)):
-        for j in range(i, len(disks)):
-            distance = int(math.sqrt((disks[i]['x'] - disks[j]['x']) ** 2 + (disks[i]['y'] - disks[j]['y']) ** 2))
-            distance_matrix[i, j] = distance
-            distance_matrix[j, i] = distance
-
-    # Build the set cover matrix
-    cover_matrix = np.zeros((len(subgraph.nodes), len(disks)))
-    tr_local_id_to_row = {node: i for i, node in enumerate(subgraph.nodes, 0)}
-    for i in range(len(disks)):
-        for node in disks[i]['covers']:
-            cover_matrix[tr_local_id_to_row[node], i] = 1
-    file = open("coverage_matrix.txt", "w")
-    file.write("set C :=\n")
-    for i in range(len(disks)):
-        file.write("  ({}, *) ".format(i))
-        for node in disks[i]['covers']:
+    for subgraph_id, subgraph in enumerate(connected_components):
+        print(f"Searching cliques of subgraph {subgraph_id}")
+        subgraph_disks: List[Dict[str, Any]] = list()
+        subgraph_points: List[Dict[str, Any]] = [point for point in points if point['id'] in subgraph.nodes]
+        cliques = list(nx.enumerate_all_cliques(subgraph))
+        print(f"Found {len(cliques)} cliques in subgraph {subgraph_id}")
+        print(f"Computing disks of subgraph {subgraph_id}")
+        for clique in cliques:
+            clique_points = [points_lut[elem] for elem in clique]
+            circle = minimum_enclosing_circle([(clique_point['x'], clique_point['y']) for clique_point in clique_points])
+            subgraph_disks.append({
+                'id': disk_id,
+                'x': circle['x'],
+                'y': circle['y'],
+                'covers': clique,
+            })
+            disk_id += 1
+        print(f"Found {len(subgraph_disks)} disks in subgraph {subgraph_id}")
+        print("Computing disk coverage of subgraph {subgraph_id}")
+        subgraph_points, subgraph_disks, _ = adjust_coverage(subgraph_points, subgraph_disks, radius)
+        print("Deleting redundant disks of subgraph {subgraph_id}")
+        subgraph_disks, _ = remove_redundant_disks(subgraph_disks)
+        print(f"Found {len(subgraph_disks)} different disks in subgraph {subgraph_id}")
+        print("Computing distance matrix of subgraph {subgraph_id}")
+        distance_matrix = np.zeros((len(subgraph_disks), len(subgraph_disks)), dtype=int)
+        for i in range(len(subgraph_disks)):
+            for j in range(i, len(subgraph_disks)):
+                distance = int(math.sqrt((subgraph_disks[i]['x'] - subgraph_disks[j]['x']) ** 2 + (subgraph_disks[i]['y'] - subgraph_disks[j]['y']) ** 2))
+                distance_matrix[i, j] = distance
+                distance_matrix[j, i] = distance
+        # Build the set cover matrix
+        print(f"Computing coverage matrix of subgraph {subgraph_id}")
+        cover_matrix = np.zeros((len(subgraph.nodes), len(subgraph_disks)))
+        tr_local_id_to_row = {node: i for i, node in enumerate(subgraph.nodes, 0)}
+        for i in range(len(subgraph_disks)):
+            for node in subgraph_disks[i]['covers']:
+                cover_matrix[tr_local_id_to_row[node], i] = 1
+        file = open(f"coverage_matrix_{subgraph_id}.txt", "w")
+        file.write("set C :=\n")
+        for i in range(len(subgraph_disks)):
+            file.write("  ({}, *) ".format(i))
+            for node in subgraph_disks[i]['covers']:
+                file.write("  {}".format(node))
+            file.write("\n")
+        file.close()
+        file = open(f"distance_matrix_{subgraph_id}.txt", "w")
+        file.write("param d : ")
+        for i in range(len(subgraph_disks)):
+            file.write("{:6d} ".format(i))
+        file.write(":=\n")
+        for i in range(len(subgraph_disks)):
+            file.write("          {:6d} ".format(i))
+            for j in range(len(subgraph_disks)):
+                file.write("  {:6d}".format(distance_matrix[i, j]))
+            file.write("\n")
+        file.write(";\n")
+        file.close()
+        file = open(f"llamps_{subgraph_id}.txt", "w")
+        file.write("set LL := ")
+        for node in subgraph.nodes():
             file.write("  {}".format(node))
-        file.write("\n")
-    file = open("distance_matrix.txt", "w")
-    file.write("param d : ")
-    for i in range(len(disks)):
-        file.write("{:6d} ".format(i))
-    file.write(":=\n")
-    for i in range(len(disks)):
-        file.write("          {:6d} ".format(i))
-        for j in range(len(disks)):
-            file.write("  {:6d}".format(distance_matrix[i, j]))
-        file.write("\n")
-    file.write(";\n")
-    file = open("llamps.txt", "w")
-    file.write("set LL := ")
-    for node in subgraph.nodes():
-        file.write("  {}".format(node))
-    file.write(";\n")
+        file.write(";\n")
+        file.close()
     # Create disks
     return disks, [point for point in points if point['covered_by'] is not None], time.time() - start_time
 
@@ -541,18 +557,41 @@ def adjust_coverage(points: List[Dict[str, Any]], disks: List[Dict[str, Any]], r
     """
     # Record processing time
     start_time: float = time.time()
-    # Iterate to update coverage values
+    print("Ordenant Punts i disks")
+    points = order_points_x(points)
+    disks = order_points_x(disks)
+    for point in points:
+        if point['covered_by'] is not None:
+            point['covered_by'] = {disk_id: disk_id for disk_id in point['covered_by']}
     for disk in disks:
-        for point in points:
-            if math.sqrt((disk['x'] - point['x']) ** 2 + (disk['y'] - point['y']) ** 2) <= radius:
-                if point['covered_by'] is not None and disk['id'] not in point['covered_by']:
-                    point['covered_by'].append(disk['id'])
-                elif point['covered_by'] is None:
-                    point['covered_by'] = [disk['id']]
-                if disk['covers'] is not None and point['id'] not in disk['covers']:
-                    disk['covers'].append(point['id'])
-                elif disk['covers'] is None:
-                    disk['covers'] = [point['id']]
+        if disk['covers'] is not None:
+            disk['covers'] = {point_id: point_id for point_id in disk['covers']}
+    # Iterate to update coverage values
+    first_point_index: int = 0
+    break_point: int = 0
+    for d, disk in enumerate(disks):
+        first_point_index_updated: bool = False
+        for i in range(first_point_index, len(points)):
+            point = points[i]
+            if not (disk['x'] - point['x'] > radius):
+                if not first_point_index_updated:
+                    first_point_index = i
+                    first_point_index_updated = True
+                if point['x'] - disk['x'] > radius:
+                    break_point = i
+                    break
+                elif math.sqrt((disk['x'] - point['x']) ** 2 + (disk['y'] - point['y']) ** 2) <= radius:
+                    if point['covered_by'] is not None and disk['id'] not in point['covered_by']:
+                        point['covered_by'][disk['id']] = disk['id']
+                    elif point['covered_by'] is None:
+                        point['covered_by'] = {disk['id']: disk['id']}
+                    if disk['covers'] is not None and point['id'] not in disk['covers']:
+                        disk['covers'][point['id']] = point['id']
+                    elif disk['covers'] is None:
+                        disk['covers'] = {point['id']: point['id']}
+        if d % 1000 == 0:
+            print(f"Analitzant disk {d} de {len(disks)}; Punt d'inici: {first_point_index}, punt de break {break_point} de {len(points)} punts totals en {time.time() - start_time}s")
+            start_time = time.time()
     return points, disks, time.time() - start_time
             
 

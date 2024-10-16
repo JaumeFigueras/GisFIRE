@@ -52,7 +52,7 @@ from .algorithms.set_cover import greedy_naive
 from .algorithms.set_cover import greedy_cliques
 from .algorithms.set_cover import ip_max_cliques
 from .algorithms.set_cover import ip_complete_cliques
-from .algorithms.set_cover_multiprocessing import ip_complete_cliques_multiprocessing
+from .algorithms.set_cover_multiprocessing import multics
 from .helpers.geometry import interpolate_circle
 
 class GisFIRELightnings:
@@ -253,7 +253,7 @@ class GisFIRELightnings:
             elif selected_algorithm == 5:  # IP All Cliques
                 disks, covered_points, _ = ip_complete_cliques(points, self._default_radius)
             elif selected_algorithm == 6:  # IP All Cliques Multiprocessing
-                disks, covered_points, _ = ip_complete_cliques_multiprocessing(points, self._default_radius)
+                disks, covered_points, _ = multics()
             elif selected_algorithm == 7: # Export AMPL
                 disks, covered_points, _ = export_to_ampl_ip_max_cliques(points, self._default_radius)
 
