@@ -55,6 +55,26 @@ from .algorithms.set_cover import ip_complete_cliques
 from .algorithms.set_cover_multiprocessing import multics
 from .helpers.geometry import interpolate_circle
 
+bases_bombers_cat = [
+    ["Sabadell",425257,4597293],
+    ["Olot",456606,4671049],
+    ["Manresa",404564,4621746],
+    ["Girona",483939,4645337],
+    ["Lleida",300438,4610849],
+    ["Ullastrell",414179,4597526],
+    ["Tarragona",347859,4555183],
+    ["Calaf",377521,4620906],
+    ["Orriols",492075,4664450],
+    ["Maçanet",479414,4625308],
+    ["Balaguer",317693,4629868],
+    ["Tiurana",355626,4648365],
+    ["Dosrius",453859,4607609],
+    ["Òdena",387651,4604814],
+    ["Montmell",380126,4579833],
+    ["Garraf",409134,4569740],
+    ["Móra d'Ebre",300924,4551070],
+]
+
 class GisFIRELightnings:
     """
     GisFIRE Lightnings QGIS plugin implementation
@@ -255,7 +275,7 @@ class GisFIRELightnings:
             elif selected_algorithm == 6:  # IP All Cliques Multiprocessing
                 disks, covered_points, _ = multics()
             elif selected_algorithm == 7: # Export AMPL
-                disks, covered_points, _ = export_to_ampl_ip_max_cliques(points, self._default_radius)
+                disks, covered_points, _ = export_to_ampl_ip_max_cliques(points, self._default_radius, bases_bombers_cat)
 
             vector_layer: QgsVectorLayer = QgsVectorLayer("linestring", "disks", "memory")
             provider: QgsVectorDataProvider = vector_layer.dataProvider()
