@@ -442,8 +442,41 @@ def ip_complete_cliques(points: List[Dict[str, Any]], radius: float, start_disk_
 
 
 def aprox_hochbaum_mass(points: List[Dict[str, Any]], radius: float, l: int, start_disk_id: Optional[int] = 0) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], float]:
+    # Compute max and min in x and y
+    x_min = points[0]['x']
+    x_max = points[-1]['x']
+    y_min = points[0]['y']
+    y_max = points[0]['y']
+    for i in range(1, len(points)):
+        if points[i]['y'] < y_min:
+            y_min = points[i]['y']
+        if points[i]['y'] > y_max:
+            y_max = points[i]['y']
+    squares: List[Dict[str, float]] = [{
+        'top_left_x': x_min,
+        'top_left_y': y_max,
+        'bottom_right_x': x_min + (radius * 2 * l),
+        'bottom_right_y': y_max - (radius * 2 * l),
+    }]
+    while squares[-1]['top_left_x'] < x_max:
+        while squares[-1]['bottom_right_y'] > y_min:
+            squares.append({
+                'top_left_x': squares[-1]['top_left_x'],
+                'top_left_y': squares[-1]['bottom_right_y'],
+                'bottom_right_x': squares[-1]['bottom_right_x'],
+                'bottom_right_y': squares[-1]['bottom_right_y'] - (radius * 2 * l),
+            })
+        squares.append({
+            'top_left_x': squares[-1]['bottom_right_x'],
+            'top_left_y': squares[0]['top_left_y'],
+            'bottom_right_x': squares[-1]['bottom_right_x'] + (radius * 2 * l),
+            'bottom_right_y': squares[0]['bottom_right_y'],
+        })
+    del squares[-1]
 
-    pass
+
+
+    return squares, squares, 0
 
 
 def export_to_ampl_ip_max_cliques(points: List[Dict[str, Any]], radius: float, bases_bombers: List[any], start_disk_id: Optional[int] = 0) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], float]:
@@ -470,10 +503,10 @@ def export_to_ampl_ip_max_cliques(points: List[Dict[str, Any]], radius: float, b
     # Update the points
     disks: List[Dict[str, Any]] = isolated_disks
     disk_id = start_disk_id + len(disks)
-    points = [point for point in points if point['id'] not in [point['id'] for point in isolated_points]]
+    points_not_isolated = [point for point in points if point['id'] not in [point['id'] for point in isolated_points]]
     # Build the graph
     print("Build graph")
-    graph = create_graph(points, radius * math.sqrt(3))
+    graph = create_graph(points_not_isolated, radius * math.sqrt(3))
     # Compute connected components
     print("Computing subgraphs")
     connected_components = [graph.subgraph(c).copy() for c in nx.connected_components(graph)]
@@ -500,64 +533,69 @@ def export_to_ampl_ip_max_cliques(points: List[Dict[str, Any]], radius: float, b
         subgraph_points, subgraph_disks, _ = adjust_coverage(subgraph_points, subgraph_disks, radius)
         print("Deleting redundant disks of subgraph {subgraph_id}")
         subgraph_disks, _ = remove_redundant_disks(subgraph_disks)
+        disks += subgraph_disks
         print(f"Found {len(subgraph_disks)} different disks in subgraph {subgraph_id}")
-        print("Computing distance matrix of subgraph {subgraph_id}")
-        # Add bases as disks
-        bases_disks = list()
-        for base in bases_bombers:
-            base_disk = {
-                'id': disk_id,
-                'x': base[1],
-                'y': base[2],
-            }
-            disk_id += 1
-            bases_disks.append(base_disk)
-        disks_and_bases = subgraph_disks + bases_disks
-        distance_matrix = np.zeros((len(disks_and_bases), len(disks_and_bases)), dtype=int)
-        for i in range(len(disks_and_bases)):
-            for j in range(i, len(disks_and_bases)):
-                distance = int(math.sqrt((disks_and_bases[i]['x'] - disks_and_bases[j]['x']) ** 2 + (disks_and_bases[i]['y'] - disks_and_bases[j]['y']) ** 2))
-                distance_matrix[i, j] = distance
-                distance_matrix[j, i] = distance
-        # Build the set cover matrix
-        print(f"Computing coverage matrix of subgraph {subgraph_id}")
-        cover_matrix = np.zeros((len(subgraph.nodes), len(subgraph_disks)))
-        tr_local_id_to_row = {node: i for i, node in enumerate(subgraph.nodes, 0)}
-        for i in range(len(subgraph_disks)):
-            for node in subgraph_disks[i]['covers'].values():
-                cover_matrix[tr_local_id_to_row[node], i] = 1
-        file = open(f"/home/jaume/tmp/dades-v6-{subgraph_id}.dat", "w")
-        file.write("data;\n\n")
-        file.write("set CLH := ")
-        for i in range(len(disks_and_bases)):
-            file.write(f" {i:6d}")
-        file.write(";\n\n")
-        file.write("set H := ")
-        for i in range(len(disks_and_bases) - 17, len(disks_and_bases)):
-            file.write(f" {i:6d}")
-        file.write(";\n\n")
-        file.write("set LL := ")
-        for node in subgraph.nodes():
-            file.write("  {}".format(node))
-        file.write(";\n\n")
-        file.write("set C :=\n")
-        for i in range(len(subgraph_disks)):
-            file.write("  ({}, *) ".format(i))
-            for node in subgraph_disks[i]['covers'].values():
-                file.write("  {}".format(node))
-            file.write("\n")
-        file.write(";\n\n")
-        file.write("param d : ")
-        for i in range(len(disks_and_bases)):
-            file.write("{:8d} ".format(i))
-        file.write(":=\n")
-        for i in range(len(disks_and_bases)):
-            file.write("          {:6d} ".format(i))
-            for j in range(len(disks_and_bases)):
-                file.write("  {:6d}".format(distance_matrix[i, j]))
-            file.write("\n")
-        file.write(";\n")
-        file.close()
+    print("Computing distance matrix")
+    # Add bases as disks
+    bases_disks = list()
+    for base in bases_bombers:
+        base_disk = {
+            'id': disk_id,
+            'x': base[1],
+            'y': base[2],
+        }
+        disk_id += 1
+        bases_disks.append(base_disk)
+    disks_and_bases = disks + bases_disks
+    distance_matrix = np.zeros((len(disks_and_bases), len(disks_and_bases)), dtype=int)
+    for i in range(len(disks_and_bases)):
+        for j in range(i, len(disks_and_bases)):
+            distance = int(math.sqrt((disks_and_bases[i]['x'] - disks_and_bases[j]['x']) ** 2 + (disks_and_bases[i]['y'] - disks_and_bases[j]['y']) ** 2))
+            distance_matrix[i, j] = distance
+            distance_matrix[j, i] = distance
+    # Build the set cover matrix
+    print(f"Computing coverage matrix")
+    cover_matrix = np.zeros((len(points), len(disks)))
+    tr_local_id_to_row = {point['id']: i for i, point in enumerate(points, 0)}
+    for i in range(len(disks)):
+        for node in disks[i]['covers'].values():
+            cover_matrix[tr_local_id_to_row[node], i] = 1
+    file = open(f"/home/jaume/tmp/dades-v6.dat", "w")
+    file.write("data;\n\n")
+    file.write("set CLH := ")
+    for i in range(len(disks_and_bases)):
+        file.write(f" {i:6d}")
+    file.write(";\n\n")
+    file.write("set H := ")
+    for i in range(len(disks_and_bases) - 17, len(disks_and_bases)):
+        file.write(f" {i:6d}")
+    file.write(";\n\n")
+    file.write("param dMaxH := \n")
+    for i in range(len(disks_and_bases) - 17, len(disks_and_bases)):
+        file.write(f" {i:6d} 400000\n")
+    file.write(";\n\n")
+    file.write("set LL := ")
+    for point in points:
+        file.write("  {}".format(point['id']))
+    file.write(";\n\n")
+    file.write("set C :=\n")
+    for i in range(len(disks)):
+        file.write("  ({}, *) ".format(i))
+        for point_id in disks[i]['covers'].values():
+            file.write("  {}".format(point_id))
+        file.write("\n")
+    file.write(";\n\n")
+    file.write("param d : ")
+    for i in range(len(disks_and_bases)):
+        file.write("{:8d} ".format(i))
+    file.write(":=\n")
+    for i in range(len(disks_and_bases)):
+        file.write("          {:6d} ".format(i))
+        for j in range(len(disks_and_bases)):
+            file.write("  {:6d}".format(distance_matrix[i, j]))
+        file.write("\n")
+    file.write(";\n")
+    file.close()
 
     # Create disks
     return disks, [point for point in points if point['covered_by'] is not None], time.time() - start_time

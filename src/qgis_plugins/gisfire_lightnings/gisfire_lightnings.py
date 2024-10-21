@@ -52,6 +52,7 @@ from .algorithms.set_cover import greedy_naive
 from .algorithms.set_cover import greedy_cliques
 from .algorithms.set_cover import ip_max_cliques
 from .algorithms.set_cover import ip_complete_cliques
+from .algorithms.set_cover import aprox_hochbaum_mass
 from .algorithms.set_cover_multiprocessing import multics
 from .helpers.geometry import interpolate_circle
 
@@ -273,7 +274,29 @@ class GisFIRELightnings:
             elif selected_algorithm == 5:  # IP All Cliques
                 disks, covered_points, _ = ip_complete_cliques(points, self._default_radius)
             elif selected_algorithm == 6:  # IP All Cliques Multiprocessing
-                disks, covered_points, _ = multics()
+                squares, covered_points, _ = aprox_hochbaum_mass(points, self._default_radius, 2)
+                vector_layer: QgsVectorLayer = QgsVectorLayer("linestring", "surfaces", "memory")
+                provider: QgsVectorDataProvider = vector_layer.dataProvider()
+                provider.addAttributes([QgsField("fid", QVariant.Int)])
+                vector_layer.updateFields()  # tell the vector layer to fetch changes from the provider
+                fid = 1
+                for square in squares:
+                    feat: QgsFeature = QgsFeature()
+                    surface_points = [
+                        QgsPointXY(square['top_left_x'], square['top_left_y']),
+                        QgsPointXY(square['top_left_x'], square['bottom_right_y']),
+                        QgsPointXY(square['bottom_right_x'], square['bottom_right_y']),
+                        QgsPointXY(square['bottom_right_x'], square['top_left_y']),
+                        QgsPointXY(square['top_left_x'], square['top_left_y'])
+                    ]
+                    feat.setGeometry(QgsGeometry.fromPolylineXY(surface_points))
+                    feat.setAttributes([fid])
+                    fid += 1
+                    provider.addFeatures([feat])
+                vector_layer.updateExtents()
+                current_project: QgsProject = QgsProject()
+                vector_layer.setCrs(current_project.instance().crs())
+                current_project.instance().addMapLayer(vector_layer, True)
             elif selected_algorithm == 7: # Export AMPL
                 disks, covered_points, _ = export_to_ampl_ip_max_cliques(points, self._default_radius, bases_bombers_cat)
 
