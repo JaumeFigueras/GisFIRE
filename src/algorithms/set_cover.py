@@ -6,6 +6,7 @@ import random
 import time
 import numpy as np
 import networkx as nx
+import gc
 
 from ortools.linear_solver import pywraplp
 from ortools.linear_solver.pywraplp import Solver
@@ -104,6 +105,7 @@ def isolated(points: List[Dict[str, Any]], radius: float, start_disk_id: Optiona
                     points[i]['covered_by'] = {disk_id: disk_id}
                     points[j]['covered_by'] = {disk_id: disk_id}
                     disk_id += 1
+    disks = [dict(disk, **{'covers_set': frozenset(disk['covers'].values())}) for disk in disks]
     return disks, [point for point in points if point['covered_by'] is not None], time.time() - start_time
 
 def naive(points: List[Dict[str, Any]], radius: float, start_disk_id: Optional[int] = 0) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], float]:
@@ -518,23 +520,23 @@ def export_to_ampl_ip_max_cliques(points: List[Dict[str, Any]], radius: float, b
         cliques = list(nx.enumerate_all_cliques(subgraph))
         print(f"Found {len(cliques)} cliques in subgraph {subgraph_id}")
         print(f"Computing disks of subgraph {subgraph_id}")
-        for clique in cliques:
-            clique_points = [points_lut[elem] for elem in clique]
-            circle = minimum_enclosing_circle([(clique_point['x'], clique_point['y']) for clique_point in clique_points])
-            subgraph_disks.append({
-                'id': disk_id,
-                'x': circle['x'],
-                'y': circle['y'],
-                'covers': {node: node for node in clique},
-            })
-            disk_id += 1
-        print(f"Found {len(subgraph_disks)} disks in subgraph {subgraph_id}")
-        print("Computing disk coverage of subgraph {subgraph_id}")
-        subgraph_points, subgraph_disks, _ = adjust_coverage(subgraph_points, subgraph_disks, radius)
-        print("Deleting redundant disks of subgraph {subgraph_id}")
-        subgraph_disks, _ = remove_redundant_disks(subgraph_disks)
-        disks += subgraph_disks
-        print(f"Found {len(subgraph_disks)} different disks in subgraph {subgraph_id}")
+        # for clique in cliques:
+        #     clique_points = [points_lut[elem] for elem in clique]
+        #     circle = minimum_enclosing_circle([(clique_point['x'], clique_point['y']) for clique_point in clique_points])
+        #     subgraph_disks.append({
+        #         'id': disk_id,
+        #         'x': circle['x'],
+        #         'y': circle['y'],
+        #         'covers': {node: node for node in clique},
+        #     })
+        #     disk_id += 1
+        # print(f"Found {len(subgraph_disks)} disks in subgraph {subgraph_id}")
+        # print("Computing disk coverage of subgraph {subgraph_id}")
+        # subgraph_points, subgraph_disks, _ = adjust_coverage(subgraph_points, subgraph_disks, radius)
+        # print("Deleting redundant disks of subgraph {subgraph_id}")
+        # subgraph_disks, _ = remove_redundant_disks(subgraph_disks)
+        # disks += subgraph_disks
+        # print(f"Found {len(subgraph_disks)} different disks in subgraph {subgraph_id}")
     print("Computing distance matrix")
     # Add bases as disks
     bases_disks = list()
@@ -599,6 +601,163 @@ def export_to_ampl_ip_max_cliques(points: List[Dict[str, Any]], radius: float, b
 
     # Create disks
     return disks, [point for point in points if point['covered_by'] is not None], time.time() - start_time
+
+
+def export_to_ampl_all_cliques_incremental(points: List[Dict[str, Any]], radius: float, bases_bombers: List[any], start_disk_id: Optional[int] = 0) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], float]:
+    """
+    TODO
+
+    :param points: List with all points to be covered, the elements of the list must be a dict with at least an 'x' and
+    'y' components of type float
+    :type points: List[Dict[str, Any]]
+    :param radius: Radius of the disc
+    :type radius: float
+    :return: Return a list of discs. The discs are modeled with a numeric 'id', and the 'x' and 'y' components of the
+    center in the Euclidean space
+    :rtype: List[Dict[str, Any]]
+    """
+    # Record processing time
+    start_time: float = time.time()
+    # Rearrange IDs
+    points = [dict(point, **{'covered_by': None}) for point in points]
+    points_lut = {point['id']: point for point in points}
+    # Remove isolated points from the problem
+    print("Remove isolated points")
+    isolated_disks, isolated_points, _ = isolated(points, radius, start_disk_id)
+    # Update the points
+    disks: List[Dict[str, Any]] = isolated_disks
+    disks_covers: Dict[frozenset, Dict[str, Any]] = {disk['covers_set']: disk for disk in disks}
+    disk_id = start_disk_id + len(disks)
+    points_not_isolated = [point for point in points if point['covered_by'] is None]
+    # Build the graph
+    print("Build graph")
+    graph = create_graph(points_not_isolated, radius * math.sqrt(3))
+    # Compute connected components
+    print("Computing subgraphs")
+    connected_components = [graph.subgraph(c).copy() for c in nx.connected_components(graph)]
+    connected_components.sort(key=lambda x: len(x), reverse=True)
+    for subgraph_id, subgraph in enumerate(connected_components):
+        print(f"Searching cliques of subgraph {subgraph_id}")
+        subgraph_points: List[Dict[str, Any]] = [point for point in points if point['id'] in subgraph.nodes]
+        for i, clique in enumerate(nx.enumerate_all_cliques(subgraph)):
+            clique_points = [points_lut[elem] for elem in clique]
+            circle_points = [(clique_point['x'], clique_point['y']) for clique_point in clique_points]
+            circle = minimum_enclosing_circle(circle_points)
+            disk = {
+                'id': disk_id,
+                'x': circle['x'],
+                'y': circle['y'],
+                'covers': {node: node for node in clique},
+            }
+            disk_id += 1
+            _ = adjust_coverage_single_disk(subgraph_points, disk, radius)
+            disk['covers_set'] = frozenset(disk['covers'].values())
+            if disk['covers_set'] not in disks_covers:
+                disks_covers[disk['covers_set']] = disk
+                disks.append(disk)
+            else:
+                del disk
+            del clique_points
+            del circle_points
+            del circle
+            del clique
+            if i % 100000 == 0:
+                print(f"Analyzed clique {i} of subgraph {subgraph_id}. Collected {len(disks)} different disks.")
+                gc.collect()
+    print("Computing distance matrix")
+    # Add bases as disks
+    bases_disks = list()
+    for base in bases_bombers:
+        base_disk = {
+            'id': disk_id,
+            'x': base[1],
+            'y': base[2],
+        }
+        disk_id += 1
+        bases_disks.append(base_disk)
+    disks_and_bases = disks + bases_disks
+    distance_matrix = np.zeros((len(disks_and_bases), len(disks_and_bases)), dtype=int)
+    for i in range(len(disks_and_bases)):
+        for j in range(i, len(disks_and_bases)):
+            distance = int(math.sqrt((disks_and_bases[i]['x'] - disks_and_bases[j]['x']) ** 2 + (disks_and_bases[i]['y'] - disks_and_bases[j]['y']) ** 2))
+            distance_matrix[i, j] = distance
+            distance_matrix[j, i] = distance
+    # Build the set cover matrix
+    print(f"Computing coverage matrix")
+    cover_matrix = np.zeros((len(points), len(disks)))
+    tr_local_id_to_row = {point['id']: i for i, point in enumerate(points, 0)}
+    for i in range(len(disks)):
+        for node in disks[i]['covers'].values():
+            cover_matrix[tr_local_id_to_row[node], i] = 1
+    file = open(f"/home/jaume/tmp/dades-v6.dat", "w")
+    file.write("data;\n\n")
+    file.write("set CLH := ")
+    for i in range(len(disks_and_bases)):
+        file.write(f" {i:6d}")
+    file.write(";\n\n")
+    file.write("set H := ")
+    for i in range(len(disks_and_bases) - 17, len(disks_and_bases)):
+        file.write(f" {i:6d}")
+    file.write(";\n\n")
+    file.write("param dMaxH := \n")
+    for i in range(len(disks_and_bases) - 17, len(disks_and_bases)):
+        file.write(f" {i:6d} 400000\n")
+    file.write(";\n\n")
+    file.write("set LL := ")
+    for point in points:
+        file.write("  {}".format(point['id']))
+    file.write(";\n\n")
+    file.write("set C :=\n")
+    for i in range(len(disks)):
+        file.write("  ({}, *) ".format(i))
+        for point_id in disks[i]['covers'].values():
+            file.write("  {}".format(point_id))
+        file.write("\n")
+    file.write(";\n\n")
+    file.write("param d : ")
+    for i in range(len(disks_and_bases)):
+        file.write("{:8d} ".format(i))
+    file.write(":=\n")
+    for i in range(len(disks_and_bases)):
+        file.write("          {:6d} ".format(i))
+        for j in range(len(disks_and_bases)):
+            file.write("  {:6d}".format(distance_matrix[i, j]))
+        file.write("\n")
+    file.write(";\n")
+    file.close()
+
+    # Create disks
+    return disks, [point for point in points if point['covered_by'] is not None], time.time() - start_time
+
+
+def adjust_coverage_single_disk(points: List[Dict[str, Any]], disk: Dict[str, Any], radius: float) -> float:
+    """
+    It is geometrically possible that several disks having different initial points end up covering points not
+    intended by the used algorithm. So, for information purposes, it is useful to update the coverage information of
+    points and disks
+    :param points:
+    :param disk:
+    :param radius:
+    :return:
+    """
+    # Record processing time
+    start_time: float = time.time()
+    for i in range(len(points)):
+        point = points[i]
+        if not (disk['x'] - point['x'] > radius):
+            if point['x'] - disk['x'] > radius:
+                break
+            elif math.sqrt((disk['x'] - point['x']) ** 2 + (disk['y'] - point['y']) ** 2) <= radius:
+                if point['covered_by'] is not None and disk['id'] not in point['covered_by']:
+                    point['covered_by'][disk['id']] = disk['id']
+                elif point['covered_by'] is None:
+                    point['covered_by'] = {disk['id']: disk['id']}
+                if disk['covers'] is not None and point['id'] not in disk['covers']:
+                    disk['covers'][point['id']] = point['id']
+                elif disk['covers'] is None:
+                    disk['covers'] = {point['id']: point['id']}
+    return time.time() - start_time
+
 
 
 def adjust_coverage(points: List[Dict[str, Any]], disks: List[Dict[str, Any]], radius: float) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], float]:

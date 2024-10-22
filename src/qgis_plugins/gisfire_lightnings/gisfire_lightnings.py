@@ -44,7 +44,7 @@ from typing import Union
 
 from .resources import *  # noqa
 from .ui.dialogs.disk_cover_algorithm import DlgDiskCoverAlgorithm
-from .algorithms.set_cover import export_to_ampl_ip_max_cliques, order_points_x
+from .algorithms.set_cover import export_to_ampl_all_cliques_incremental, order_points_x
 from .algorithms.set_cover import remove_duplicates
 from .algorithms.set_cover import isolated
 from .algorithms.set_cover import naive
@@ -298,7 +298,7 @@ class GisFIRELightnings:
                 vector_layer.setCrs(current_project.instance().crs())
                 current_project.instance().addMapLayer(vector_layer, True)
             elif selected_algorithm == 7: # Export AMPL
-                disks, covered_points, _ = export_to_ampl_ip_max_cliques(points, self._default_radius, bases_bombers_cat)
+                disks, covered_points, _ = export_to_ampl_all_cliques_incremental(points, self._default_radius, bases_bombers_cat)
 
             vector_layer: QgsVectorLayer = QgsVectorLayer("linestring", "disks", "memory")
             provider: QgsVectorDataProvider = vector_layer.dataProvider()
