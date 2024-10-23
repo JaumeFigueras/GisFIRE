@@ -603,6 +603,142 @@ def export_to_ampl_ip_max_cliques(points: List[Dict[str, Any]], radius: float, b
     return disks, [point for point in points if point['covered_by'] is not None], time.time() - start_time
 
 
+def export_to_ampl_all_cliques_incremental_segmented(points: List[Dict[str, Any]], radius: float, bases: List[any], start_disk_id: Optional[int] = 0) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], float]:
+    """
+    Generates the AMPL data files to run in an AMPL optimization modes by segmenting the space into overlapping squares
+    in order to reduce the memory complexity while obtaining all cliques of the lightnings (points). Use an incremental
+    clique store and retrieval to minimize memory usage. Searches the covering disks using all possible cliques of the
+    adjacency graph.
+
+    Parameters
+    ----------
+    points : list of dict of str: any
+        A list of ordered in the X component of points corresponding a lightning strike. Each point is a dictionary
+        with at least the 'x', 'y' and 'id' keys.
+    radius : float
+        The radius of the cover disk
+    bases : list of dict of str: any
+        A list of locations of the helicopter bases. Each base is a dictionary with at least the 'x', 'y' keys.
+    start_disk_id : int, optional (default=0)
+        The starting ID of the disk to compute
+
+    Returns
+    -------
+    disks: list of dict of str: any
+        A list of disks that cover the points. Each disk contain the 'x', 'y', 'id', 'covers' and 'covers_set' keys.
+        The 'x' and 'y' are the location components of the center of the disk, 'id' is the unique identifier of the disk
+        and 'covers' and 'covers_set' are a dict and a frozenset (to have a hashable element) with the list of point
+        identifiers that are covered by the disk. There are no duplicated disks (two disks that cover the same points)
+        and the identifiers are not guaranteed to be consecutive
+    points: list of dict of str: any
+        The same list of points passed as a parameter with the 'covered_by' key containing the dict of disks identifiers
+        that cover each point
+    execution_time: float
+        The execution time in seconds of the function
+    """
+    # Record processing time
+    start_time: float = time.time()
+    # add covered_by keyword
+    points = [dict(point, **{'covered_by': None}) for point in points]
+    points_dict = {point['id']: point for point in points}
+    # Calculate the bounding box of all points
+    x_min = points[0]['x']
+    x_max = points[-1]['x']
+    y_min = points[0]['y']
+    y_max = points[0]['y']
+    for i in range(1, len(points)):
+        if points[i]['y'] < y_min:
+            y_min = points[i]['y']
+        if points[i]['y'] > y_max:
+            y_max = points[i]['y']
+    # Calculate the overlapping squares to divide the problem in order to reduce the complexity. The squares are,
+    # 20x20 km with a 2XR overlap
+    square_side = 20000
+    squares: List[Dict[str, float]] = [{
+        'top_left_x': x_min,
+        'top_left_y': y_max,
+        'bottom_right_x': x_min + square_side,
+        'bottom_right_y': y_max - square_side,
+    }]
+    while squares[-1]['top_left_x'] - (2 * radius) < x_max:
+        while squares[-1]['bottom_right_y'] + (2 * radius) > y_min:
+            squares.append({
+                'top_left_x': squares[-1]['top_left_x'],
+                'top_left_y': squares[-1]['bottom_right_y'] + (2 * radius),
+                'bottom_right_x': squares[-1]['bottom_right_x'],
+                'bottom_right_y': squares[-1]['bottom_right_y'] + (2 * radius) - square_side,
+            })
+        squares.append({
+            'top_left_x': squares[-1]['bottom_right_x'] - (2 * radius),
+            'top_left_y': squares[0]['top_left_y'],
+            'bottom_right_x': squares[-1]['bottom_right_x'] - (2 * radius) + square_side,
+            'bottom_right_y': squares[0]['bottom_right_y'],
+        })
+    del squares[-1]
+    # Create disks structures
+    disks: List[Dict[str, Any]] = list()
+    disks_covers: Dict[frozenset, Dict[str, Any]] = dict()
+    # Search isolated disks and
+    # TODO: Remove
+    print("Analyzing isolated points")
+    disks_isolated, points_isolated, _ = isolated(points, radius, start_disk_id)
+    disks += disks_isolated
+    disk_id = start_disk_id + len(disks)
+    points_not_isolated = [point for point in points if point['covered_by'] is None]
+    # TODO: Remove
+    print(f"Found {len(disks_isolated)} disks that cover {len(points_isolated)} points")
+    # Iterate over squares
+    for i, square in enumerate(squares):
+        # TODO: Remove
+        print(f"Analyzing square #{i}")
+        # Create a list of points inside square
+        points_in_square = list()
+        for point in points_not_isolated:
+            if point['x'] < square['top_left_x']:
+                continue
+            elif point['x'] >= square['bottom_right_x']:
+                break
+            else:
+                if square['top_left_y'] >= point['y'] > square['bottom_right_y']:
+                    points_in_square.append(point)
+        # TODO: Remove
+        print(f"Square #{i} has {len(points_in_square)} points")
+        # Create the graph for the points inside the square
+        graph = create_graph(points_in_square, radius * math.sqrt(3))
+        disks_of_square: List[Dict[str, Any]] = list()
+        # Add a disk for each clique if its points are not yet covered by an equal disk
+        j = 0
+        for j, clique in enumerate(nx.enumerate_all_cliques(graph)):
+            # Find the circle
+            clique_points = [points_dict[node] for node in clique]
+            circle_points = [(clique_point['x'], clique_point['y']) for clique_point in clique_points]
+            circle = minimum_enclosing_circle(circle_points)
+            disk = {
+                'id': disk_id,
+                'x': circle['x'],
+                'y': circle['y'],
+                'covers': {node: node for node in clique},
+            }
+            # Compute which points are covered
+            disk, _ = adjust_disk_coverage(points, disk, radius)
+            if disk['covers_set'] not in disks_covers:
+                disks_covers[disk['covers_set']] = disk
+                disks_of_square.append(disk)
+                disk_id += 1
+            if j % 10000 == 0:
+                # TODO: Remove
+                print(f"Analyzing {j} cliques with {len(disks_of_square)} new disks in square {i}")
+        else:
+            total_cliques = j
+        disks += disks_of_square
+        # TODO: Remove
+        print(f"Analyzed {total_cliques} cliques with {len(disks_of_square)} new disks in square {i}")
+    # TODO: add covers for points
+    # TODO: Remove
+    print(f"Total disks: {len(disks)}")
+    return disks, [dict()], 0
+
+
 def export_to_ampl_all_cliques_incremental(points: List[Dict[str, Any]], radius: float, bases_bombers: List[any], start_disk_id: Optional[int] = 0) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], float]:
     """
     TODO
@@ -728,6 +864,47 @@ def export_to_ampl_all_cliques_incremental(points: List[Dict[str, Any]], radius:
 
     # Create disks
     return disks, [point for point in points if point['covered_by'] is not None], time.time() - start_time
+
+
+def adjust_disk_coverage(points: List[Dict[str, Any]], disk: Dict[str, Any], radius: float) -> Tuple[Dict[str, Any], float]:
+    """
+    Adds to the disk 'covers' attribute the points that are geometrically covered using a certain radius.
+
+    Parameters
+    ----------
+    points : list os dict of str: any
+        List of points to search for the disk coverage. The point must be a dict with at least the 'id', 'x' and 'y'
+        keywords
+    disk : dict of str: any
+        The disk to search the coverage from. The point must be a dict with at least the 'x' and 'y' keywords
+    radius : float
+        The radius of the disk
+
+    Returns
+    -------
+    disk: dict of str: any
+        The provided disk with the coverage added. The coverage is a dict of points IDs (str: str) under the 'covers'
+        keyword and a frozenset with the same point IDs to have a hashable element to search for future duplicated
+        disks. This set is under the 'covers_set' keyword.
+    execution_time: float
+        The execution time in seconds of the function
+    """
+    # Record processing time
+    start_time: float = time.time()
+    # Iterate for all points
+    for i in range(len(points)):
+        point = points[i]
+        if not (disk['x'] - point['x'] > radius): # As points are ordered by the x component, do nothing unless its x
+                                                  # lays at the right of the x limit of the center - radius
+            if point['x'] - disk['x'] > radius: # Stop iterating if the point lays right of the center + radius
+                break
+            elif math.sqrt((disk['x'] - point['x']) ** 2 + (disk['y'] - point['y']) ** 2) <= radius:
+                if disk['covers'] is not None and point['id'] not in disk['covers']:
+                    disk['covers'][point['id']] = point['id']
+                elif disk['covers'] is None:
+                    disk['covers'] = {point['id']: point['id']}
+        disk['covers_set'] = frozenset(disk['covers'].keys())
+    return disk, time.time() - start_time
 
 
 def adjust_coverage_single_disk(points: List[Dict[str, Any]], disk: Dict[str, Any], radius: float) -> float:
