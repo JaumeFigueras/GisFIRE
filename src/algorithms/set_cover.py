@@ -7,6 +7,7 @@ import time
 import numpy as np
 import networkx as nx
 import gc
+import csv
 
 from ortools.linear_solver import pywraplp
 from ortools.linear_solver.pywraplp import Solver
@@ -19,59 +20,43 @@ from typing import Optional
 from typing import Union
 from networkx.classes.graph import Graph
 
-def order_points_x(points: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """
-    Return a new list with the elements ordered by the component x
-
-    :param points: List with all points to be sorted, the elements of the list must be a dict with at least an 'x' and
-    'y' components of type float
-    :type points: List[Dict[str, Any]]
-    :return: A sorted list using the 'x' component
-    :rtype: List[Dict[str, Any]]
-    """
-    points = points[:]
-    return sorted(points, key=lambda point: point['x'])
-
-
-def remove_duplicates(points: List[Dict[str, Any]]) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
-    """
-    Return a new list without the points that have the same location. The list must be ordered
-
-    :param points:
-    :return:
-    """
-    indices_to_remove: List[int] = list()
-    for i in range(len(points) - 1):
-        if points[i]['x'] == points[i + 1]['x'] and points[i]['y'] == points[i + 1]['y']:
-            indices_to_remove.append(i + 1)
-    points = points[:]
-    removed_points = list()
-    for i in sorted(list(indices_to_remove), reverse=True):
-        removed_points.append(points[i])
-        del points[i]
-    return points, removed_points
+from .helpers import order_x
+from .helpers import remove_duplicates
 
 
 def isolated(points: List[Dict[str, Any]], radius: float, start_disk_id: Optional[int] = 0) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], float]:
     """
-    Covers all isolated points with a disk.
+    Covers all isolated points with a disk. An isolated point is such point that its distance to any other point is
+    greater than 2*radius or two points that are near (its distance is less or equal of 2*radius) but the distance
+    between both of them and eny other point is grater then 2*radius
 
-    :param points: A list of points to compute the isolation and coverage. A point must contain at least the id, x and
-    y fields
-    :type points: List[Dict[str, Any]]
-    :param radius: Radius of the disk
-    :type radius: float
-    :param start_disk_id: Identifier to assign to the first computed disk
-    :type start_disk_id: int
-    :return: The list of disks tha covers all the isolated points, the list of covered points and the execution time
-    of the function
-    :rtype: Tuple[List[Dict[str, Any]], List[Dict[str, Any]], float]
+    Parameters
+    ----------
+    points: list of dict of str:any
+        List of the points to determine its isolation, the points of the list must be a dict with at least 'id', 'x' and 'y'
+        keywords.
+    radius: float
+        Radius of the disk that should cover the points
+    start_disk_id: int
+        Identifier to assign to the first computed isolated disk
+
+    Returns
+    -------
+    isolated_disks: list of dict of str: any
+        The list of disks tha covers all the isolated points. The disk contain an 'id', 'x' and 'y' components of the
+        center and dict with the IDs of the points covered by it. It also contains a frozenset in 'covers_set' of the
+        covered points to allow search of duplicates
+    isolated_points: list of dict of str: any
+        The list of covered points. The field 'covered_by' with a dictionary with the IDs of the disk that covers the
+        point is added
+    execution_time: float
+        The execution time of the function
     """
     # Record processing time
     start_time: float = time.time()
     # Data initialization
-    points = [dict(point, **{'covered_by': None}) for point in points]
     disks: List[Dict[str, Any]] = list()
+    points_isolated: List[Dict[str, Any]] = list()
     disk_id: int = start_disk_id
     adjacency_matrix = np.zeros((len(points), len(points)), dtype=np.int16)
     # Compute adjacency matrix using radius as threshold
@@ -82,16 +67,18 @@ def isolated(points: List[Dict[str, Any]], radius: float, start_disk_id: Optiona
                 adjacency_matrix[j, i] = 1
     # Search isolated points and cover them with a disk
     for i in range(len(points)):
-        if points[i]['covered_by'] is None:
+        if 'covered_by' not in points[i]:
             num_adjacencies = np.sum(adjacency_matrix[i, :])
             if num_adjacencies == 0:
                 disks.append({
                     'id': disk_id,
                     'x': points[i]['x'],
                     'y': points[i]['y'],
-                    'covers': {points[i]['id']: points[i]['id']}
+                    'covers': {points[i]['id']: points[i]['id']},
+                    'covers_set': frozenset({points[i]['id']})
                 })
                 points[i]['covered_by'] = {disk_id: disk_id}
+                points_isolated.append(points[i])
                 disk_id += 1
             elif num_adjacencies == 1:
                 j = np.where(adjacency_matrix[i, :] == 1)[0][0]
@@ -100,13 +87,16 @@ def isolated(points: List[Dict[str, Any]], radius: float, start_disk_id: Optiona
                         'id': disk_id,
                         'x': (points[i]['x'] + points[j]['x']) / 2,
                         'y': (points[i]['y'] + points[j]['y']) / 2,
-                        'covers': {points[i]['id']: points[i]['id'], points[j]['id']: points[j]['id']}
+                        'covers': {points[i]['id']: points[i]['id'], points[j]['id']: points[j]['id']},
+                        'covers_set': frozenset({points[i]['id'], points[j]['id']})
                     })
                     points[i]['covered_by'] = {disk_id: disk_id}
                     points[j]['covered_by'] = {disk_id: disk_id}
+                    points_isolated.append(points[i])
+                    points_isolated.append(points[j])
                     disk_id += 1
-    disks = [dict(disk, **{'covers_set': frozenset(disk['covers'].values())}) for disk in disks]
-    return disks, [point for point in points if point['covered_by'] is not None], time.time() - start_time
+
+    return disks, points_isolated, time.time() - start_time
 
 def naive(points: List[Dict[str, Any]], radius: float, start_disk_id: Optional[int] = 0) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], float]:
     """
@@ -728,14 +718,97 @@ def export_to_ampl_all_cliques_incremental_segmented(points: List[Dict[str, Any]
             if j % 10000 == 0:
                 # TODO: Remove
                 print(f"Analyzing {j} cliques with {len(disks_of_square)} new disks in square {i}")
+                print(len(points))
         else:
             total_cliques = j
         disks += disks_of_square
         # TODO: Remove
         print(f"Analyzed {total_cliques} cliques with {len(disks_of_square)} new disks in square {i}")
-    # TODO: add covers for points
+    points, _ = adjust_points_coverage(points, disks)
     # TODO: Remove
-    print(f"Total disks: {len(disks)}")
+    print(f"Total disks: {len(disks)} - Total points: {len(points)}")
+    # Add helicopter bases
+    # Add bases as disks
+    bases_disks = list()
+    for base in bases:
+        base_disk = {
+            'id': disk_id,
+            'x': base[1],
+            'y': base[2],
+        }
+        disk_id += 1
+        bases_disks.append(base_disk)
+    # Compute the AMPL Model
+    disks_and_bases = disks + bases_disks
+    distance_matrix = np.zeros((len(disks_and_bases), len(disks_and_bases)), dtype=int)
+    for i in range(len(disks_and_bases)):
+        for j in range(i, len(disks_and_bases)):
+            distance = int(math.sqrt((disks_and_bases[i]['x'] - disks_and_bases[j]['x']) ** 2 + (disks_and_bases[i]['y'] - disks_and_bases[j]['y']) ** 2))
+            distance_matrix[i, j] = distance
+            distance_matrix[j, i] = distance
+    # Build the set cover matrix
+    # TODO: Remove
+    print(f"Computing coverage matrix of {len(points)} points by {len(disks)} disks")
+    cover_matrix = np.zeros((len(points), len(disks)))
+    tr_local_id_to_row = {point['id']: i for i, point in enumerate(points, 0)}
+    for i in range(len(disks)):
+        for node in disks[i]['covers'].values():
+            cover_matrix[tr_local_id_to_row[node], i] = 1
+    file = open(f"/home/jaume/tmp/dades-v6.dat", "w")
+    file.write("data;\n\n")
+    file.write("set CLH := ")
+    for i in range(len(disks_and_bases)):
+        file.write(f" {i:6d}")
+    file.write(";\n\n")
+    file.write("set H := ")
+    for i in range(len(disks_and_bases) - 17, len(disks_and_bases)):
+        file.write(f" {i:6d}")
+    file.write(";\n\n")
+    file.write("param dMaxH := \n")
+    for i in range(len(disks_and_bases) - 17, len(disks_and_bases)):
+        file.write(f" {i:6d} 400000\n")
+    file.write(";\n\n")
+    file.write("set LL := ")
+    for point in points:
+        file.write("  {}".format(point['id']))
+    file.write(";\n\n")
+    file.write("set C :=\n")
+    for i in range(len(disks)):
+        file.write("  ({}, *) ".format(i))
+        for point_id in disks[i]['covers'].values():
+            file.write("  {}".format(point_id))
+        file.write("\n")
+    file.write(";\n\n")
+    file.write("param d : ")
+    for i in range(len(disks_and_bases)):
+        file.write("{:8d} ".format(i))
+    file.write(":=\n")
+    for i in range(len(disks_and_bases)):
+        file.write("          {:6d} ".format(i))
+        for j in range(len(disks_and_bases)):
+            file.write("  {:6d}".format(distance_matrix[i, j]))
+        file.write("\n")
+    file.write(";\n")
+    file.close()
+    with open('/home/jaume/tmp/llamps.csv', 'w') as csvfile:
+        writer = csv.writer(csvfile, delimiter=',')
+        writer.writerow(["ID", "x", "y"])
+        for i in range(len(points)):
+            writer.writerow([points[i]['id'], points[i]['x'], points[i]['y']])
+    csvfile.close()
+    with open('/home/jaume/tmp/disks.csv', 'w') as csvfile:
+        writer = csv.writer(csvfile, delimiter=',')
+        writer.writerow(["ID", "x", "y"])
+        for i in range(len(disks)):
+            writer.writerow([disks[i]['id'], disks[i]['x'], disks[i]['y']])
+    csvfile.close()
+    with open('/home/jaume/tmp/bases.csv', 'w') as csvfile:
+        writer = csv.writer(csvfile, delimiter=',')
+        writer.writerow(["ID", "x", "y"])
+        for i in range(len(bases_disks)):
+            writer.writerow([bases_disks[i]['id'], bases_disks[i]['x'], bases_disks[i]['y']])
+    csvfile.close()
+
     return disks, [dict()], 0
 
 
@@ -907,6 +980,43 @@ def adjust_disk_coverage(points: List[Dict[str, Any]], disk: Dict[str, Any], rad
     return disk, time.time() - start_time
 
 
+def adjust_points_coverage(points: List[Dict[str, Any]], disks: List[Dict[str, Any]]) -> Tuple[List[Dict[str, Any]], float]:
+    """
+    Adds to the list of points the 'covered_by' attribute as a list of disks IDs that cover each point.
+
+    Parameters
+    ----------
+    points : list os dict of str: any
+        List of points to search for the disk coverage. The point must be a dict with at least the 'id', 'x', 'y' and
+        'covered_by' keywords. If the 'covered_by' is not None it is assumed that coverage has been calculated
+        previously
+    disks : list of dict of str: any
+        The disks that cover the points. Each disk must be a dict with at least the 'id', 'x', 'y' and 'covers' keywords
+
+    Returns
+    -------
+    points: list of dict of str: any
+        The provided points with the coverage added. The coverage is a dict of disks IDs (str: str) under the
+        'covered_by' keyword.
+    execution_time: float
+        The execution time in seconds of the function
+    """
+    # Record processing time
+    start_time: float = time.time()
+    # Adapt points to a dict for faster access
+    points_dict = {point['id']: point for point in points}
+    # Iterate for all disks
+    for i in range(len(disks)):
+        for point_id in disks[i]['covers']:
+            if points_dict[point_id]['covered_by'] is None:
+                points_dict[point_id]['covered_by'] = {point_id: point_id}
+            else:
+                points_dict[point_id]['covered_by'][point_id] = point_id
+    return points, time.time() - start_time
+
+
+
+
 def adjust_coverage_single_disk(points: List[Dict[str, Any]], disk: Dict[str, Any], radius: float) -> float:
     """
     It is geometrically possible that several disks having different initial points end up covering points not
@@ -950,8 +1060,8 @@ def adjust_coverage(points: List[Dict[str, Any]], disks: List[Dict[str, Any]], r
     # Record processing time
     start_time: float = time.time()
     print("Ordenant Punts i disks")
-    points = order_points_x(points)
-    disks = order_points_x(disks)
+    points = order_x(points)
+    disks = order_x(disks)
     # Iterate to update coverage values
     first_point_index: int = 0
     break_point: int = 0

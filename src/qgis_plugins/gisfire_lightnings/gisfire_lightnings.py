@@ -44,8 +44,9 @@ from typing import Union
 
 from .resources import *  # noqa
 from .ui.dialogs.disk_cover_algorithm import DlgDiskCoverAlgorithm
-from .algorithms.set_cover import export_to_ampl_all_cliques_incremental_segmented, order_points_x
-from .algorithms.set_cover import remove_duplicates
+from .algorithms.helpers import order_x
+from .algorithms.helpers import remove_duplicates
+from .algorithms.set_cover import export_to_ampl_all_cliques_incremental_segmented
 from .algorithms.set_cover import isolated
 from .algorithms.set_cover import naive
 from .algorithms.set_cover import greedy_naive
@@ -258,8 +259,8 @@ class GisFIRELightnings:
                     'y': pt.y()
                 }
                 points.append(point)
-            points = order_points_x(points)
-            points, _ = remove_duplicates(points)
+            points, _ = order_x(points)
+            points, _, _ = remove_duplicates(points)
             selected_algorithm = dlg.algorithm
             if selected_algorithm == 0: # Remove isolated lightnings
                 disks, covered_points, _ = isolated(points, self._default_radius)
