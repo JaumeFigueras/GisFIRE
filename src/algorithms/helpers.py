@@ -29,8 +29,7 @@ def order_x(points: List[Dict[str, Any]]) -> Tuple[List[Dict[str, Any]], float]:
     # Record processing time
     start_time: float = time.time()
     # Sort
-    points = points[:]
-    sorted(points, key=lambda point: point['x'])
+    points = sorted(points, key=lambda point: point['x'])
     return points, time.time() - start_time
 
 

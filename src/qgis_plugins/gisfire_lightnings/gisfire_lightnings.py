@@ -249,7 +249,7 @@ class GisFIRELightnings:
             # Get the features
             points: List[Dict[str, Any]] = list()
             features: List[QgsFeature] = list(layer.getFeatures())
-            for i, feature in enumerate(features, 0):
+            for i, feature in enumerate(features):
                 geom: QgsGeometry = feature.geometry()
                 pt: QgsPointXY = geom.asPoint()
                 point = {
@@ -274,8 +274,8 @@ class GisFIRELightnings:
                 disks, covered_points, _ = ip_max_cliques(points, self._default_radius)
             elif selected_algorithm == 5:  # IP All Cliques
                 disks, covered_points, _ = ip_complete_cliques(points, self._default_radius)
-            elif selected_algorithm == 6:  # IP All Cliques Multiprocessing
-                squares, covered_points, _ = aprox_hochbaum_mass(points, self._default_radius, 2)
+            elif selected_algorithm == 6:  # Hochbaumm Mass
+                squares, disks, covered_points, _ = aprox_hochbaum_mass(points, self._default_radius * 2, 2)
                 vector_layer: QgsVectorLayer = QgsVectorLayer("linestring", "surfaces", "memory")
                 provider: QgsVectorDataProvider = vector_layer.dataProvider()
                 provider.addAttributes([QgsField("fid", QVariant.Int)])
@@ -330,7 +330,7 @@ class GisFIRELightnings:
             for disk in disks:
                 feat: QgsFeature = QgsFeature()
                 feat.setGeometry(QgsGeometry.fromPolylineXY(interpolate_circle(QgsPointXY(disk['x'], disk['y']), self._default_radius)))
-                feat.setAttributes([disk['id'], ','.join(map(str, disk['covers']))])
+                feat.setAttributes([disk['id'], ','.join(map(str, disk['covers'].keys()))])
                 provider.addFeatures([feat])
             vector_layer.updateExtents()
             current_project: QgsProject = QgsProject()
@@ -346,7 +346,7 @@ class GisFIRELightnings:
             for point in covered_points:
                 feat: QgsFeature = QgsFeature()
                 feat.setGeometry(QgsGeometry.fromPointXY(QgsPointXY(point['x'], point['y'])))
-                feat.setAttributes([fid, point['id'], ','.join(map(str, point['covered_by']))])
+                feat.setAttributes([fid, point['id'], ','.join(map(str, point['covered_by'].keys()))])
                 fid += 1
                 provider.addFeatures([feat])
             vector_layer.updateExtents()

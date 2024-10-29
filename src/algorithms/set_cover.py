@@ -25,31 +25,30 @@ from .helpers import remove_duplicates
 
 
 def isolated(points: List[Dict[str, Any]], radius: float, start_disk_id: Optional[int] = 0) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], float]:
-    """
-    Covers all isolated points with a disk. An isolated point is such point that its distance to any other point is
+    """Covers all isolated points with a disk. An isolated point is such point that its distance to any other point is
     greater than 2*radius or two points that are near (its distance is less or equal of 2*radius) but the distance
     between both of them and eny other point is grater then 2*radius
 
     Parameters
     ----------
-    points: list of dict of str:any
-        List of the points to determine its isolation, the points of the list must be a dict with at least 'id', 'x' and 'y'
-        keywords.
-    radius: float
+    points : list of dict of {str : any}
+        List of the points to determine its isolation, the points of the list must be a dict with at least 'id', 'x'
+        and 'y' keywords.
+    radius : float
         Radius of the disk that should cover the points
-    start_disk_id: int
+    start_disk_id : int
         Identifier to assign to the first computed isolated disk
 
     Returns
     -------
-    isolated_disks: list of dict of str: any
-        The list of disks tha covers all the isolated points. The disk contain an 'id', 'x' and 'y' components of the
-        center and dict with the IDs of the points covered by it. It also contains a frozenset in 'covers_set' of the
-        covered points to allow search of duplicates
-    isolated_points: list of dict of str: any
+    isolated_disks : list of dict of {str : any}
+        The list of disks tha covers all the provided points. The disk contain an 'id', 'x' and 'y' components of the
+        center and dict identifies with 'covers' keyword with the IDs of the points covered by it. It also contains a
+        frozenset in 'covers_set' of the covered points to allow search of duplicates
+    isolated_points : list of dict of {str : any}
         The list of covered points. The field 'covered_by' with a dictionary with the IDs of the disk that covers the
         point is added
-    execution_time: float
+    execution_time : float
         The execution time of the function
     """
     # Record processing time
@@ -99,30 +98,39 @@ def isolated(points: List[Dict[str, Any]], radius: float, start_disk_id: Optiona
     return disks, points_isolated, time.time() - start_time
 
 def naive(points: List[Dict[str, Any]], radius: float, start_disk_id: Optional[int] = 0) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], float]:
-    """
-    Computes a list of discs of provided radius covering all points in the points list using a naive algorithm, locating
-    a disc center in a point and testing if the disc contains any other point inside
+    """Computes a list of discs of provided radius covering all points in the points list using a naive algorithm,
+    locating a disc center in a point and testing if the disc contains any other points inside
 
-    :param points: List with all points to be covered, the elements of the list must be a dict with at least an 'x' and
-    'y' components of type float
-    :type points: List[Dict[str, Any]]
-    :param radius: Radius of the disc
-    :type radius: float
-    :param start_disk_id: Identifier to assign to the first computed disk
-    :type start_disk_id: int
-    :return: Return a list of discs. The discs are modeled with a numeric 'id', the 'x' and 'y' components and the
-    coverage information. The covered points and the execution time of the function are also returned
-    :rtype: Tuple[List[Dict[str, Any]], List[Dict[str, Any]], float]
+    Parameters
+    ----------
+    points : list of dict of {str : any}
+        List of the points to determine its isolation, the points of the list must be a dict with at least 'id', 'x'
+        and 'y' keywords.
+    radius : float
+        Radius of the disk that should cover the points
+    start_disk_id : int
+        Identifier to assign to the first computed isolated disk
+
+    Returns
+    -------
+    disks : list of dict of {str : any}
+        The list of disks tha covers all the provided points. The disk contain an 'id', 'x' and 'y' components of the
+        center and dict identifies with 'covers' keyword with the IDs of the points covered by it. It also contains a
+        frozenset in 'covers_set' of the covered points to allow search of duplicates
+    points: list of dict of {str : any}
+        The list of covered points. The field 'covered_by' with a dictionary with the IDs of the disk that covers the
+        point is added
+    execution_time: float
+        The execution time of the function
     """
     # Record processing time
     start_time: float = time.time()
     # Data initialization
-    points = [dict(point, **{'covered_by': None}) for point in points]
     disks: List[Dict[str, Any]] = list()
     disk_id: int = start_disk_id
     # Iterate over all points
     for i in range(len(points)):
-        if points[i]['covered_by'] is None:
+        if 'covered_by' not in points[i]:
             # Create a disk if the point is not covered
             current_disk = {
                 'id': disk_id,
@@ -133,11 +141,12 @@ def naive(points: List[Dict[str, Any]], radius: float, start_disk_id: Optional[i
             points[i]['covered_by'] = {disk_id: disk_id}
             # Iterate over non processed points
             for j in range(i + 1, len(points)):
-                if points[j]['covered_by'] is None:
+                if 'covered_by' not in points[j]:
                     if math.sqrt((points[j]['x'] - current_disk['x']) ** 2 + (points[j]['y'] - current_disk['y']) ** 2) <= radius:
                         # Add coverage if the point lies inside the proposed disk
                         points[j]['covered_by'] = {disk_id: disk_id}
                         current_disk['covers'][points[j]['id']] = points[j]['id']
+            current_disk['covers_set'] = frozenset(current_disk['covers'].keys())
             disks.append(current_disk)
             disk_id += 1
     points, disks, _ = adjust_coverage(points, disks, radius)
@@ -433,7 +442,56 @@ def ip_complete_cliques(points: List[Dict[str, Any]], radius: float, start_disk_
     return new_disks, [point for point in new_points if point['covered_by'] is not None], time.time() - start_time
 
 
-def aprox_hochbaum_mass(points: List[Dict[str, Any]], radius: float, l: int, start_disk_id: Optional[int] = 0) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], float]:
+def aprox_hochbaum_mass(points: List[Dict[str, Any]], diameter: float, l: int, start_disk_id: Optional[int] = 0) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], List[Dict[str, Any]], float]:
+    """ Implementation of the Hochbaum & Mass approximation in polynomial time to solve the disk cover problem. It
+    is a topological approximation that divide the surface in strips (on strip per dimension) resulting in squares in
+    a 2D plane and calculates an exact solution from a set of disks of diameter D that cove at least a pair of points
+    if possible or just one point if it is isolated
+
+    Parameters
+    ----------
+    points: list of dict of {str: any}
+        List of the points to determine its isolation, the points of the list must be a dict with at least 'id', 'x'
+        and 'y' keywords.
+    diameter: float
+        The diameter of the disk
+    l: int
+        The parameter l of the Hochbaum & Mass algorithm. The squares generated have a l*D length side
+    start_disk_id : int
+        Identifier to assign to the first computed isolated disk
+
+    Returns
+    -------
+    squares: list of dict of {str : any}
+        The list of squares generated by the shifting strategy
+    disks: list of dict of {str : any}
+        The list of disks tha covers all the provided points. The disk contain an 'id', 'x' and 'y' components of the
+        center and dict identifies with 'covers' keyword with the IDs of the points covered by it. It also contains a
+        frozenset in 'covers_set' of the covered points to allow search of duplicates
+    points: list of dict of {str : any}
+        The list of covered points. The field 'covered_by' with a dictionary with the IDs of the disk that covers the
+        point is added
+    execution_time: float
+        The execution time of the function
+
+    Notes
+    -----
+    The algorithm is described as a shifting strategy in the Hochbaum, D. S., & Maass, W. paper in [1]. Depending on
+    the l parameter lead to a higher approximation of the optimal but with less computation time or to a resulte near
+    the optimal but with a higher computation time.
+
+    For l = 1, 2, 3, the approximation factors are 4, 2.25, ≈1.77 and the running times are O(n^5), O(n^17), O(n^37) as
+    Ghosh et al. [2] explain in its paper.
+
+    This implementation is a comparison test between other algorithms.
+
+
+    [1] Hochbaum, D. S., & Maass, W. (1985). Approximation schemes for covering and packing problems in image
+        processing and VLSI. Journal of the ACM (JACM), 32(1), 130-136.
+    [2] Ghosh, A., Hicks, B., & Shevchenko, R. (2019, June). Unit disk cover for massive point sets. In International
+        Symposium on Experimental Algorithms (pp. 142-157). Cham: Springer International Publishing.
+    """
+    # points = [dict(point, **{'covered_by': {}}) for point in points]
     # Compute max and min in x and y
     x_min = points[0]['x']
     x_max = points[-1]['x']
@@ -444,11 +502,12 @@ def aprox_hochbaum_mass(points: List[Dict[str, Any]], radius: float, l: int, sta
             y_min = points[i]['y']
         if points[i]['y'] > y_max:
             y_max = points[i]['y']
+    # Once got the BBox compute the squares. First for each vertical strip, then the horizontal strips
     squares: List[Dict[str, float]] = [{
         'top_left_x': x_min,
         'top_left_y': y_max,
-        'bottom_right_x': x_min + (radius * 2 * l),
-        'bottom_right_y': y_max - (radius * 2 * l),
+        'bottom_right_x': x_min + (diameter * l),
+        'bottom_right_y': y_max - (diameter * l),
     }]
     while squares[-1]['top_left_x'] < x_max:
         while squares[-1]['bottom_right_y'] > y_min:
@@ -456,19 +515,114 @@ def aprox_hochbaum_mass(points: List[Dict[str, Any]], radius: float, l: int, sta
                 'top_left_x': squares[-1]['top_left_x'],
                 'top_left_y': squares[-1]['bottom_right_y'],
                 'bottom_right_x': squares[-1]['bottom_right_x'],
-                'bottom_right_y': squares[-1]['bottom_right_y'] - (radius * 2 * l),
+                'bottom_right_y': squares[-1]['bottom_right_y'] - (diameter * l),
             })
         squares.append({
             'top_left_x': squares[-1]['bottom_right_x'],
             'top_left_y': squares[0]['top_left_y'],
-            'bottom_right_x': squares[-1]['bottom_right_x'] + (radius * 2 * l),
+            'bottom_right_x': squares[-1]['bottom_right_x'] + (diameter * l),
             'bottom_right_y': squares[0]['bottom_right_y'],
         })
+    # Ther last square belong to a new strip, so it is discarded.
     del squares[-1]
-
-
-
-    return squares, squares, 0
+    # Compute the coverage for each square
+    disk_id: int = start_disk_id
+    disks: List[Dict[str, Any]] = list()
+    for square in squares:
+        points_of_square: List[Dict[str, Any]] = list()
+        # Search the points in the square
+        for point in points:
+            if point['x'] < square['top_left_x']:
+                continue
+            elif point['x'] >= square['bottom_right_x']:
+                break
+            else:
+                if square['top_left_y'] >= point['y'] > square['bottom_right_y']:
+                    points_of_square.append(point)
+        # Generate the disks iterating each pair of points
+        disks_of_square: List[Dict[str, Any]] = list()
+        for i in range(len(points_of_square)):
+            disk_added = False
+            for j in range(i + 1, len(points_of_square)):
+                distance = math.sqrt((points_of_square[i]['x'] - points_of_square[j]['x']) ** 2 + (points_of_square[i]['y'] - points_of_square[j]['y']) ** 2)
+                if distance > (diameter - 1): # No disk covers both points
+                    continue
+                elif distance == (diameter - 1): # Just one disk covers both points
+                    disks_of_square.append({
+                        'id': disk_id,
+                        'x': points_of_square[i]['x'] + (points_of_square[i]['x'] - points_of_square[j]['x']) / 2,
+                        'y': points_of_square[i]['y'] + (points_of_square[i]['y'] - points_of_square[j]['y']) / 2,
+                    })
+                    disk_id += 1
+                    disk_added = True
+                else: # Distance is less than the diameter
+                    triangle_height = math.sqrt(((diameter - 1) / 2) ** 2 - (distance / 2) ** 2)
+                    slope = -1 / ((points_of_square[j]['y'] - points_of_square[i]['y']) / (points_of_square[j]['x'] - points_of_square[i]['x']))
+                    direction_vector_x = 1 / math.sqrt(1 + slope ** 2)
+                    direction_vector_y = slope / math.sqrt(1 + slope ** 2)
+                    scaled_vector_x = triangle_height * direction_vector_x
+                    scaled_vector_y = triangle_height * direction_vector_y
+                    middle_point_x = (points_of_square[i]['x'] + points_of_square[j]['x']) / 2
+                    middle_point_y = (points_of_square[i]['y'] + points_of_square[j]['y']) / 2
+                    disks_of_square.append({
+                        'id': disk_id,
+                        'x': middle_point_x + scaled_vector_x,
+                        'y': middle_point_y + scaled_vector_y,
+                    })
+                    disk_id += 1
+                    disks_of_square.append({
+                        'id': disk_id,
+                        'x': middle_point_x - scaled_vector_x,
+                        'y': middle_point_y - scaled_vector_y,
+                    })
+                    disk_id += 1
+                    disk_added = True
+            if not disk_added:
+                disks_of_square.append({
+                    'id': disk_id,
+                    'x': points_of_square[i]['x'],
+                    'y': points_of_square[i]['y'],
+                })
+                disk_id += 1
+        # Find the minimal disks that cover the square
+        points_of_square = [dict(point, **{'covered_by': {}}) for point in points_of_square]
+        disks_of_square = [dict(disk, **{'covers': {}}) for disk in disks_of_square]
+        points_of_square, disks_of_square, _ = adjust_coverage(points_of_square, disks_of_square, diameter / 2)
+        coverage_matrix = np.zeros([len(points_of_square), len(disks_of_square)], dtype=int)
+        points_of_square = [dict(point, **{'ip_id': i}) for i, point in enumerate(points_of_square)]
+        points_of_square_dict = {point['id']: point for point in points_of_square}
+        for i, disk in enumerate(disks_of_square):
+            for cover in disk['covers'].values():
+                coverage_matrix[points_of_square_dict[cover]['ip_id'], i] = 1
+        selected_columns: Union[Any, None] = [None for x in range(len(disks_of_square))]
+        solver: Solver = pywraplp.Solver.CreateSolver("SCIP")
+        if not solver:
+            raise RuntimeError("Failed to create SCIP solver")
+        for i in range(len(disks_of_square)):
+            selected_columns[i] = solver.IntVar(0, 1, "")
+        for i in range(len(points_of_square)):
+            solver.Add(solver.Sum(selected_columns[j] * coverage_matrix[i, j] for j in range(len(disks_of_square))) >= 1)
+        solver.Minimize(solver.Sum(selected_columns))
+        status = solver.Solve()
+        if status == pywraplp.Solver.OPTIMAL:
+            print("Optimal solution found: ", [col.solution_value() for col in selected_columns])
+            pass
+        elif status == pywraplp.Solver.FEASIBLE:
+            print("Feasible solution found: ", [col.solution_value() for col in selected_columns])
+            pass
+        else:
+            print("Solution not found")
+            pass
+        print(points_of_square)
+        covered_points = set()
+        for i in range(len(disks_of_square)):
+            if selected_columns[i].solution_value() == 1:
+                covered_points = covered_points.union(set(disks_of_square[i]['covers'].values()))
+        disks += [disks_of_square[i] for i in range(len(disks_of_square)) if selected_columns[i].solution_value() == 1]
+    points = [dict(point, **{'covered_by': {}}) for point in points]
+    disks = [dict(disk, **{'covers': {}}) for disk in disks]
+    points, disks, _ = adjust_coverage(points, disks, diameter / 2)
+    return squares, disks, points, 0
 
 
 def export_to_ampl_ip_max_cliques(points: List[Dict[str, Any]], radius: float, bases_bombers: List[any], start_disk_id: Optional[int] = 0) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], float]:
@@ -1048,23 +1202,42 @@ def adjust_coverage_single_disk(points: List[Dict[str, Any]], disk: Dict[str, An
 
 
 def adjust_coverage(points: List[Dict[str, Any]], disks: List[Dict[str, Any]], radius: float) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], float]:
-    """
-    It is geometrically possible that several disks having different initial points end up covering points not 
-    intended by the used algorithm. So, for information purposes, it is useful to update the coverage information of 
-    points and disks 
-    :param points: 
-    :param disks: 
-    :param radius: 
-    :return: 
+    """ Completes the coverage information of the points and disks. Adds the 'covers', 'covers_set', and 'covered_by' to
+    all points and disks. The 'covers' and 'covered_by' are dictionaries with the IDs of disks and points. The
+    'covers_set' is a hashable frozenset to be able to test for duplicated disks if necessary.
+
+    Parameters
+    ----------
+    points : list of dict of {str : any}
+        List of points to search for the disk coverage. The point must be a dict with at least the 'id', 'x', 'y' and
+        'covered_by' keywords. If the 'covered_by' is not None it is assumed that coverage has been calculated
+        previously and will be updated
+    disks : list of dict of {str : any}
+        List of disks to search which points cover. Each disk must be a dict with at least the 'id', 'x', 'y' and
+        'covers' keywords. If the 'covers' is not None it is assumed that coverage has been calculated and will be
+        updated
+    radius : float
+        The radius of the disk
+
+    Returns
+    -------
+    points : list of dict of {str : any}
+        The provided points with the coverage updated. The coverage is a dict of disk IDs (str: str) under the
+        'covered_by' keyword.
+    disk : list of dict of {str : any}
+        The provided disk with the coverage added. The coverage is a dict of points IDs (str: str) under the 'covers'
+        keyword and a frozenset with the same point IDs to have a hashable element to search for future duplicated
+        disks. This set is under the 'covers_set' keyword.
+    execution_time: float
+        The execution time in seconds of the function
     """
     # Record processing time
     start_time: float = time.time()
-    print("Ordenant Punts i disks")
-    points = order_x(points)
-    disks = order_x(disks)
+    # Order the points and disks to take advantage of the geometry
+    points, _ = order_x(points)
+    disks, _ = order_x(disks)
     # Iterate to update coverage values
-    first_point_index: int = 0
-    break_point: int = 0
+    first_point_index: int = 0  # Index of the first point to explore. There are no other point right
     for d, disk in enumerate(disks):
         first_point_index_updated: bool = False
         for i in range(first_point_index, len(points)):
@@ -1074,7 +1247,6 @@ def adjust_coverage(points: List[Dict[str, Any]], disks: List[Dict[str, Any]], r
                     first_point_index = i
                     first_point_index_updated = True
                 if point['x'] - disk['x'] > radius:
-                    break_point = i
                     break
                 elif math.sqrt((disk['x'] - point['x']) ** 2 + (disk['y'] - point['y']) ** 2) <= radius:
                     if point['covered_by'] is not None and disk['id'] not in point['covered_by']:
@@ -1085,9 +1257,6 @@ def adjust_coverage(points: List[Dict[str, Any]], disks: List[Dict[str, Any]], r
                         disk['covers'][point['id']] = point['id']
                     elif disk['covers'] is None:
                         disk['covers'] = {point['id']: point['id']}
-        if d % 1000 == 0:
-            print(f"Analitzant disk {d} de {len(disks)}; Punt d'inici: {first_point_index}, punt de break {break_point} de {len(points)} punts totals en {time.time() - start_time}s")
-            start_time = time.time()
     return points, disks, time.time() - start_time
             
 
