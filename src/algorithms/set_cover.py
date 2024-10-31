@@ -709,13 +709,13 @@ def aprox_biniaz_et_al(points: List[Dict[str, Any]], radius: float, start_disk_i
             disk_id += 1
             disks.append({
                 'id': disk_id,
-                'x': point['x'] + math.sqrt(3) * radius,
+                'x': point['x'] + (math.sqrt(3) / 2) * radius,
                 'y': point['y'] + 1.5 * radius,
             })
             disk_id += 1
             disks.append({
                 'id': disk_id,
-                'x': point['x'] + math.sqrt(3) * radius,
+                'x': point['x'] + (math.sqrt(3) / 2) * radius,
                 'y': point['y'] - 1.5 * radius,
             })
             disk_id += 1
@@ -723,7 +723,7 @@ def aprox_biniaz_et_al(points: List[Dict[str, Any]], radius: float, start_disk_i
     points = [dict(point, **{'covered_by': {}}) for point in points]
     disks = [dict(disk, **{'covers': {}}) for disk in disks]
     points, disks, _ = adjust_coverage(points, disks, radius)
-    # disks = [disk for disk in disks if len(disk['covers']) > 0]
+    disks = [disk for disk in disks if len(disk['covers']) > 0]
     return disks, points, time.time() - start_time
 
 
