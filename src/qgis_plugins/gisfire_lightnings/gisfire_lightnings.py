@@ -54,6 +54,7 @@ from .algorithms.set_cover import greedy_cliques
 from .algorithms.set_cover import ip_max_cliques
 from .algorithms.set_cover import ip_complete_cliques
 from .algorithms.set_cover import aprox_hochbaum_mass
+from .algorithms.set_cover import aprox_biniaz_et_al
 from .algorithms.set_cover_multiprocessing import multics
 from .helpers.geometry import interpolate_circle
 
@@ -298,7 +299,9 @@ class GisFIRELightnings:
                 current_project: QgsProject = QgsProject()
                 vector_layer.setCrs(current_project.instance().crs())
                 current_project.instance().addMapLayer(vector_layer, True)
-            elif selected_algorithm == 7: # Export AMPL
+            elif selected_algorithm == 7:  # IP All Cliques
+                disks, covered_points, _ = aprox_biniaz_et_al(points, self._default_radius)
+            elif selected_algorithm == 8: # Export AMPL
                 squares, covered_points, _ = export_to_ampl_all_cliques_incremental_segmented(points, self._default_radius, bases_bombers_cat)
                 vector_layer: QgsVectorLayer = QgsVectorLayer("linestring", "surfaces", "memory")
                 provider: QgsVectorDataProvider = vector_layer.dataProvider()

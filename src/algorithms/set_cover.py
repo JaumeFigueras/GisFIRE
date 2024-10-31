@@ -19,6 +19,7 @@ from typing import Tuple
 from typing import Optional
 from typing import Union
 from networkx.classes.graph import Graph
+from pandas.conftest import ordered
 
 from .helpers import order_x
 from .helpers import remove_duplicates
@@ -491,7 +492,8 @@ def aprox_hochbaum_mass(points: List[Dict[str, Any]], diameter: float, l: int, s
     [2] Ghosh, A., Hicks, B., & Shevchenko, R. (2019, June). Unit disk cover for massive point sets. In International
         Symposium on Experimental Algorithms (pp. 142-157). Cham: Springer International Publishing.
     """
-    # points = [dict(point, **{'covered_by': {}}) for point in points]
+    # Record processing time
+    start_time: float = time.time()
     # Compute max and min in x and y
     x_min = points[0]['x']
     x_max = points[-1]['x']
@@ -605,13 +607,13 @@ def aprox_hochbaum_mass(points: List[Dict[str, Any]], diameter: float, l: int, s
         solver.Minimize(solver.Sum(selected_columns))
         status = solver.Solve()
         if status == pywraplp.Solver.OPTIMAL:
-            print("Optimal solution found: ", [col.solution_value() for col in selected_columns])
+            # print("Optimal solution found: ", [col.solution_value() for col in selected_columns])
             pass
         elif status == pywraplp.Solver.FEASIBLE:
-            print("Feasible solution found: ", [col.solution_value() for col in selected_columns])
+            # print("Feasible solution found: ", [col.solution_value() for col in selected_columns])
             pass
         else:
-            print("Solution not found")
+            # print("Solution not found")
             pass
         print(points_of_square)
         covered_points = set()
@@ -622,7 +624,108 @@ def aprox_hochbaum_mass(points: List[Dict[str, Any]], diameter: float, l: int, s
     points = [dict(point, **{'covered_by': {}}) for point in points]
     disks = [dict(disk, **{'covers': {}}) for disk in disks]
     points, disks, _ = adjust_coverage(points, disks, diameter / 2)
-    return squares, disks, points, 0
+    return squares, disks, points, time.time() - start_time
+
+
+def aprox_biniaz_et_al(points: List[Dict[str, Any]], radius: float, start_disk_id: Optional[int] = 0) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], float]:
+    """ Implementation of the Biniaz et al. approximation in polynomial time to solve the disk cover problem. It
+    is a geometrical approximation that places four disks assuring the coverage of a 2D semicircle around the selected
+    point. It is a 4-approximation of the exact solution
+
+    Parameters
+    ----------
+    points: list of dict of {str: any}
+        List of the points to determine its isolation, the points of the list must be a dict with at least 'id', 'x'
+        and 'y' keywords.
+    radius: float
+        The radius of the disk
+    start_disk_id : int
+        Identifier to assign to the first computed isolated disk
+
+    Returns
+    -------
+    disks: list of dict of {str : any}
+        The list of disks tha covers all the provided points. The disk contain an 'id', 'x' and 'y' components of the
+        center and dict identifies with 'covers' keyword with the IDs of the points covered by it. It also contains a
+        frozenset in 'covers_set' of the covered points to allow search of duplicates
+    points: list of dict of {str : any}
+        The list of covered points. The field 'covered_by' with a dictionary with the IDs of the disk that covers the
+        point is added
+    execution_time: float
+        The execution time of the function
+
+    Notes
+    -----
+    The algorithm is described and the approximation is demonstrated in the Biniaz et al. paper in [1].
+
+    This implementation is a comparison test between other algorithms.
+
+
+    [1] Biniaz, A., Liu, P., Maheshwari, A., & Smid, M. (2017). Approximation algorithms for the unit disk cover
+        problem in 2D and 3D. Computational Geometry, 60, 8-18.
+    """
+    def minimum_distance(point: Dict[str, Any], points: List[Dict[str, Any]]) -> float:
+        """Calculates the minimum Euclidean distance between a point and any point in a list of points. If the list of
+        points is empty then +Inf is returned
+
+        Parameters
+        ----------
+        point: dict of {str: any}
+            The reference point to determine its minimal distance to the set, the point must be a dict with at least
+            the 'x' and 'y' keywords.
+        points: list of dict of {str: any}
+            List of the points to determine its minimal distance, the points of the list must be a dict with at least
+            the 'x' and 'y' keywords.
+
+        Returns
+        -------
+        float
+            The minimum Euclidean distance between a point and any point in a list of points
+        """
+        if len(points) == 0:
+            return float('Inf')
+        ordered_points = sorted(points, key=lambda pt: (pt['x'] - point['x']) ** 2 + (pt['y'] - point['y']) ** 2)
+        return math.sqrt((ordered_points[0]['x'] - point['x']) ** 2 + (ordered_points[0]['y'] - point['y']) ** 2)
+
+    # Record processing time
+    start_time: float = time.time()
+    disks: List[Dict[str, Any]] = list()
+    disk_id: int = start_disk_id
+    covered_points: List[Dict[str, Any]] = list()
+    for i in range(len(points)):
+        point = points[i]
+        if minimum_distance(point, covered_points) > radius * 2:
+            disks.append({
+                'id': disk_id,
+                'x': point['x'],
+                'y': point['y'],
+            })
+            disk_id += 1
+            disks.append({
+                'id': disk_id,
+                'x': point['x'] + math.sqrt(3) * radius,
+                'y': point['y'],
+            })
+            disk_id += 1
+            disks.append({
+                'id': disk_id,
+                'x': point['x'] + math.sqrt(3) * radius,
+                'y': point['y'] + 1.5 * radius,
+            })
+            disk_id += 1
+            disks.append({
+                'id': disk_id,
+                'x': point['x'] + math.sqrt(3) * radius,
+                'y': point['y'] - 1.5 * radius,
+            })
+            disk_id += 1
+            covered_points.append(point)
+    points = [dict(point, **{'covered_by': {}}) for point in points]
+    disks = [dict(disk, **{'covers': {}}) for disk in disks]
+    points, disks, _ = adjust_coverage(points, disks, radius)
+    # disks = [disk for disk in disks if len(disk['covers']) > 0]
+    return disks, points, time.time() - start_time
+
 
 
 def export_to_ampl_ip_max_cliques(points: List[Dict[str, Any]], radius: float, bases_bombers: List[any], start_disk_id: Optional[int] = 0) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], float]:
