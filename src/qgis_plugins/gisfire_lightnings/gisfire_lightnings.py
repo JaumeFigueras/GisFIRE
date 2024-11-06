@@ -51,7 +51,8 @@ from .algorithms.set_cover import isolated
 from .algorithms.set_cover import naive
 from .algorithms.set_cover import greedy_naive
 from .algorithms.set_cover import greedy_cliques
-from .algorithms.set_cover import ip_max_cliques
+from .algorithms.set_cover import max_cliques_ortools_scip
+from .algorithms.set_cover import max_cliques_ampl
 from .algorithms.set_cover import ip_complete_cliques
 from .algorithms.set_cover import aprox_hochbaum_mass
 from .algorithms.set_cover import aprox_biniaz_et_al
@@ -272,7 +273,7 @@ class GisFIRELightnings:
             elif selected_algorithm == 3: # Greedy Cliques
                 disks, covered_points, _ = greedy_cliques(points, self._default_radius)
             elif selected_algorithm == 4:  # IP Max Cliques
-                disks, covered_points, _ = ip_max_cliques(points, self._default_radius)
+                disks, covered_points, _ = max_cliques_ortools_scip(points, self._default_radius)
             elif selected_algorithm == 5:  # IP All Cliques
                 disks, covered_points, _ = ip_complete_cliques(points, self._default_radius)
             elif selected_algorithm == 6:  # Hochbaumm Mass
@@ -301,7 +302,9 @@ class GisFIRELightnings:
                 current_project.instance().addMapLayer(vector_layer, True)
             elif selected_algorithm == 7:  # IP All Cliques
                 disks, covered_points, _ = aprox_biniaz_et_al(points, self._default_radius)
-            elif selected_algorithm == 8: # Export AMPL
+            elif selected_algorithm == 8:  # Max Cliques using AMPL + CPLEX
+                disks, covered_points, _ = max_cliques_ampl(points, self._default_radius)
+            elif selected_algorithm == 9: # Export AMPL
                 squares, covered_points, _ = export_to_ampl_all_cliques_incremental_segmented(points, self._default_radius, bases_bombers_cat)
                 vector_layer: QgsVectorLayer = QgsVectorLayer("linestring", "surfaces", "memory")
                 provider: QgsVectorDataProvider = vector_layer.dataProvider()

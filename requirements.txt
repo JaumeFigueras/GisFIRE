@@ -20,3 +20,4 @@ pytest_qgis>=2.1.0
 ortools>=9.10.4067
 networkx[default]>=3.3
 numpy>=1.24.2
+amplpy>=0.14.0

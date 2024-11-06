@@ -67,6 +67,11 @@
        </item>
        <item>
         <property name="text">
+         <string>Max Cliques AMPL</string>
+        </property>
+       </item>
+       <item>
+        <property name="text">
          <string>Export AMPL</string>
         </property>
        </item>

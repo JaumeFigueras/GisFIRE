@@ -11,6 +11,7 @@ import csv
 
 from ortools.linear_solver import pywraplp
 from ortools.linear_solver.pywraplp import Solver
+from amplpy import AMPL
 
 from typing import Dict
 from typing import Any
@@ -270,7 +271,7 @@ def greedy_cliques(points: List[Dict[str, Any]], radius: float, start_disk_id: O
     return disks, [point for point in points + isolated_points if point['covered_by'] is not None], time.time() - start_time
 
 
-def ip_max_cliques(points: List[Dict[str, Any]], radius: float, start_disk_id: Optional[int] = 0) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], float]:
+def max_cliques_ortools_scip(points: List[Dict[str, Any]], radius: float, start_disk_id: Optional[int] = 0) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], float]:
     """
     Computes a list of discs of provided radius covering all points in the points list using a greedy clique algorithm,
     cliques can be used to solve the disk cover problem as Disk Cover Problem can be reduced to Minimal Clique Cover
@@ -725,6 +726,92 @@ def aprox_biniaz_et_al(points: List[Dict[str, Any]], radius: float, start_disk_i
     points, disks, _ = adjust_coverage(points, disks, radius)
     disks = [disk for disk in disks if len(disk['covers']) > 0]
     return disks, points, time.time() - start_time
+
+
+def max_cliques_ampl(points: List[Dict[str, Any]], radius: float, start_disk_id: Optional[int] = 0,
+                     solver: Optional[str] = 'CPLEX') -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], float]:
+    """Calculate the disk coverage using the maximal cliques for each node method and then find the optimal using an
+    AMPL model. The models are stored in the src/qgis_plugins/gisfire_lightnings/algorithms/ampl
+
+    Parameters
+    ----------
+    points: list of dict of {str: any}
+        List of the points to determine its isolation, the points of the list must be a dict with at least 'id', 'x'
+        and 'y' keywords.
+    radius: float
+        The radius of the disk
+    start_disk_id : int, optional
+        Identifier to assign to the first computed isolated disk. It defaults to 0 as the starting ID
+    solver: str, optional
+        Name of the solver bound with AMPL to use. The default solver is CPLEX which requieres a license
+
+    Returns
+    -------
+    disks: list of dict of {str : any}
+        The list of disks tha covers all the provided points. The disk contain an 'id', 'x' and 'y' components of the
+        center and dict identifies with 'covers' keyword with the IDs of the points covered by it. It also contains a
+        frozenset in 'covers_set' of the covered points to allow search of duplicates
+    points: list of dict of {str : any}
+        The list of covered points. The field 'covered_by' with a dictionary with the IDs of the disk that covers the
+        point is added
+    execution_time: float
+        The execution time of the function
+    """
+    # Record processing time
+    start_time: float = time.time()
+    # Data initialization
+    points = [dict(point, **{'covered_by': None}) for point in points]
+    # Remove isolated points from the problem
+    isolated_disks, isolated_points, _ = isolated(points, radius, start_disk_id)
+    # Update the points
+    points_not_isolated = [point for point in points if point['covered_by'] is None]
+    # Build the graph. Remember that threshold is not 2R since the maximum distance between 3 points to be inside a
+    # circle of radius R is R√3
+    graph: Graph = create_graph(points_not_isolated, radius * math.sqrt(3))
+    connected_components = [graph.subgraph(c).copy() for c in nx.connected_components(graph)]
+    for subgraph in connected_components:
+        subgraph_disks: List[Dict[str, Any]] = list()
+        subgraph_points: List[Dict[str, Any]] = [{**point, 'id': i, 'old_id': point['id']} for i, point in enumerate(points) if point['id'] in subgraph.nodes]
+        subgraph_points_lut = {point['old_id']: point for point in subgraph_points}
+        disk_id: int = 0
+        for node in subgraph.nodes:
+            cliques = list(nx.find_cliques(subgraph, [node]))
+            for clique in cliques:
+                clique_points = [subgraph_points_lut[elem] for elem in clique]
+                circle = minimum_enclosing_circle([(clique_point['x'], clique_point['y']) for clique_point in clique_points])
+                subgraph_disks.append({
+                    'id': disk_id,
+                    'x': circle['x'],
+                    'y': circle['y'],
+                    'covers': {subgraph_points_lut[node]['id']: subgraph_points_lut[node]['id'] for node in clique}
+                })
+                disk_id += 1
+        subgraph_points, subgraph_disks, _ = adjust_coverage(subgraph_points, subgraph_disks, radius)
+        subgraph_disks, _ = remove_redundant_disks(subgraph_disks)
+        print(subgraph_points)
+        print(subgraph_disks)
+        # Convert disks and points to IP
+        ampl = AMPL()
+        ampl.eval("""
+        reset;
+        set DK;  									# Disks
+        set PT;  									# Points
+        set COVERAGE within (DK cross PT);  		# Coverage matrix (set of points PT covered by disk DK)
+        var decision{DK} binary;  					# 1 if the disk j is chosen to cover the point set
+        # Objective function
+        minimize total_cliques: sum {dk in DK} decision[dk];
+        # All
+        subject to point_coverage {pt in PT}:
+            sum{(dk,pt) in COVERAGE} decision[dk] >= 1;
+        """)
+        ampl.set['DK'] = list(range(len(subgraph_disks)))
+        ampl.set['PT'] = list(range(len(subgraph_points)))
+        ampl.set["COVERAGE"] = {disk['id']: tuple(disk['covers'].keys()) for disk in subgraph_disks}
+        ampl.option['solver'] = 'cplex'
+        ampl.solve()
+        assert ampl.solve_result == "solved"
+    return isolated_points, [point for point in points if point['covered_by'] is not None], time.time() - start_time
+
 
 
 
