@@ -771,8 +771,8 @@ def max_cliques_ampl(points: List[Dict[str, Any]], radius: float, start_disk_id:
     connected_components = [graph.subgraph(c).copy() for c in nx.connected_components(graph)]
     for subgraph in connected_components:
         subgraph_disks: List[Dict[str, Any]] = list()
-        subgraph_points: List[Dict[str, Any]] = [{**point, 'id': i, 'old_id': point['id']} for i, point in enumerate(points) if point['id'] in subgraph.nodes]
-        subgraph_points_lut = {point['old_id']: point for point in subgraph_points}
+        subgraph_points: List[Dict[str, Any]] = [point for point in points if point['id'] in subgraph.nodes]
+        subgraph_points_lut = {point['id']: point for point in subgraph_points}
         disk_id: int = 0
         for node in subgraph.nodes:
             cliques = list(nx.find_cliques(subgraph, [node]))
@@ -783,11 +783,14 @@ def max_cliques_ampl(points: List[Dict[str, Any]], radius: float, start_disk_id:
                     'id': disk_id,
                     'x': circle['x'],
                     'y': circle['y'],
-                    'covers': {subgraph_points_lut[node]['id']: subgraph_points_lut[node]['id'] for node in clique}
+                    'covers': None
                 })
                 disk_id += 1
         subgraph_points, subgraph_disks, _ = adjust_coverage(subgraph_points, subgraph_disks, radius)
         subgraph_disks, _ = remove_redundant_disks(subgraph_disks)
+        subgraph_disks = [{**disk, 'id': i} for i, disk in enumerate(subgraph_disks)]
+        subgraph_points = [{**point, 'old_id': point['id'], 'id': i} for i, point in enumerate(subgraph_points)]
+        subgraph_points, subgraph_disks, _ = adjust_coverage(subgraph_points, subgraph_disks, radius)
         print(subgraph_points)
         print(subgraph_disks)
         # Convert disks and points to IP
@@ -806,10 +809,14 @@ def max_cliques_ampl(points: List[Dict[str, Any]], radius: float, start_disk_id:
         """)
         ampl.set['DK'] = list(range(len(subgraph_disks)))
         ampl.set['PT'] = list(range(len(subgraph_points)))
-        ampl.set["COVERAGE"] = {disk['id']: tuple(disk['covers'].keys()) for disk in subgraph_disks}
+        ampl.set["COVERAGE"] = [(disk['id'], point_id) for disk in subgraph_disks for point_id in disk['covers'].keys()]
         ampl.option['solver'] = 'cplex'
         ampl.solve()
         assert ampl.solve_result == "solved"
+        # Get the results
+        # TODO
+        # Reconvert IDs
+        subgraph_points = [{**point, 'old_id': point['id'], 'id': i} for i, point in enumerate(subgraph_points)]
     return isolated_points, [point for point in points if point['covered_by'] is not None], time.time() - start_time
 
 
