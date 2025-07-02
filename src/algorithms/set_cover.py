@@ -665,6 +665,8 @@ def aprox_biniaz_et_al(points: List[Dict[str, Any]], radius: float, start_disk_i
     [1] Biniaz, A., Liu, P., Maheshwari, A., & Smid, M. (2017). Approximation algorithms for the unit disk cover
         problem in 2D and 3D. Computational Geometry, 60, 8-18.
     """
+
+
     def minimum_distance(point: Dict[str, Any], points: List[Dict[str, Any]]) -> float:
         """Calculates the minimum Euclidean distance between a point and any point in a list of points. If the list of
         points is empty then +Inf is returned
@@ -767,13 +769,13 @@ def max_cliques_ampl(points: List[Dict[str, Any]], radius: float, start_disk_id:
     points_not_isolated = [point for point in points if point['covered_by'] is None]
     # Build the graph. Remember that threshold is not 2R since the maximum distance between 3 points to be inside a
     # circle of radius R is R√3
+    disk_id: int = len(isolated_disks)
     graph: Graph = create_graph(points_not_isolated, radius * math.sqrt(3))
     connected_components = [graph.subgraph(c).copy() for c in nx.connected_components(graph)]
     for subgraph in connected_components:
         subgraph_disks: List[Dict[str, Any]] = list()
         subgraph_points: List[Dict[str, Any]] = [point for point in points if point['id'] in subgraph.nodes]
         subgraph_points_lut = {point['id']: point for point in subgraph_points}
-        disk_id: int = 0
         for node in subgraph.nodes:
             cliques = list(nx.find_cliques(subgraph, [node]))
             for clique in cliques:
@@ -783,16 +785,11 @@ def max_cliques_ampl(points: List[Dict[str, Any]], radius: float, start_disk_id:
                     'id': disk_id,
                     'x': circle['x'],
                     'y': circle['y'],
-                    'covers': None
+                    'covers': {node: node for node in clique}
                 })
                 disk_id += 1
         subgraph_points, subgraph_disks, _ = adjust_coverage(subgraph_points, subgraph_disks, radius)
         subgraph_disks, _ = remove_redundant_disks(subgraph_disks)
-        subgraph_disks = [{**disk, 'id': i} for i, disk in enumerate(subgraph_disks)]
-        subgraph_points = [{**point, 'old_id': point['id'], 'id': i} for i, point in enumerate(subgraph_points)]
-        subgraph_points, subgraph_disks, _ = adjust_coverage(subgraph_points, subgraph_disks, radius)
-        print(subgraph_points)
-        print(subgraph_disks)
         # Convert disks and points to IP
         ampl = AMPL()
         ampl.eval("""
@@ -807,16 +804,17 @@ def max_cliques_ampl(points: List[Dict[str, Any]], radius: float, start_disk_id:
         subject to point_coverage {pt in PT}:
             sum{(dk,pt) in COVERAGE} decision[dk] >= 1;
         """)
-        ampl.set['DK'] = list(range(len(subgraph_disks)))
-        ampl.set['PT'] = list(range(len(subgraph_points)))
+        ampl.set['DK'] = [disk['id'] for disk in subgraph_disks]
+        ampl.set['PT'] = [point['id'] for point in subgraph_points]
         ampl.set["COVERAGE"] = [(disk['id'], point_id) for disk in subgraph_disks for point_id in disk['covers'].keys()]
         ampl.option['solver'] = 'cplex'
         ampl.solve()
         assert ampl.solve_result == "solved"
         # Get the results
-        # TODO
+        print(ampl.get_objective('total_cliques').value())
+
         # Reconvert IDs
-        subgraph_points = [{**point, 'old_id': point['id'], 'id': i} for i, point in enumerate(subgraph_points)]
+
     return isolated_points, [point for point in points if point['covered_by'] is not None], time.time() - start_time
 
 
