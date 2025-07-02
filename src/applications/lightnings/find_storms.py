@@ -68,7 +68,6 @@ if __name__ == "__main__":  # pragma: no cover
                                      where(MeteocatLightning._date_time >= date).
                                      where(MeteocatLightning._date_time < date + datetime.timedelta(days=1)).
                                      where(func.ST_Contains(Catalunya.geometry_25831, MeteocatLightning._geometry_25831)).
-                                     where(Catalunya.id == 1).
                                      order_by(MeteocatLightning._date_time)).
                       scalars().all())
         for lightning in lightnings:
