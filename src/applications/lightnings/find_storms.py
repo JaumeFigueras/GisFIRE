@@ -43,7 +43,6 @@ def time_algorithm(session: Session, from_date: datetime.datetime, to_date: date
     date = from_date
     storm_start_time = from_date
     storm_end_time = storm_start_time
-    storms = list()
     lightnings_in_storm = list()
     number_of_lightnings = 0
     total_lightnings = 0
@@ -60,9 +59,8 @@ def time_algorithm(session: Session, from_date: datetime.datetime, to_date: date
                 storm_cell: StormCell = StormCell(date_time_start=storm_start_time, date_time_end=storm_end_time, algorithm_used='TIME', algorithm_parameter_time=algorithm_time)
                 storm_cell.lightnings = lightnings_in_storm
                 storm_cell.data_provider_name = args.data_provider
-                session.add(storm_cell)
                 if len(lightnings_in_storm) > 0:
-                    storms.append(storm_cell)
+                    session.add(storm_cell)
                     logger.info("New storm assigned from {} to {} with {} lightnings".format(storm_start_time.strftime("%Y-%m-%d %H:%M:%S"), storm_end_time.strftime("%Y-%m-%d %H:%M:%S"), number_of_lightnings))
                 storm_start_time = lightning.date_time
                 storm_end_time = lightning.date_time
