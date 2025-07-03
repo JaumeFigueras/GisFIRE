@@ -20,6 +20,7 @@ from src.data_model.mixins.location import LocationMixIn
 
 from typing import Optional
 from typing import Union
+from typing import List
 
 
 class Lightning(Base, LocationMixIn, DateTimeMixIn, TimeStampMixIn):
@@ -46,6 +47,10 @@ class Lightning(Base, LocationMixIn, DateTimeMixIn, TimeStampMixIn):
     data_provider_name: Mapped[str] = mapped_column('data_provider_name', ForeignKey('data_provider.name'),
                                                     nullable=False)
     data_provider: Mapped["DataProvider"] = relationship(back_populates="lightnings")
+    # many-to-many relationship to Parent, bypassing the `Association` class
+    storm_cells: Mapped[List["StormCell"]] = relationship(secondary="storm_cell_lightning_association_table", back_populates="lightnings")
+    # association between Child -> Association -> Parent
+    storm_cell_associations: Mapped[List["StormCellLightningAssociation"]] = relationship(back_populates="lightning")
     # SQLAlchemy Inheritance options
     __mapper_args__ = {
         "polymorphic_identity": "lightning",

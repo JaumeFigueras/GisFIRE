@@ -32,6 +32,7 @@ class DataProvider(Base):
     requests: Mapped[List["Request"]] = relationship(back_populates="data_provider")
     measures: Mapped[List["Measure"]] = relationship(back_populates="data_provider")
     wildfire_ignitions: Mapped[List["WildfireIgnition"]] = relationship(back_populates="data_provider")
+    storm_cell: Mapped[List["StormCell"]] = relationship(back_populates="data_provider")
 
     def __init__(self, name: Optional[str] = None, description: Optional[str] = None,
                  url: Optional[str] = None) -> None:
