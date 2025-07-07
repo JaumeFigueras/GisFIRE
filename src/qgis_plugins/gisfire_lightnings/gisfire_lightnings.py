@@ -141,7 +141,7 @@ class GisFIRELightnings:
         """
         Creates the toolbar buttons that GisFIRE Lightnings uses as shortcuts.
         """
-        # Setup parameters
+        # Disk Cover
         action = QAction(
             QIcon(':/gisfire_lightnings/disks.png'),
             self.tr('GisFIRE Disk Cover'),
@@ -154,17 +154,36 @@ class GisFIRELightnings:
         action.setWhatsThis(self.tr('GisFIRE Disk Cover'))
         self._toolbar.addAction(action)
         self._toolbar_actions['disk_cover'] = action
+        # Storms
+        action = QAction(
+            QIcon(':/gisfire_lightnings/storms.png'),
+            self.tr('GisFIRE Storms'),
+            None
+        )
+        action.triggered.connect(self.__on_storms)
+        action.setEnabled(True)
+        action.setCheckable(False)
+        action.setStatusTip(self.tr('GisFIRE Storms'))
+        action.setWhatsThis(self.tr('GisFIRE Storms'))
+        self._toolbar.addAction(action)
+        self._toolbar_actions['storms'] = action
 
     def __add_menu_actions(self):
         """
         Creates the menu entries that allow GisFIRE procedures.
         """
-        # Setup parameters
+        # Disk Cover
         action: QAction = self._menu.addAction(self.tr('Disk Cover'))
         action.setIcon(QIcon(':/gisfire_lightnings/disks.png'))
         action.setIconVisibleInMenu(True)
         action.triggered.connect(self.__on_disk_cover)
         self._menu_actions['disk_cover'] = action
+        # Storms
+        action: QAction = self._menu.addAction(self.tr('Storms'))
+        action.setIcon(QIcon(':/gisfire_lightnings/storms.png'))
+        action.setIconVisibleInMenu(True)
+        action.triggered.connect(self.__on_storms)
+        self._menu_actions['storma'] = action
 
     def __add_relations(self):
         """
@@ -193,7 +212,7 @@ class GisFIRELightnings:
                 self.iface.mainWindow().menuBar().insertMenu(actions[-1], self._menu_gisfire)
             else:
                 self.iface.mainWindow().menuBar().addMenu(self._menu_gisfire)
-        # Create TSP menu
+        # Create lightning menu
         self._menu = QMenu(self.tr(u'Lightnings'), self._menu_gisfire)
         self._menu.setIcon(QIcon(':/gisfire_lightnings/disks.png'))
         self._menu_gisfire.addMenu(self._menu)
@@ -360,3 +379,13 @@ class GisFIRELightnings:
             vector_layer.setCrs(current_project.instance().crs())
             current_project.instance().addMapLayer(vector_layer, True)
 
+
+    def __on_storms(self) -> None:
+        """
+
+        Returns
+        -------
+
+        """
+        dlg = DlgDiskCoverAlgorithm(self.iface.mainWindow())
+        result = dlg.exec_()

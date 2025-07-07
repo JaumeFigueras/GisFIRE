@@ -3,8 +3,9 @@
 CREATE TABLE storm_cell (
         id SERIAL NOT NULL,
         algorithm_used VARCHAR NOT NULL,
-        algorithm_parameter_time FLOAT DEFAULT NULL,
-        algorithm_parameter_distance FLOAT DEFAULT NULL,
+        algorithm_parameter_time FLOAT,
+        algorithm_parameter_distance FLOAT,
+        maximum_gap_between_lightnings FLOAT NOT NULL,
         type VARCHAR NOT NULL,
         data_provider_name VARCHAR NOT NULL,
         date_time_start TIMESTAMP WITH TIME ZONE NOT NULL,

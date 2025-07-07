@@ -14,7 +14,6 @@ from sqlalchemy import ForeignKey
 from sqlalchemy.orm import relationship
 from sqlalchemy.orm import Mapped
 from sqlalchemy.orm import mapped_column
-from shapely.geometry import Point
 
 from src.data_model.mixins.time_stamp import TimeStampMixIn
 from src.data_model.mixins.date_time import DateTimeMixIn
@@ -22,7 +21,6 @@ from src.data_model.mixins.location import LocationMixIn
 from src.data_model.lightning import Lightning
 
 from typing import Optional
-from typing import Union
 from typing import List
 
 class StormCellLightningAssociation(Base):
@@ -50,6 +48,8 @@ class StormCell(Base, DateTimeMixIn, TimeStampMixIn):
     algorithm_used: Mapped[str] = mapped_column('algorithm_used', String)
     algorithm_parameter_time: Mapped[float] = mapped_column('algorithm_parameter_time', Float, nullable=True, default=None)
     algorithm_parameter_distance: Mapped[float] = mapped_column('algorithm_parameter_distance', Float, nullable=True, default=None)
+    maximum_gap_between_lightnings: Mapped[float] = mapped_column('maximum_gap_between_lightnings', Float, nullable=False)
+    number_of_lightnings: Mapped[int] = mapped_column('number_of_lightnings', Integer, nullable=False)
     type: Mapped[str]
     # SQLAlchemy relations
     data_provider_name: Mapped[str] = mapped_column('data_provider_name', ForeignKey('data_provider.name'),
@@ -68,7 +68,9 @@ class StormCell(Base, DateTimeMixIn, TimeStampMixIn):
     def __init__(self, date_time_start: Optional[datetime.datetime] = None,
                  date_time_end: Optional[datetime.datetime] = None, algorithm_used: Optional[str] = None,
                  algorithm_parameter_time: Optional[float] = None,
-                 algorithm_parameter_distance: Optional[float] = None) -> None:
+                 algorithm_parameter_distance: Optional[float] = None,
+                 maximum_gap_between_lightnings: Optional[float]= None,
+                 number_of_lightnings: Optional[int] = -1) -> None:
         Base.__init__(self)
         # DateTimeMixIn.__init__(self, date_time)
         TimeStampMixIn.__init__(self)
@@ -77,6 +79,8 @@ class StormCell(Base, DateTimeMixIn, TimeStampMixIn):
         self.algorithm_used = algorithm_used
         self.algorithm_parameter_time = algorithm_parameter_time
         self.algorithm_parameter_distance = algorithm_parameter_distance
+        self.maximum_gap_between_lightnings = maximum_gap_between_lightnings
+        self.number_of_lightnings = number_of_lightnings
 
     def __iter__(self):
         yield "id", self.id
@@ -84,6 +88,8 @@ class StormCell(Base, DateTimeMixIn, TimeStampMixIn):
         yield "algorithm_used", self.algorithm_used
         yield "algorithm_parameter_time", self.algorithm_parameter_time
         yield "algorithm_parameter_distance", self.algorithm_parameter_distance
+        yield "maximum_gap_between_lightnings", self.maximum_gap_between_lightnings
+        yield "number_of_lightnings", self.number_of_lightnings
         yield from LocationMixIn.__iter__(self)
         yield from DateTimeMixIn.__iter__(self)
 

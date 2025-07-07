@@ -352,7 +352,7 @@ def max_cliques_ortools_scip(points: List[Dict[str, Any]], radius: float, start_
         for i in range(len(subgraph_disks)):
             if selected_columns[i].solution_value() == 1:
                 covered_points = covered_points.union(set(subgraph_disks[i]['covers'].values()))
-        print(covered_points)
+        # print(covered_points)
         new_points += [subgraph_points_dict[covered] for covered in covered_points]
         new_disks += [subgraph_disks[i] for i in range(len(subgraph_disks)) if selected_columns[i].solution_value() == 1]
     return new_disks, [point for point in new_points if point['covered_by'] is not None], time.time() - start_time
@@ -438,7 +438,7 @@ def ip_complete_cliques(points: List[Dict[str, Any]], radius: float, start_disk_
         for i in range(len(subgraph_disks)):
             if selected_columns[i].solution_value() == 1:
                 covered_points = covered_points.union(set(subgraph_disks[i]['covers'].values()))
-        print(covered_points)
+        # print(covered_points)
         new_points += [subgraph_points_dict[covered] for covered in covered_points]
         new_disks += [subgraph_disks[i] for i in range(len(subgraph_disks)) if selected_columns[i].solution_value() == 1]
     return new_disks, [point for point in new_points if point['covered_by'] is not None], time.time() - start_time
@@ -616,7 +616,7 @@ def aprox_hochbaum_mass(points: List[Dict[str, Any]], diameter: float, l: int, s
         else:
             # print("Solution not found")
             pass
-        print(points_of_square)
+        # print(points_of_square)
         covered_points = set()
         for i in range(len(disks_of_square)):
             if selected_columns[i].solution_value() == 1:
@@ -811,7 +811,7 @@ def max_cliques_ampl(points: List[Dict[str, Any]], radius: float, start_disk_id:
         ampl.solve()
         assert ampl.solve_result == "solved"
         # Get the results
-        print(ampl.get_objective('total_cliques').value())
+        # print(ampl.get_objective('total_cliques').value())
 
         # Reconvert IDs
 
@@ -839,26 +839,26 @@ def export_to_ampl_ip_max_cliques(points: List[Dict[str, Any]], radius: float, b
     points = [dict(point, **{'covered_by': None}) for point in points]
     points_lut = {point['id']: point for point in points}
     # Remove isolated points from the problem
-    print("Remove isolated points")
+    # print("Remove isolated points")
     isolated_disks, isolated_points, _ = isolated(points, radius, start_disk_id)
     # Update the points
     disks: List[Dict[str, Any]] = isolated_disks
     disk_id = start_disk_id + len(disks)
     points_not_isolated = [point for point in points if point['id'] not in [point['id'] for point in isolated_points]]
     # Build the graph
-    print("Build graph")
+    # print("Build graph")
     graph = create_graph(points_not_isolated, radius * math.sqrt(3))
     # Compute connected components
-    print("Computing subgraphs")
+    # print("Computing subgraphs")
     connected_components = [graph.subgraph(c).copy() for c in nx.connected_components(graph)]
     connected_components.sort(key=lambda x: len(x), reverse=True)
     for subgraph_id, subgraph in enumerate(connected_components):
-        print(f"Searching cliques of subgraph {subgraph_id}")
+        # print(f"Searching cliques of subgraph {subgraph_id}")
         subgraph_disks: List[Dict[str, Any]] = list()
         subgraph_points: List[Dict[str, Any]] = [point for point in points if point['id'] in subgraph.nodes]
         cliques = list(nx.enumerate_all_cliques(subgraph))
-        print(f"Found {len(cliques)} cliques in subgraph {subgraph_id}")
-        print(f"Computing disks of subgraph {subgraph_id}")
+        # print(f"Found {len(cliques)} cliques in subgraph {subgraph_id}")
+        # print(f"Computing disks of subgraph {subgraph_id}")
         # for clique in cliques:
         #     clique_points = [points_lut[elem] for elem in clique]
         #     circle = minimum_enclosing_circle([(clique_point['x'], clique_point['y']) for clique_point in clique_points])
@@ -876,7 +876,7 @@ def export_to_ampl_ip_max_cliques(points: List[Dict[str, Any]], radius: float, b
         # subgraph_disks, _ = remove_redundant_disks(subgraph_disks)
         # disks += subgraph_disks
         # print(f"Found {len(subgraph_disks)} different disks in subgraph {subgraph_id}")
-    print("Computing distance matrix")
+    # print("Computing distance matrix")
     # Add bases as disks
     bases_disks = list()
     for base in bases_bombers:
@@ -895,7 +895,7 @@ def export_to_ampl_ip_max_cliques(points: List[Dict[str, Any]], radius: float, b
             distance_matrix[i, j] = distance
             distance_matrix[j, i] = distance
     # Build the set cover matrix
-    print(f"Computing coverage matrix")
+    # print(f"Computing coverage matrix")
     cover_matrix = np.zeros((len(points), len(disks)))
     tr_local_id_to_row = {point['id']: i for i, point in enumerate(points, 0)}
     for i in range(len(disks)):
