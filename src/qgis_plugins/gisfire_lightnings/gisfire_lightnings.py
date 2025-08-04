@@ -51,6 +51,7 @@ from .algorithms.set_cover import isolated
 from .algorithms.set_cover import naive
 from .algorithms.set_cover import greedy_naive
 from .algorithms.set_cover import greedy_cliques
+from .algorithms.set_cover import greedy_max_cliques
 from .algorithms.set_cover import max_cliques_ortools_scip
 from .algorithms.set_cover import max_cliques_ampl
 from .algorithms.set_cover import ip_complete_cliques
@@ -284,7 +285,7 @@ class GisFIRELightnings:
             points, _, _ = remove_duplicates(points)
             selected_algorithm = dlg.algorithm
             if selected_algorithm == 0: # Remove isolated lightnings
-                disks, covered_points, _ = isolated(points, self._default_radius)
+                disks, covered_points, _ = greedy_max_cliques(points, self._default_radius)
             elif selected_algorithm == 1: # Naive
                 disks, covered_points, _ = naive(points, self._default_radius)
             elif selected_algorithm == 2: # Greedy Naive
