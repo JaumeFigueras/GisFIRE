@@ -13,8 +13,10 @@ from sqlalchemy.schema import CreateTable  # pragma: no cover
 from src.data_model import Base  # pragma: no cover
 from src.data_model.data_provider import DataProvider  # pragma: no cover
 from src.data_model.lightning import Lightning  # pragma: no cover
-from src.data_model.storm_cell import StormCell
-from src.data_model.storm_cell import StormCellLightningAssociation
+from src.data_model.thunderstorm import Thunderstorm
+from src.data_model.thunderstorm import ThunderstormLightningAssociation
+from src.data_model.thunderstorm_experiment import ThunderstormExperiment
+from src.data_model.thunderstorm_experiment import ThunderStormExperimentAlgorithm
 from src.data_model.request import Request  # pragma: no cover
 from src.meteocat.data_model.lightning import MeteocatLightning  # pragma: no cover
 from src.data_model.user import User  # pragma: no cover
@@ -38,24 +40,25 @@ def main(e: Engine):  # pragma: no cover
     # Base.metadata.create_all(e)
     print(CreateTable(DataProvider.__table__).compile(e))
     print(CreateTable(Lightning.__table__).compile(e))
-    print(CreateTable(StormCell.__table__).compile(e))
-    print(CreateTable(StormCellLightningAssociation.__table__).compile(e))
-    print(CreateTable(MeteocatLightning.__table__).compile(e))
-    print(CreateTable(Request.__table__).compile(e))
-    print(CreateTable(User.__table__).compile(e))
-    print(CreateTable(UserAccess.__table__).compile(e))
-    print(CreateTable(WeatherStation.__table__).compile(e))
-    print(CreateTable(MeteocatWeatherStation.__table__).compile(e))
-    print(CreateTable(MeteocatWeatherStationState.__table__).compile(e))
-    print(CreateTable(Variable.__table__).compile(e))
-    print(CreateTable(MeteocatVariable.__table__).compile(e))
-    print(CreateTable(MeteocatVariableState.__table__).compile(e))
-    print(CreateTable(MeteocatVariableTimeBase.__table__).compile(e))
-    print(CreateTable(Measure.__table__).compile(e))
-    print(CreateTable(MeteocatMeasure.__table__).compile(e))
-    print(CreateTable(WildfireIgnition.__table__).compile(e))
-    print(CreateTable(BomberscatWildfireIgnition.__table__).compile(e))
-    print(CreateTable(Experiment.__table__).compile(e))
+    print(CreateTable(Thunderstorm.__table__).compile(e))
+    print(CreateTable(ThunderstormLightningAssociation.__table__).compile(e))
+    print(CreateTable(ThunderstormExperiment.__table__).compile(e))
+    # print(CreateTable(MeteocatLightning.__table__).compile(e))
+    # print(CreateTable(Request.__table__).compile(e))
+    # print(CreateTable(User.__table__).compile(e))
+    # print(CreateTable(UserAccess.__table__).compile(e))
+    # print(CreateTable(WeatherStation.__table__).compile(e))
+    # print(CreateTable(MeteocatWeatherStation.__table__).compile(e))
+    # print(CreateTable(MeteocatWeatherStationState.__table__).compile(e))
+    # print(CreateTable(Variable.__table__).compile(e))
+    # print(CreateTable(MeteocatVariable.__table__).compile(e))
+    # print(CreateTable(MeteocatVariableState.__table__).compile(e))
+    # print(CreateTable(MeteocatVariableTimeBase.__table__).compile(e))
+    # print(CreateTable(Measure.__table__).compile(e))
+    # print(CreateTable(MeteocatMeasure.__table__).compile(e))
+    # print(CreateTable(WildfireIgnition.__table__).compile(e))
+    # print(CreateTable(BomberscatWildfireIgnition.__table__).compile(e))
+    # print(CreateTable(Experiment.__table__).compile(e))
 
 
 if __name__ == "__main__":  # pragma: no cover

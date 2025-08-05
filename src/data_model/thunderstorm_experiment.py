@@ -8,15 +8,16 @@ from src.data_model.mixins.time_stamp import TimeStampMixIn
 
 from sqlalchemy import Integer
 from sqlalchemy import Enum
-from sqlalchemy.orm import mapped_column
+from sqlalchemy.orm import mapped_column, relationship
 from sqlalchemy.dialects.postgresql import HSTORE
 from enum import StrEnum
 
 from sqlalchemy.orm import Mapped
 from typing import Optional
 from typing import Dict
+from typing import List
 
-class ThunderStormExperimentAlgorithm(StrEnum):
+class ThunderstormExperimentAlgorithm(StrEnum):
     """
     Enumeration of algorithms used in thunderstorm experiments.
 
@@ -44,23 +45,64 @@ class ThunderStormExperimentAlgorithm(StrEnum):
 
 
 class ThunderstormExperiment(Base, TimeStampMixIn):
+    """
+    Represents a thunderstorm experiment configuration and its associated data.
+
+    This class models the metadata and relationships for a single thunderstorm
+    experiment. Each experiment uses a specific clustering algorithm to
+    analyze thunderstorm data and stores parameters relevant to the analysis.
+
+    Attributes
+    ----------
+    id : int
+        Unique identifier for the experiment (primary key).
+    algorithm : :class:`ThunderstormExperimentAlgorithm`
+        Clustering algorithm applied to the thunderstorm data.
+    parameters : dict of str, str
+        Key-value pairs specifying configuration parameters for the experiment algorithm.
+    thunderstorms : list of :class:`Thunderstorm`
+        List of thunderstorm events associated with this experiment.
+
+    See Also
+    --------
+    :class:`ThunderstormExperimentAlgorithm`
+        Enum of available clustering algorithms used for analysis.
+    :class:`Thunderstorm`
+        Model representing individual thunderstorm records linked to an experiment.
+    """
     # Metadata for SQLAlchemy
     __tablename__ = "thunderstorm_experiment"
     # Table columns
     id: Mapped[int] = mapped_column('id', Integer, primary_key=True, autoincrement=True)
-    algorithm: Mapped[ThunderStormExperimentAlgorithm] = mapped_column('algorithm', Enum(ThunderStormExperimentAlgorithm, name="THUNDERSTORM_EXPERIMENT_ALGORITHM_ENUM", native_enum=True))
-    parameters: Mapped[Optional[Dict[str, str]]] = mapped_column('parameters', HSTORE)
+    algorithm: Mapped[ThunderstormExperimentAlgorithm] = mapped_column('algorithm', Enum(ThunderstormExperimentAlgorithm, name="THUNDERSTORM_EXPERIMENT_ALGORITHM_ENUM", native_enum=True))
+    parameters: Mapped[Optional[Dict[str, str]]] = mapped_column('parameters', HSTORE, nullable=False)
     # Relations
-    thunderstorms: Mapped[List["ThunderStorm"]]
+    thunderstorms: Mapped[List["Thunderstorm"]] = relationship(back_populates="thunderstorm_experiment")
 
-    def __init__(self, algorithm: Optional[str] = None, parameters: Optional[Dict[str, str]] = None) -> None:
+    def __init__(self, algorithm: Optional[ThunderstormExperimentAlgorithm] = None, parameters: Optional[Dict[str, str]] = None) -> None:
         """
-        Default constructor for a thunderstorm experiment.
+        Initialize a ThunderstormExperiment instance with optional algorithm and parameters.
 
         Parameters
         ----------
-        algorithm: The name of the algorithm to use for the clustering
-        parameters
+        algorithm : Optional[:class:`ThunderstormExperimentAlgorithm`]
+            Clustering algorithm to be applied during the experiment.
+        parameters : Optional[dict of str, str]
+            Dictionary of configuration parameters relevant to the experiment algorithm.
+
+        Notes
+        -----
+        This constructor sets up the base metadata for a thunderstorm experiment,
+        including which algorithm is used to cluster thunderstorm data and any
+        additional settings passed as key-value pairs.
+
+        See Also
+        --------
+        :class:`ThunderstormExperimentAlgorithm`
+            Enumeration of supported clustering strategies.
+        :class:`ThunderstormExperiment`
+            The enclosing experiment model class.
         """
+        super().__init__()
         self.algorithm = algorithm
         self.parameters = parameters
