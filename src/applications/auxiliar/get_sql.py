@@ -16,7 +16,7 @@ from src.data_model.lightning import Lightning  # pragma: no cover
 from src.data_model.thunderstorm import Thunderstorm
 from src.data_model.thunderstorm import ThunderstormLightningAssociation
 from src.data_model.thunderstorm_experiment import ThunderstormExperiment
-from src.data_model.thunderstorm_experiment import ThunderStormExperimentAlgorithm
+from src.data_model.thunderstorm_experiment import ThunderstormExperimentAlgorithm
 from src.data_model.request import Request  # pragma: no cover
 from src.meteocat.data_model.lightning import MeteocatLightning  # pragma: no cover
 from src.data_model.user import User  # pragma: no cover

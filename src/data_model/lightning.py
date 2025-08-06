@@ -42,7 +42,6 @@ class Lightning(Base, LocationMixIn, DateTimeMixIn, TimeStampMixIn):
     # SQLAlchemy columns
     __tablename__ = "lightning"
     id: Mapped[int] = mapped_column('id', Integer, primary_key=True, autoincrement=True)
-    type: Mapped[str]
     # SQLAlchemy relations
     data_provider_name: Mapped[str] = mapped_column('data_provider_name', ForeignKey('data_provider.name'), nullable=False)
     data_provider: Mapped["DataProvider"] = relationship(back_populates="lightnings")
@@ -51,6 +50,7 @@ class Lightning(Base, LocationMixIn, DateTimeMixIn, TimeStampMixIn):
     # association between Child -> Association -> Parent
     thunderstorm_associations: Mapped[List["ThunderstormLightningAssociation"]] = relationship(back_populates="lightning")
 
+    type: Mapped[str]
     __mapper_args__ = {
         "polymorphic_identity": "lightning",
         "polymorphic_on": "type",

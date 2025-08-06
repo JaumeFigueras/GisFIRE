@@ -56,7 +56,7 @@ class ThunderstormExperiment(Base, TimeStampMixIn):
     ----------
     id : int
         Unique identifier for the experiment (primary key).
-    algorithm : :class:`ThunderstormExperimentAlgorithm`
+    algorithm : :class:`~src.data_model.thunderstorm_experiment.ThunderstormExperimentAlgorithm`
         Clustering algorithm applied to the thunderstorm data.
     parameters : dict of str, str
         Key-value pairs specifying configuration parameters for the experiment algorithm.
@@ -65,9 +65,9 @@ class ThunderstormExperiment(Base, TimeStampMixIn):
 
     See Also
     --------
-    :class:`ThunderstormExperimentAlgorithm`
+    :class:`~src.data_model.thunderstorm_experiment.ThunderstormExperimentAlgorithm`
         Enum of available clustering algorithms used for analysis.
-    :class:`Thunderstorm`
+    :class:`~src.data_model.thunderstorm.Thunderstorm`
         Model representing individual thunderstorm records linked to an experiment.
     """
     # Metadata for SQLAlchemy
@@ -85,7 +85,7 @@ class ThunderstormExperiment(Base, TimeStampMixIn):
 
         Parameters
         ----------
-        algorithm : Optional[:class:`ThunderstormExperimentAlgorithm`]
+        algorithm : Optional[:class:`~src.data_model.thunderstorm_experiment.ThunderstormExperimentAlgorithm`]
             Clustering algorithm to be applied during the experiment.
         parameters : Optional[dict of str, str]
             Dictionary of configuration parameters relevant to the experiment algorithm.
@@ -98,9 +98,9 @@ class ThunderstormExperiment(Base, TimeStampMixIn):
 
         See Also
         --------
-        :class:`ThunderstormExperimentAlgorithm`
+        :class:`~src.data_model.thunderstorm_experiment.ThunderstormExperimentAlgorithm`
             Enumeration of supported clustering strategies.
-        :class:`ThunderstormExperiment`
+        :class:`~src.data_model.thunderstorm_experiment.ThunderstormExperiment`
             The enclosing experiment model class.
         """
         super().__init__()
