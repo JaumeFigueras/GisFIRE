@@ -1,0 +1,15 @@
+# GisFIRE QGIS v4 plugins — development / testing dependencies
+# Install with: pip install -r requirements/qgis-dev.txt
+#
+# Run these inside the QGIS venv created with --system-site-packages, so the
+# `qgis` module and QGIS's Qt6 / PyQt6 binding are importable (see SETUP_DEV.md).
+# PyQt6 is intentionally NOT listed: it comes from QGIS, and pytest-qt binds to
+# that existing Qt6 binding.
+
+-r qgis.txt
+
+# --- Testing ---
+pytest>=8.3
+pytest-cov>=6.0
+pytest-qgis>=2.0            # headless QgsApplication + qgis_app / qgis_iface fixtures
+pytest-qt>=4.4             # qtbot fixture to drive Qt6 dialogs / widgets and wait on signals

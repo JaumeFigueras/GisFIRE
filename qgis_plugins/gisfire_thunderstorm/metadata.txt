@@ -1,0 +1,17 @@
+[general]
+name=GISFire Thunderstorm
+qgisMinimumVersion=4.0
+description=Thunderstorm detection and clustering for wildfire risk analysis.
+about=Part of the GisFIRE suite. Talks to the GisFIRE backend over its HTTP API.
+version=0.1.0
+author=Jaume Figueras
+email=jaume.figueras.jove@gmail.com
+category=Plugins
+icon=
+experimental=True
+deprecated=False
+hasProcessingProvider=False
+tags=wildfire,thunderstorm,lightning,gis
+homepage=https://github.com/JaumeFigueras/GisFIRE
+repository=https://github.com/JaumeFigueras/GisFIRE
+tracker=https://github.com/JaumeFigueras/GisFIRE/issues

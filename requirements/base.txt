@@ -1,0 +1,39 @@
+# GisFIRE runtime dependencies
+# Python 3.11+
+
+# --- Database (PostgreSQL 15+ / PostGIS) ---
+psycopg[binary]>=3.2        # PostgreSQL driver (psycopg 3, not psycopg2)
+
+# --- ORM + spatial ORM ---
+SQLAlchemy>=2.0
+GeoAlchemy2>=0.15           # maintained successor of the abandoned "GeoAlchemy"
+
+# --- Geospatial (PROJ / geometry) ---
+pyproj>=3.6                 # Python binding to PROJ (a.k.a. Proj4)
+shapely>=2.0
+
+# --- Data analysis ---
+numpy>=2.1
+pandas>=2.2
+geopandas>=1.0
+
+# --- Machine learning ---
+scikit-learn>=1.5
+
+# --- Date / time ---
+# UTC / named zones come from the stdlib (datetime.timezone.utc, zoneinfo) on
+# Python 3.11+ — no pytz needed. dateutil is kept for isoparse and the
+# eval-based tzinfo persistence (dateutil.tz.tzoffset) in the model mixins.
+python-dateutil>=2.9
+
+# --- API server ---
+fastapi>=0.115
+uvicorn[standard]>=0.30     # ASGI server that runs FastAPI
+# pydantic (v2) ships with fastapi. Add `pydantic-settings` here if/when config
+# moves to env-based settings.
+# Deployment note: FastAPI is ASGI, so it is NOT served by mod_wsgi. Run uvicorn
+# (optionally managed by gunicorn with uvicorn workers, or systemd) and put it
+# behind Apache via mod_proxy / mod_proxy_http reverse-proxying to that process.
+
+# --- API client ---
+requests>=2.32

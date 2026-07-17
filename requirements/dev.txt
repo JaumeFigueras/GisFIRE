@@ -1,4 +1,18 @@
-# Docs system
+# GisFIRE development dependencies (docs + testing)
+# Install with: pip install -r requirements/dev.txt
+
+-r base.txt
+
+# --- Docs system ---
 sphinx>=9.1.0
 sphinx-rtd-theme>=3.1.0
 Pygments>=2.20.0
+
+# --- Testing ---
+pytest>=8.3
+pytest-cov>=6.0
+pytest-postgresql>=6.1      # ephemeral PostgreSQL per test run
+httpx>=0.27                 # required by FastAPI/Starlette TestClient
+requests-mock>=1.12         # mock the API client (requests) in tests
+# Add `pytest-asyncio>=0.24` if you unit-test async endpoints/functions directly
+# (FastAPI's TestClient is sync, so it is not needed for endpoint tests).

@@ -1,0 +1,11 @@
+# GisFIRE QGIS v4 plugins dependencies (shared by all plugins under qgis_plugins/)
+#
+# QGIS 4 ships its own Python interpreter with Qt6 / PyQt6, sip, QScintilla,
+# GDAL, numpy, matplotlib, etc. Do NOT pip-install PyQt6 or the `qgis` module
+# here: a pip build would clash with QGIS's own Qt6 binding. Get them from QGIS
+# by creating the plugins venv with --system-site-packages (see SETUP_DEV.md).
+#
+# List here only the pip deps the plugins need *on top* of what QGIS provides.
+
+# --- API client (talks to the GisFIRE API server) ---
+requests>=2.32
