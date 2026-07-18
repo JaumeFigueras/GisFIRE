@@ -26,7 +26,18 @@ extensions = [
     'sphinx.ext.duration',
     'sphinx.ext.autodoc',
     'sphinx.ext.napoleon',
+    'sphinx.ext.intersphinx',
 ]
+
+# -- Intersphinx: link cross-references to external projects' docs -----------
+# Lets roles like :class:`~sqlalchemy.orm.DeclarativeBase` resolve to the
+# upstream documentation. Inventories are fetched at build time, so the build
+# needs network access (or a cached objects.inv).
+intersphinx_mapping = {
+    'python': ('https://docs.python.org/3', None),
+    'sqlalchemy': ('https://docs.sqlalchemy.org/en/20', None),
+}
+intersphinx_timeout = 15
 
 templates_path = ['_templates']
 exclude_patterns = []

@@ -34,31 +34,45 @@ Here it is implemented in code with an ORM,
 Building blocks
 ---------------
 
-Metaclass
-^^^^^^^^^
+Declarative base
+^^^^^^^^^^^^^^^^^
 
-A dedicated metaclass generates coordinate columns, validated properties and PostGIS
-geometry columns from a class-level ``__location__`` declaration, and keeps coordinate
-sets in different EPSG systems in sync automatically. It also generates timezone-aware
-datetime properties.
-
-Mixins
-^^^^^^
-
-Mixins provide reusable functionality across models:
-
-- **Location** — geospatial coordinates (X, Y) for one or more EPSG codes.
-- **Date/Time** — timezone-aware date/time fields with comparison support.
-- **Timestamp** — an automatic UTC record-creation timestamp.
+Every ORM model inherits from a single :class:`~src.data_model.Base`, a plain
+SQLAlchemy 2.0 :class:`~sqlalchemy.orm.DeclarativeBase` subclass (typed
+:class:`~sqlalchemy.orm.Mapped` / :func:`~sqlalchemy.orm.mapped_column` columns).
+Importing a model module registers its table on
+:attr:`Base.metadata <sqlalchemy.orm.DeclarativeBase.metadata>`, from which the
+schema is created directly
+(:meth:`Base.metadata.create_all() <sqlalchemy.schema.MetaData.create_all>`) — there
+are no hand-written SQL DDL files to keep in sync.
 
 Generic and provider-specific models
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Generic domain models (``DataProvider``, ``Lightning``, ``Thunderstorm``,
+Generic domain models (:class:`~src.data_model.data_provider.DataProvider`,
+``Lightning``, ``Thunderstorm``,
 ``WeatherStation``, ``Variable``, ...) use polymorphic inheritance; provider-specific
 subclasses add the columns particular to each data source.
 
-.. note::
+API reference
+-------------
 
-   Per-module API reference pages are generated from the source with autodoc as the
-   models are ported from GisFIRE2 into ``src/data_model/``.
+Each model lives in its own module under ``src/data_model/`` and has its own reference
+page, generated from the source with autodoc. New models get a page added to the list
+below as they are ported.
+
+:doc:`data_model/base`
+    The declarative base class every ORM model inherits from. It collects the table
+    definitions so the database schema can be created from the models.
+
+:doc:`data_model/data_provider`
+    A source of data ingested by GisFIRE (a weather service, a lightning-detection
+    network, ...). Provider-specific data tables reference it, so data can only be
+    attached to a known provider.
+
+.. toctree::
+   :maxdepth: 1
+   :hidden:
+
+   data_model/base
+   data_model/data_provider
