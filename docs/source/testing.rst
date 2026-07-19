@@ -23,11 +23,25 @@ dependencies at collection time:
 Core tests
 ----------
 
-The core suite tests the data model, backend and algorithms. The plan follows the
-GisFIRE2 strategy: a ``conftest.py`` spins up an **ephemeral PostgreSQL instance** per
-run with ``pytest-postgresql``, initializes the schema from the hand-written SQL files,
-and exposes a scoped SQLAlchemy ``db_session`` fixture that truncates all tables after
-each test.
+The core suite tests the data model, backend and algorithms. ``test/conftest.py`` spins
+up an **ephemeral PostgreSQL instance** with ``pytest-postgresql``, enables PostGIS on
+it and builds the schema with ``Base.metadata.create_all()`` — the models are the single
+source of truth, so there are no hand-written SQL files to keep in sync (this is a
+deliberate departure from GisFIRE2). The ``db_session`` fixture yields a SQLAlchemy
+``Session`` bound to it; the database is created fresh per test, so tests are isolated
+without any truncation step.
+
+The test tree mirrors the source tree: ``test/data_model/`` for the generic models,
+``test/providers/<provider>/`` for the provider-specific ones.
+
+Migration tests
+^^^^^^^^^^^^^^^
+
+Because the suite builds its schema from the models, it would never notice a model
+changed without its Alembic revision. ``test/test_migrations.py`` covers that gap: it
+upgrades an ephemeral database to ``head``, diffs the result against ``Base.metadata``
+and fails if they differ, and checks the ``downgrade()`` path back to ``base``. See
+:doc:`setup/database_migrations`.
 
 QGIS plugin tests
 -----------------

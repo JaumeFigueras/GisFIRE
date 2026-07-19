@@ -7,8 +7,9 @@ from ``.env`` by :mod:`src.settings`), never from ``alembic.ini``, so no
 credentials are stored in a tracked file.
 
 Autogenerate compares the live database against :attr:`src.data_model.Base.
-metadata`. Importing :mod:`src.data_model` registers every model's table, so new
-models are picked up automatically as long as they are imported there.
+metadata`. Importing :mod:`src.data_model` and :mod:`src.providers` registers
+every model's table, so new models are picked up automatically as long as they
+are imported in one of those two packages.
 
 PostGIS needs a little help from GeoAlchemy2: its ``alembic_helpers`` filter out
 the PostGIS-managed tables and views (``spatial_ref_sys``, ``geometry_columns``,
@@ -21,6 +22,8 @@ from sqlalchemy import engine_from_config
 from sqlalchemy import pool
 
 from alembic import context
+
+import src.providers  # noqa: F401  (registers the provider tables on Base.metadata)
 
 from src.data_model import Base
 from src.settings import database_url

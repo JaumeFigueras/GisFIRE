@@ -28,7 +28,8 @@ SQLAlchemy + GeoAlchemy2, and a set of **QGIS v4 plugins** that consume the API.
 The documentation is organized as follows:
 
 - **Setup** — environments, the ``Makefile`` workflow, database and documentation.
-- **Data Model** — entities, mixins and the multi-CRS metaclass.
+- **Data Model** — the generic entities and how they are mapped to the database.
+- **Data Providers** — the provider-specific models that subclass them.
 - **Applications** — the domain command-line applications.
 - **QGIS Plugins** — the suite of QGIS v4 plugins.
 - **Auxiliary Applications** — database/DDL helper command-line tools.
@@ -41,6 +42,7 @@ The documentation is organized as follows:
 
    setup
    data_model
+   providers
    applications
    qgis_plugins
    auxiliary_applications

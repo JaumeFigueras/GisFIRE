@@ -20,6 +20,8 @@ from geoalchemy2 import alembic_helpers
 from sqlalchemy import create_engine
 from sqlalchemy import inspect
 
+import src.providers  # noqa: F401  (registers the provider tables on Base.metadata)
+
 from src.data_model import Base
 from src.settings import ROOT_DIR
 
@@ -47,7 +49,7 @@ def test_migrations_upgrade_to_head(alembic_config):
     tables = set(inspect(engine).get_table_names())
     engine.dispose()
 
-    assert {"data_provider", "wildfire"} <= tables
+    assert {"data_provider", "wildfire", "gwis_wildfire"} <= tables
 
 
 def test_migrations_match_the_models(alembic_config):
@@ -87,3 +89,4 @@ def test_migrations_downgrade_to_base(alembic_config):
 
     assert "data_provider" not in tables
     assert "wildfire" not in tables
+    assert "gwis_wildfire" not in tables

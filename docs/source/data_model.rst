@@ -88,9 +88,10 @@ Generic and provider-specific models
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 Generic domain models (:class:`~src.data_model.data_provider.DataProvider`,
-``Lightning``, ``Thunderstorm``,
+:class:`~src.data_model.wildfire.Wildfire`, ``Lightning``, ``Thunderstorm``,
 ``WeatherStation``, ``Variable``, ...) use polymorphic inheritance; provider-specific
-subclasses add the columns particular to each data source.
+subclasses add the columns particular to each data source. They live under
+``src/providers/`` and use joined table inheritance — see :doc:`providers`.
 
 API reference
 -------------

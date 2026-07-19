@@ -13,6 +13,8 @@ from sqlalchemy import create_engine
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+import src.providers  # noqa: F401  (registers the provider tables on Base.metadata)
+
 from src.data_model import Base
 
 
