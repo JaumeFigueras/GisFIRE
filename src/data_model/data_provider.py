@@ -7,6 +7,11 @@ service or a lightning-detection network). The set of providers is small and
 finite; each provider gets its own tables under ``src/providers/`` for the data
 it supplies, and those tables reference this one so data can only be attached to
 a known provider.
+
+A row identifies a *product* of a provider rather than the provider as a whole:
+GWIS, for instance, publishes both the Global Wildfire Database and the Fine
+Fuel Moisture Code, and attaching data to plain "GWIS" would be too coarse to
+tell them apart. Each ``(name, product)`` pair is therefore a distinct row.
 """
 
 from __future__ import annotations
@@ -15,6 +20,7 @@ import datetime
 
 from sqlalchemy import DateTime
 from sqlalchemy import String
+from sqlalchemy import UniqueConstraint
 from sqlalchemy import func
 from sqlalchemy.orm import Mapped
 from sqlalchemy.orm import mapped_column
@@ -31,7 +37,12 @@ class DataProvider(Base):
         Surrogate autoincrement primary key. Referenced by the provider-specific
         data tables.
     name : str
-        Short unique identifier, usually an acronym (e.g. ``"MeteoCat"``).
+        Short identifier of the provider, usually an acronym (e.g. ``"MeteoCat"``,
+        ``"GWIS"``). Unique in combination with ``product``.
+    product : str
+        The particular data product of the provider this row stands for (e.g.
+        ``"Global Wildfire Database"``, ``"FFMC"``). Unique in combination with
+        ``name``.
     full_name : str
         Human-readable expansion of ``name``.
     description : str or None
@@ -47,8 +58,11 @@ class DataProvider(Base):
 
     __tablename__ = "data_provider"
 
+    __table_args__ = (UniqueConstraint("name", "product", name="uq_data_provider_name_product"),)
+
     id: Mapped[int] = mapped_column(primary_key=True)
-    name: Mapped[str] = mapped_column(String, unique=True, nullable=False)
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    product: Mapped[str] = mapped_column(String, nullable=False)
     full_name: Mapped[str] = mapped_column(String, nullable=False)
     description: Mapped[str | None] = mapped_column(String, nullable=True)
     url: Mapped[str | None] = mapped_column(String, nullable=True)
@@ -60,4 +74,4 @@ class DataProvider(Base):
     )
 
     def __repr__(self) -> str:
-        return f"DataProvider(id={self.id!r}, name={self.name!r})"
+        return f"DataProvider(id={self.id!r}, name={self.name!r}, product={self.product!r})"

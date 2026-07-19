@@ -13,7 +13,8 @@ QGIS_PYTHONPATH ?= /usr/share/qgis/python
 QGIS_QT_PLATFORM ?= offscreen
 QGIS_ENV = PYTHONPATH="$(QGIS_PYTHONPATH):$$PYTHONPATH" QT_QPA_PLATFORM=$(QGIS_QT_PLATFORM)
 
-.PHONY: help venv install install-qgis test test-qgis test-all test-full test-qgis-full docs clean
+.PHONY: help venv install install-qgis test test-qgis test-all test-full test-qgis-full \
+	docs clean migrate migration migrate-down migrate-sql migrate-history
 
 help:
 	@echo "make venv           - create the project venv (.venv)"
@@ -26,6 +27,13 @@ help:
 	@echo "make test-qgis-full - plugin: full verbose run + HTML coverage, stop on first fail"
 	@echo "make docs           - build the Sphinx docs"
 	@echo "make clean          - remove test/coverage artifacts + throwaway QGIS settings"
+	@echo ""
+	@echo "Database migrations (Alembic; connection comes from .env):"
+	@echo "make migration M=\"msg\" - autogenerate a revision from the model changes"
+	@echo "make migrate        - upgrade the database to the latest revision"
+	@echo "make migrate-down   - downgrade the database by one revision"
+	@echo "make migrate-sql    - print the SQL for an upgrade instead of applying it"
+	@echo "make migrate-history- show the revision history and where the DB stands"
 
 venv:
 	python3 -m venv .venv
@@ -59,6 +67,32 @@ test-qgis-full:
 
 docs:
 	$(MAKE) -C docs html
+
+# --- Database migrations (Alembic) -----------------------------------------
+# All of these read GISFIRE_DB_* from .env via src/settings.py, so they act on
+# the REAL database configured there — not on the ephemeral test one.
+#
+# Autogenerate a revision from the difference between the models and the
+# database, e.g.: make migration M="add wildfire cause"
+# Always read the generated file before committing it: autogenerate is a
+# starting point, not an oracle (it misses table/column renames, extensions and
+# data migrations).
+migration:
+	@test -n "$(M)" || (echo 'Usage: make migration M="what changed"' && false)
+	.venv/bin/alembic revision --autogenerate -m "$(M)"
+
+migrate:
+	.venv/bin/alembic upgrade head
+
+migrate-down:
+	.venv/bin/alembic downgrade -1
+
+# Offline mode: emit the SQL for review / handing to a DBA instead of applying it.
+migrate-sql:
+	.venv/bin/alembic upgrade head --sql
+
+migrate-history:
+	.venv/bin/alembic history --indicate-current
 
 # Remove regenerated test artifacts, including the throwaway QGIS profile that
 # pytest-qgis writes to qgis_plugins/.qgis-settings (QGIS_CUSTOM_CONFIG_PATH).

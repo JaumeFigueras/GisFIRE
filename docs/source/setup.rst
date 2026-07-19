@@ -108,10 +108,15 @@ Typical first-time flow
 
 .. code-block:: bash
 
-   make venv          # create .venv
-   make install       # core + dev deps
-   make install-qgis  # plugin deps into the QGIS venv
-   make test-all      # run both test suites
+   make venv            # create .venv
+   make install         # core + dev deps
+   make install-qgis    # plugin deps into the QGIS venv
+   cp .env.example .env # then fill in the database credentials
+   make migrate         # create/update the database schema
+   make test-all        # run both test suites
+
+The configuration file and the schema migrations have their own pages:
+:doc:`setup/configuration` and :doc:`setup/database_migrations`.
 
 Setup guides
 ------------
@@ -121,4 +126,6 @@ Setup guides
 
    setup/development_environment
    setup/postgresql_database
+   setup/configuration
+   setup/database_migrations
    setup/documentation

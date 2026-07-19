@@ -7,6 +7,10 @@ psycopg[binary]>=3.2        # PostgreSQL driver (psycopg 3, not psycopg2)
 # --- ORM + spatial ORM ---
 SQLAlchemy>=2.0
 GeoAlchemy2>=0.15           # maintained successor of the abandoned "GeoAlchemy"
+alembic>=1.14               # schema migrations, generated from the ORM models
+
+# --- Configuration ---
+python-dotenv>=1.0          # loads .env into the environment (see .env.example)
 
 # --- Geospatial (PROJ / geometry) ---
 pyproj>=3.6                 # Python binding to PROJ (a.k.a. Proj4)
