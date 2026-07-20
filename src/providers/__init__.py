@@ -17,3 +17,4 @@ import :mod:`src.providers`, not just :mod:`src.data_model`.
 # Imported for the side effect of registering the tables; kept at the bottom of
 # the module for the same reason as in src/data_model/__init__.py.
 from src.providers.gwis.wildfire import GwisWildfire  # noqa: E402,F401
+from src.providers.ocha.admin_boundary import OchaAdminBoundary  # noqa: E402,F401

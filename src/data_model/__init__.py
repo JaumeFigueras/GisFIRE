@@ -23,4 +23,5 @@ class Base(DeclarativeBase):
 # is imported. Kept at the bottom to avoid a circular import (the models import
 # ``Base`` from this module).
 from src.data_model.data_provider import DataProvider  # noqa: E402,F401
+from src.data_model.geography.admin_boundary import AdminBoundary  # noqa: E402,F401
 from src.data_model.wildfire import Wildfire  # noqa: E402,F401
