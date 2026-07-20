@@ -78,8 +78,41 @@ several products; each one is its own
     end date, a perimeter in EPSG:4326 and its own identifier — the first three are
     already the generic model's, so the subclass adds only the identifier.
 
+OCHA
+----
+
+The UN `Office for the Coordination of Humanitarian Affairs
+<https://www.unocha.org>`_ publishes the *Common Operational Datasets — Administrative
+Boundaries* (COD-AB), the reference administrative divisions of the world. GisFIRE
+imports level 0 from it: the countries.
+
+:doc:`providers/ocha_admin_boundary`
+    The COD-AB product. Its name, geometry and nesting level are already the generic
+    model's, so the subclass adds the identifiers and metadata around them: the ISO
+    country codes, the UN M49 region, the statehood status and the provenance of the
+    geometry.
+
+Three fields of the source layer are worth knowing about before importing it:
+
+``adm0_id``, not ``fid``, identifies a boundary
+    ``fid`` is the GeoPackage's own row number and shifts between releases. ``adm0_id``
+    — ``"AND-20250729"``, the source code plus the release date — is stable, and is what
+    is stored as the generic ``source_id``.
+
+``wld_view`` can put the same country in the layer twice
+    Contested boundaries are published once per *view*: the international one
+    (``"intl"``) and those of the parties involved. An import that ignores ``wld_view``
+    will either duplicate countries or trip the ``(data_provider_id, source_id)``
+    uniqueness constraint. Pick a view.
+
+``adm0_name2`` is usually NULL
+    The layer types it as a real number, which is an artefact of an all-NULL column
+    surviving a format conversion. It holds an alternative name where there is one and
+    is stored as text, in ``name_alt``.
+
 .. toctree::
    :maxdepth: 1
    :hidden:
 
    providers/gwis_wildfire
+   providers/ocha_admin_boundary

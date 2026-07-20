@@ -93,6 +93,83 @@ Generic domain models (:class:`~src.data_model.data_provider.DataProvider`,
 subclasses add the columns particular to each data source. They live under
 ``src/providers/`` and use joined table inheritance — see :doc:`providers`.
 
+Geographic reference data
+-------------------------
+
+``src/data_model/geography/`` holds a different kind of model. It is not an observation
+of anything but a description of the world the observations sit in: administrative
+divisions, used to clip a dataset to an area of interest or to attribute a wildfire to a
+country. It is imported once from an authoritative source and changes only when that
+source republishes, which is why it is kept apart from the wildfire domain proper.
+
+Nesting
+^^^^^^^
+
+Administrative divisions nest — Spain contains Catalonia, which contains Girona, which
+contains Osor — and how deep the nesting goes differs from country to country. The
+hierarchy is therefore an **adjacency list**: each
+:class:`~src.data_model.geography.admin_boundary.AdminBoundary` carries a ``parent_id``
+pointing back at the same table, plus a ``level`` giving its depth. Nothing in the model
+fixes a number of levels, so a country with five tiers and one with two are stored the
+same way.
+
+Walking one step of the hierarchy is the ``parent`` / ``children`` relationship. Walking
+a whole branch, whose depth is not known in advance, is a recursive CTE:
+
+.. code-block:: python
+
+   descendants = (
+       select(AdminBoundary.id, AdminBoundary.name)
+       .where(AdminBoundary.id == spain.id)
+       .cte(recursive=True)
+   )
+   descendants = descendants.union_all(
+       select(AdminBoundary.id, AdminBoundary.name)
+       .join(descendants, AdminBoundary.parent_id == descendants.c.id)
+   )
+
+``level`` is a normalised depth, not the source's own level number
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+``level`` counts from ``0`` at the country and adds one per subdivision — Spain 0,
+Catalonia 1, Girona 2, Osor 3. It is deliberately **not** whatever level number the
+provider uses.
+
+OpenStreetMap is the reason. Its ``admin_level`` tag is neither contiguous nor
+comparable between countries: Spain tags autonomous communities 4 and provinces 6,
+France tags departments 6 and arrondissements 7. A query for ``admin_level = 6`` would
+mean provinces in one country and departments in another. Sources that have a level
+number of their own keep it as a column on their subclass, and the importer is what maps
+it onto ``level``.
+
+Spatial lookups
+^^^^^^^^^^^^^^^
+
+Finding which boundary contains a point or a perimeter is a **spatial join**, not a
+foreign key, written with the PostGIS predicates GeoAlchemy2 exposes:
+
+.. code-block:: python
+
+   select(AdminBoundary.name).where(
+       func.ST_Contains(AdminBoundary.geometry, point), AdminBoundary.level == 0
+   )
+
+The ``geometry`` column gets a GiST index automatically — GeoAlchemy2 creates one for
+every :class:`~geoalchemy2.types.Geometry` column unless told not to — and
+``ST_Contains`` uses it, as a bounding-box prefilter followed by an exact recheck.
+
+.. warning::
+
+   Do not repeat this join on every query. Country polygons have tens of thousands of
+   vertices, so the exact recheck is expensive, and for a country as sprawling as Russia
+   the bounding box prefilters almost nothing. Resolve the boundary **once, at import
+   time**, and store the resulting id on the event.
+
+   Should repeated on-the-fly containment ever be genuinely necessary, the standard
+   remedy is a companion table of ``ST_Subdivide``-d pieces of the boundaries, small
+   enough that the bounding-box prefilter does real work. That is not built, and should
+   not be until something needs it.
+
 API reference
 -------------
 
@@ -113,6 +190,10 @@ below as they are ported.
     A wildfire event — when it started, when it was extinguished and the burnt area, kept
     as a PostGIS ``MULTIPOLYGON`` in EPSG:4326.
 
+:doc:`data_model/geography_admin_boundary`
+    An administrative division — a country, a region, a province, a municipality — as a
+    PostGIS ``MULTIPOLYGON`` in EPSG:4326, nested under the division above it.
+
 .. toctree::
    :maxdepth: 1
    :hidden:
@@ -120,3 +201,4 @@ below as they are ported.
    data_model/base
    data_model/data_provider
    data_model/wildfire
+   data_model/geography_admin_boundary
