@@ -2,8 +2,8 @@
 # -*- coding: utf-8 -*-
 """OCHA administrative boundary model.
 
-The COD-AB layer supplies, for each division, a name, a geometry and a nesting
-level — exactly what the generic
+The *Global International Boundaries (OSM)* layer supplies, for each country, a
+name, a geometry and a nesting level — exactly what the generic
 :class:`~src.data_model.geography.admin_boundary.AdminBoundary` already holds —
 plus the identifiers and metadata this model adds: the ISO country codes, the UN
 M49 region the division belongs to, its statehood status and the provenance of
@@ -25,7 +25,10 @@ from src.data_model.geography.admin_boundary import AdminBoundary
 
 
 class OchaAdminBoundary(AdminBoundary):
-    """An administrative division as published by the OCHA COD-AB dataset.
+    """An administrative division as published by OCHA's international boundaries.
+
+    Sourced from *Global International Boundaries (OSM)* on HDX,
+    https://data.humdata.org/dataset/global-international-boundaries-osm.
 
     Uses joined table inheritance: the columns shared by every boundary live in
     the ``admin_boundary`` table and only the OCHA-specific ones are stored here,

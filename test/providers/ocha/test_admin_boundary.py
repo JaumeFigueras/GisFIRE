@@ -21,8 +21,8 @@ from src.providers.ocha.admin_boundary import OchaAdminBoundary
 
 @pytest.fixture
 def ocha(db_session):
-    """The OCHA Common Operational Datasets provider row."""
-    provider = DataProvider(name="OCHA", product="COD-AB",
+    """The OCHA Global International Boundaries provider row."""
+    provider = DataProvider(name="OCHA", product="Global International Boundaries",
                             full_name="UN Office for the Coordination of Humanitarian Affairs")
     db_session.add(provider)
     db_session.commit()
@@ -41,7 +41,7 @@ def andorra() -> MultiPolygon:
 
 
 def an_andorra_row(provider, **overrides) -> OchaAdminBoundary:
-    """Andorra exactly as the COD-AB layer publishes it (see the layer's ``fid`` 7)."""
+    """Andorra exactly as the boundaries layer publishes it (see the layer's ``fid`` 7)."""
     values = {
         # Generic columns, on the parent table.
         "data_provider": provider,
@@ -193,7 +193,7 @@ def test_inherited_columns_are_still_enforced(db_session, ocha):
 
 
 def test_source_id_must_be_unique_within_the_provider(db_session, ocha):
-    """Re-importing the same COD-AB release must not duplicate the country."""
+    """Re-importing the same release of the layer must not duplicate the country."""
     db_session.add(an_andorra_row(ocha))
     db_session.commit()
     db_session.add(an_andorra_row(ocha))

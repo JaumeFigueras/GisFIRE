@@ -19,7 +19,7 @@ from src.data_model.geography.admin_boundary import AdminBoundary
 
 @pytest.fixture
 def provider(db_session):
-    provider = DataProvider(name="OCHA", product="COD-AB",
+    provider = DataProvider(name="OCHA", product="Global International Boundaries",
                             full_name="UN Office for the Coordination of Humanitarian Affairs")
     db_session.add(provider)
     db_session.commit()

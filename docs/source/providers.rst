@@ -82,15 +82,19 @@ OCHA
 ----
 
 The UN `Office for the Coordination of Humanitarian Affairs
-<https://www.unocha.org>`_ publishes the *Common Operational Datasets — Administrative
-Boundaries* (COD-AB), the reference administrative divisions of the world. GisFIRE
-imports level 0 from it: the countries.
+<https://www.unocha.org>`_ publishes *Global International Boundaries (OSM)*, a single
+worldwide layer of country outlines built from OpenStreetMap data. GisFIRE imports it as
+administrative level 0: the countries.
+
+The dataset, and the GeoPackage the importer reads, come from HDX:
+
+    https://data.humdata.org/dataset/global-international-boundaries-osm
 
 :doc:`providers/ocha_admin_boundary`
-    The COD-AB product. Its name, geometry and nesting level are already the generic
-    model's, so the subclass adds the identifiers and metadata around them: the ISO
-    country codes, the UN M49 region, the statehood status and the provenance of the
-    geometry.
+    The *Global International Boundaries* product. Its name, geometry and nesting level
+    are already the generic model's, so the subclass adds the identifiers and metadata
+    around them: the ISO country codes, the UN M49 region, the statehood status and the
+    provenance of the geometry.
 
 Three fields of the source layer are worth knowing about before importing it:
 
