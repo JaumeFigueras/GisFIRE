@@ -39,8 +39,8 @@ class OchaAdminBoundary(AdminBoundary):
     changes between releases. ``adm0_id`` — which carries the release date, as in
     ``"AND-20250729"`` — is the stable identifier, and is stored on the parent
     row as :attr:`~src.data_model.geography.admin_boundary.AdminBoundary.source_id`.
-    The layer's ``adm0_name`` and ``adm0_name1`` likewise map onto the parent's
-    ``name``.
+    The layer's ``adm0_name`` maps onto the parent's ``name``; ``adm0_name1`` is a
+    different thing despite the name and is kept here as :attr:`iso_name`.
 
     Attributes
     ----------
@@ -53,13 +53,25 @@ class OchaAdminBoundary(AdminBoundary):
         from, usually the ISO 3166-1 alpha-3 code of the country that claims it.
     name_alt : str or None
         The layer's ``adm0_name2``: an alternative name for the division, where
-        one exists.
+        one exists. Empty for every feature of the 2025-07-29 release.
     iso_code : int
         The layer's ``iso_cd``: ISO 3166-1 numeric country code.
-    iso_2 : str
-        ISO 3166-1 alpha-2 country code (``"AD"``).
+    iso_2 : str or None
+        ISO 3166-1 alpha-2 country code (``"AD"``), or ``None``. Disputed and
+        jointly administered areas have no alpha-2 code — 36 of the 318 features
+        of the 2025-07-29 release, Abyei and Jammu and Kashmir among them — even
+        though every one of them has an alpha-3 code in :attr:`iso_3`.
     iso_3 : str
-        ISO 3166-1 alpha-3 country code (``"AND"``).
+        ISO 3166-1 alpha-3 country code (``"AND"``). **Not unique**: a single ISO
+        entity may be published as several features, one per landmass — ``ATF``
+        covers eight scattered island groups, each its own row.
+    iso_name : str
+        The layer's ``adm0_name1``: the name of the ISO entity :attr:`iso_3`
+        stands for, which is not the name of this particular feature. Kerguelen
+        is ``name="Kerguelen Islands (Fr.)"`` but
+        ``iso_name="French Southern Territories"``, the ISO name it shares with
+        the seven other ``ATF`` islands. The two agree for most countries and
+        differ for 118 of the 318 features.
     iso_3_group : str
         The layer's ``iso_3_grp``: alpha-3 code of the country this division is
         grouped under for reporting, which differs from :attr:`iso_3` for
@@ -105,8 +117,9 @@ class OchaAdminBoundary(AdminBoundary):
     source: Mapped[str] = mapped_column(String, nullable=False)
     name_alt: Mapped[str | None] = mapped_column(String, nullable=True)
     iso_code: Mapped[int] = mapped_column(Integer, nullable=False)
-    iso_2: Mapped[str] = mapped_column(String, nullable=False)
+    iso_2: Mapped[str | None] = mapped_column(String, nullable=True)
     iso_3: Mapped[str] = mapped_column(String, nullable=False)
+    iso_name: Mapped[str] = mapped_column(String, nullable=False)
     iso_3_group: Mapped[str] = mapped_column(String, nullable=False)
     region1_code: Mapped[int] = mapped_column(Integer, nullable=False)
     region1_name: Mapped[str] = mapped_column(String, nullable=False)

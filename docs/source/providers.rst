@@ -96,23 +96,64 @@ The dataset, and the GeoPackage the importer reads, come from HDX:
     around them: the ISO country codes, the UN M49 region, the statehood status and the
     provenance of the geometry.
 
-Three fields of the source layer are worth knowing about before importing it:
+Six properties of the source layer are worth knowing about before importing it. They
+were checked against the 2025-07-29 release, which has 318 features:
 
 ``adm0_id``, not ``fid``, identifies a boundary
     ``fid`` is the GeoPackage's own row number and shifts between releases. ``adm0_id``
-    — ``"AND-20250729"``, the source code plus the release date — is stable, and is what
-    is stored as the generic ``source_id``.
+    — ``"AND-20250729"``, the source code plus the release date — is stable, unique
+    across all 318 features, and is what is stored as the generic ``source_id``. Being
+    unique, it means the whole layer can be imported as-is: no filtering is needed to
+    satisfy the ``(data_provider_id, source_id)`` constraint.
 
-``wld_view`` can put the same country in the layer twice
-    Contested boundaries are published once per *view*: the international one
-    (``"intl"``) and those of the parties involved. An import that ignores ``wld_view``
-    will either duplicate countries or trip the ``(data_provider_id, source_id)``
-    uniqueness constraint. Pick a view.
+``iso_3`` is **not** unique
+    There are 285 distinct ISO alpha-3 codes for 318 features. An ISO entity made of
+    scattered landmasses is published as one feature per landmass: ``ATF`` (French
+    Southern Territories) is eight rows, and ``ESP`` is three — ``ESP_1`` the mainland
+    and the Balearics, ``ESP_2`` the Canary Islands, ``ESP_3`` the *plazas de soberanía*.
+    Do not treat ``iso_3`` as a key, and do not expect a query on it to return exactly
+    one row.
 
-``adm0_name2`` is usually NULL
-    The layer types it as a real number, which is an artefact of an all-NULL column
-    surviving a format conversion. It holds an alternative name where there is one and
-    is stored as text, in ``name_alt``.
+    This matters when attributing an event to a country. A point-in-polygon lookup
+    returns the *landmass* it fell in, so a fire in Tenerife resolves to
+    ``name="Canary Islands (Sp.)"``, not to ``"Spain"``. The country is then
+    ``iso_3``/``iso_name`` on that row (``ESP`` / ``Spain``), which is the same for all
+    three features. Use ``name`` for where it happened and ``iso_name`` for which
+    country it counts against.
+
+``adm0_name`` and ``adm0_name1`` are different things
+    ``adm0_name`` is the feature's own name, qualified with its sovereign
+    (``"Kerguelen Islands (Fr.)"``); ``adm0_name1`` is the name of the ISO entity the
+    feature belongs to (``"French Southern Territories"``), shared by all eight ``ATF``
+    rows. They agree for most countries and differ for 118 of the 318 features, so
+    treating them as interchangeable silently loses data. The first is the generic
+    ``name``, the second is ``iso_name``.
+
+``adm0_name`` is empty for every disputed area
+    32 features — Aksai Chin, the Spratly Islands, Bi'r Tawīl, Hans Island and the rest,
+    all of them ``status_nm`` *Sovereignty unsettled* — have no ``adm0_name`` at all.
+    The field is the name qualified with its sovereign (``"Aruba (Neth.)"``), which is
+    precisely what is undefined for a disputed area. ``adm0_name1`` is never empty, so
+    the import falls back to it; without that fallback these features cannot be stored,
+    since the generic ``name`` is NOT NULL.
+
+``iso_2`` is empty for 36 features
+    Disputed and jointly administered areas have no ISO alpha-2 code — Abyei, Jammu and
+    Kashmir, Akrotiri and Dekelia among them — although every feature in the layer has an
+    alpha-3 code. ``iso_2`` is therefore nullable in the model and ``iso_3`` is not.
+
+``adm0_name2`` is empty, and typed as a number
+    Not one feature in the release has a value. The layer types it ``Real``, an artefact
+    of an all-NULL column surviving a format conversion, so importing it needs an
+    explicit cast to text. It is kept as ``name_alt`` for fidelity.
+
+.. note::
+
+   ``wld_view`` is ``"intl"`` for every feature in this release. The field exists to
+   distinguish a contested boundary's international rendering from the renderings of the
+   parties involved, but this dataset publishes only the first, so importing it needs no
+   filter on the field. Should a later release ship several views, the same country would
+   appear more than once and the import would need to choose.
 
 .. toctree::
    :maxdepth: 1

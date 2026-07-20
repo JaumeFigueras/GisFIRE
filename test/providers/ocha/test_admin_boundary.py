@@ -22,7 +22,7 @@ from src.providers.ocha.admin_boundary import OchaAdminBoundary
 @pytest.fixture
 def ocha(db_session):
     """The OCHA Global International Boundaries provider row."""
-    provider = DataProvider(name="OCHA", product="Global International Boundaries",
+    provider = DataProvider(name="OCHA", product="Global International Boundaries - OSM",
                             full_name="UN Office for the Coordination of Humanitarian Affairs")
     db_session.add(provider)
     db_session.commit()
@@ -47,7 +47,7 @@ def an_andorra_row(provider, **overrides) -> OchaAdminBoundary:
         "data_provider": provider,
         "source_id": "AND-20250729",   # the layer's adm0_id
         "level": 0,
-        "name": "Andorra",             # the layer's adm0_name / adm0_name1
+        "name": "Andorra",             # the layer's adm0_name
         "geometry": func.ST_GeomFromText(andorra().wkt, 4326),
         # OCHA-specific columns.
         "source": "AND",               # adm0_src
@@ -55,6 +55,7 @@ def an_andorra_row(provider, **overrides) -> OchaAdminBoundary:
         "iso_code": 20,
         "iso_2": "AD",
         "iso_3": "AND",
+        "iso_name": "Andorra",         # adm0_name1
         "iso_3_group": "AND",
         "region1_code": 150, "region1_name": "Europe",
         "region2_code": 39, "region2_name": "Southern Europe",
@@ -82,6 +83,7 @@ def test_ocha_admin_boundary_persists_and_reads_back(db_session, ocha):
     assert stored.iso_code == 20
     assert stored.iso_2 == "AD"
     assert stored.iso_3 == "AND"
+    assert stored.iso_name == "Andorra"
     assert stored.iso_3_group == "AND"
     assert (stored.region1_code, stored.region1_name) == (150, "Europe")
     assert (stored.region2_code, stored.region2_name) == (39, "Southern Europe")
@@ -105,7 +107,7 @@ def test_joined_table_inheritance_splits_the_columns(db_session, ocha):
 
     columns = {column["name"] for column in inspect(db_session.get_bind()).get_columns("ocha_admin_boundary")}
     assert columns == {
-        "id", "source", "name_alt", "iso_code", "iso_2", "iso_3", "iso_3_group",
+        "id", "source", "name_alt", "iso_code", "iso_2", "iso_3", "iso_name", "iso_3_group",
         "region1_code", "region1_name", "region2_code", "region2_name",
         "region3_code", "region3_name", "status_code", "status_name",
         "valid_date", "update_date", "land_source", "view", "notes",
@@ -143,7 +145,11 @@ def test_querying_the_parent_returns_the_subclass(db_session, ocha):
 
 
 def test_countries_can_be_looked_up_by_iso_3(db_session, ocha):
-    """The lookup an importer does to attach a wildfire to a country."""
+    """The lookup an importer does to attach a wildfire to a country.
+
+    ``iso_3`` is not unique across the dataset, so this returns *a* boundary for
+    the code, not necessarily a single one — see the ATF case below.
+    """
     db_session.add(an_andorra_row(ocha))
     db_session.add(an_andorra_row(ocha, source_id="ESP-20250729", name="España", source="ESP",
                                   iso_code=724, iso_2="ES", iso_3="ESP", iso_3_group="ESP",
@@ -154,16 +160,41 @@ def test_countries_can_be_looked_up_by_iso_3(db_session, ocha):
     assert spain.name == "España"
 
 
-def test_the_same_country_can_be_published_once_per_view(db_session, ocha):
-    """Contested boundaries appear under several ``wld_view`` values, each its own row."""
-    db_session.add(an_andorra_row(ocha, source_id="AND-20250729-intl", view="intl"))
-    db_session.add(an_andorra_row(ocha, source_id="AND-20250729-AND", view="AND"))
+def test_one_iso_entity_may_be_several_boundaries(db_session, ocha):
+    """``iso_3`` is not unique: ``ATF`` ships as eight scattered islands, each its own row.
+
+    They share the ISO code and the ISO name, and are told apart by ``source_id``
+    (``adm0_id``, suffixed ``_1``, ``_2``, ...) and by their own ``name``.
+    """
+    for suffix, name in ((1, "Kerguelen Islands (Fr.)"), (2, "Crozet Archipelago (Fr.)")):
+        db_session.add(an_andorra_row(
+            ocha, source_id=f"ATF_{suffix}-20250729", name=name, source="ATF",
+            iso_code=260, iso_2="TF", iso_3="ATF", iso_name="French Southern Territories",
+            iso_3_group="FRA", status_name="Territory/Self-governing territory",
+        ))
     db_session.commit()
 
-    views = db_session.scalars(
-        select(OchaAdminBoundary.view).where(OchaAdminBoundary.iso_3 == "AND").order_by(OchaAdminBoundary.view)
+    islands = db_session.scalars(
+        select(OchaAdminBoundary).where(OchaAdminBoundary.iso_3 == "ATF")
+        .order_by(OchaAdminBoundary.source_id)
     ).all()
-    assert views == ["AND", "intl"]
+    assert [island.name for island in islands] == ["Kerguelen Islands (Fr.)",
+                                                   "Crozet Archipelago (Fr.)"]
+    # The ISO name is the entity's, and is neither island's own name.
+    assert {island.iso_name for island in islands} == {"French Southern Territories"}
+
+
+def test_iso_2_is_optional(db_session, ocha):
+    """Disputed and jointly administered areas have no alpha-2 code, only an alpha-3."""
+    boundary = an_andorra_row(ocha, source_id="XSI-20250729", name="Spratly Islands",
+                              source="XSI", iso_2=None, iso_3="XSI",
+                              iso_name="Spratly Islands", iso_3_group="XSI",
+                              status_name="Sovereignty unsettled")
+    db_session.add(boundary)
+    db_session.commit()
+
+    assert boundary.iso_2 is None
+    assert boundary.iso_3 == "XSI"
 
 
 def test_name_alt_and_notes_are_optional(db_session, ocha):
@@ -176,7 +207,7 @@ def test_name_alt_and_notes_are_optional(db_session, ocha):
     assert boundary.notes is None
 
 
-@pytest.mark.parametrize("missing", ["source", "iso_code", "iso_2", "iso_3", "iso_3_group",
+@pytest.mark.parametrize("missing", ["source", "iso_code", "iso_3", "iso_name", "iso_3_group",
                                      "status_code", "status_name", "valid_date", "update_date",
                                      "land_source", "view"])
 def test_required_columns_are_enforced(db_session, ocha, missing):
