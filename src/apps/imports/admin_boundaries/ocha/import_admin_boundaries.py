@@ -33,38 +33,39 @@ from __future__ import annotations
 
 import argparse
 import logging
-import os
 import shutil
-import subprocess
 import sys
 
 from pathlib import Path
 
 from sqlalchemy import Engine
 from sqlalchemy import create_engine
-from sqlalchemy import select
 from sqlalchemy import text
-from sqlalchemy.engine import URL
 from sqlalchemy.orm import Session
 
 import src.settings  # noqa: F401  (imported for the side effect of loading .env)
 
+from src.apps.imports import common
 from src.data_model.data_provider import DataProvider
+from src.providers import ocha
 
-#: The provider row every imported boundary is attached to. The product is the
-#: dataset's name on HDX, so a second OCHA dataset would be a different row.
-PROVIDER_NAME = "OCHA"
-PROVIDER_FULL_NAME = "United Nations Office for the Coordination of Humanitarian Affairs"
-PROVIDER_PRODUCT = "Global International Boundaries - OSM"
-PROVIDER_URL = "https://data.humdata.org/dataset/global-international-boundaries-osm"
+# The plumbing every importer shares, re-exported so this module reads as one
+# application: see :mod:`src.apps.imports.common`.
+from src.apps.imports.common import DEFAULT_STAGING_SCHEMA  # noqa: F401
+from src.apps.imports.common import database_url  # noqa: F401
+from src.apps.imports.common import ogr_connection_string  # noqa: F401
+from src.apps.imports.common import resolve_database_settings  # noqa: F401
+
+#: The provider row every imported boundary is attached to, defined beside the
+#: model in :mod:`src.providers.ocha` because the wildfire importers need it too.
+PROVIDER_NAME = ocha.PROVIDER_NAME
+PROVIDER_FULL_NAME = ocha.PROVIDER_FULL_NAME
+PROVIDER_PRODUCT = ocha.PROVIDER_PRODUCT
+PROVIDER_URL = ocha.PROVIDER_URL
 
 #: Default name of the layer inside the GeoPackage.
 DEFAULT_LAYER = "adm0_polygons"
 
-#: Where ``ogr2ogr`` unloads the layer. A schema of its own, deliberately: a
-#: staging table in ``public`` would be picked up by Alembic autogenerate, which
-#: would then write a ``DROP TABLE`` for it into the next migration.
-DEFAULT_STAGING_SCHEMA = "staging"
 DEFAULT_STAGING_TABLE = "ocha_adm0_polygons"
 
 #: Maps the staging table onto the two tables of the model in one statement.
@@ -133,131 +134,18 @@ def parse_arguments(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("-l", "--layer", default=DEFAULT_LAYER,
                         help=f"layer to read inside the GeoPackage (default: {DEFAULT_LAYER})")
 
-    database = parser.add_argument_group("database", "override the values taken from the environment")
-    database.add_argument("--db-host", help="database host (env: GISFIRE_DB_HOST, default localhost)")
-    database.add_argument("--db-port", help="database port (env: GISFIRE_DB_PORT, default 5432)")
-    database.add_argument("--db-name", help="database name (env: GISFIRE_DB_NAME)")
-    database.add_argument("--db-user", help="database user (env: GISFIRE_DB_USER)")
-    database.add_argument("--db-password", help="database password (env: GISFIRE_DB_PASSWORD)")
-
-    staging = parser.add_argument_group("staging")
-    staging.add_argument("--staging-schema", default=DEFAULT_STAGING_SCHEMA,
-                         help=f"schema ogr2ogr unloads into (default: {DEFAULT_STAGING_SCHEMA})")
-    staging.add_argument("--staging-table", default=DEFAULT_STAGING_TABLE,
-                         help=f"table ogr2ogr unloads into (default: {DEFAULT_STAGING_TABLE})")
-    staging.add_argument("--keep-staging", action="store_true",
-                         help="do not drop the staging table afterwards, to inspect what was loaded")
-
-    parser.add_argument("--ogr2ogr", default="ogr2ogr",
-                        help="path to the ogr2ogr binary (default: found on PATH)")
-    parser.add_argument("--log-level", default=os.getenv("GISFIRE_LOG_LEVEL", "INFO"),
-                        choices=["CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG"],
-                        help="verbosity (env: GISFIRE_LOG_LEVEL, default INFO)")
+    common.add_database_arguments(parser)
+    common.add_staging_arguments(parser, DEFAULT_STAGING_TABLE)
+    common.add_common_arguments(parser)
 
     return parser.parse_args(argv)
 
 
-def resolve_database_settings(args: argparse.Namespace) -> dict[str, str]:
-    """Merge the command-line database arguments over the environment.
-
-    Raises
-    ------
-    RuntimeError
-        If a setting with no sensible default is missing from both, rather than
-        silently connecting somewhere unintended.
-    """
-    name = args.db_name or os.getenv("GISFIRE_DB_NAME")
-    user = args.db_user or os.getenv("GISFIRE_DB_USER")
-    for key, value in (("name", name), ("user", user)):
-        if not value:
-            raise RuntimeError(
-                f"No database {key} given. Pass --db-{key} or set GISFIRE_DB_{key.upper()} "
-                f"(copy .env.example to .env and fill it in)."
-            )
-    return {
-        "host": args.db_host or os.getenv("GISFIRE_DB_HOST", "localhost"),
-        "port": args.db_port or os.getenv("GISFIRE_DB_PORT", "5432"),
-        "name": str(name),
-        "user": str(user),
-        # An empty password is a legitimate choice (peer/trust authentication),
-        # so it is not required and not defaulted away.
-        "password": args.db_password or os.getenv("GISFIRE_DB_PASSWORD", ""),
-    }
-
-
-def database_url(settings: dict[str, str]) -> URL:
-    """Build the SQLAlchemy URL, letting SQLAlchemy handle any escaping."""
-    return URL.create("postgresql+psycopg", username=settings["user"], password=settings["password"],
-                      host=settings["host"], port=int(settings["port"]), database=settings["name"])
-
-
-def ogr_connection_string(settings: dict[str, str]) -> str:
-    """Build the GDAL PostgreSQL connection string.
-
-    The password is deliberately left out: it is passed to the subprocess through
-    ``PGPASSWORD`` instead, so it never appears in the process arguments, where
-    any user on the machine could read it out of ``ps``.
-    """
-    return (f"PG:host={settings['host']} port={settings['port']} "
-            f"dbname={settings['name']} user={settings['user']}")
-
-
-def load_staging_table(args: argparse.Namespace, settings: dict[str, str], logger: logging.Logger) -> None:
-    """Copy the GeoPackage layer into the staging table with ``ogr2ogr``.
-
-    The geometries are promoted to ``MULTIPOLYGON`` and forced to EPSG:4326 to
-    match the model, even though the published layer already uses both — the
-    import should not quietly depend on the source never changing.
-    """
-    staging_table = f"{args.staging_schema}.{args.staging_table}"
-    command = [
-        args.ogr2ogr,
-        "-f", "PostgreSQL", ogr_connection_string(settings), str(args.geopackage), args.layer,
-        "-nln", staging_table,
-        "-overwrite",
-        "-nlt", "MULTIPOLYGON",
-        "-t_srs", "EPSG:4326",
-        "-lco", "GEOMETRY_NAME=geom",
-        "-lco", "FID=fid",
-    ]
-    logger.info("Loading %s into %s with ogr2ogr", args.geopackage, staging_table)
-    logger.debug("Running %s", " ".join(command))
-
-    environment = dict(os.environ)
-    if settings["password"]:
-        environment["PGPASSWORD"] = settings["password"]
-
-    result = subprocess.run(command, env=environment, capture_output=True, text=True)
-    if result.returncode != 0:
-        # ogr2ogr writes its diagnostics to stderr and they are the only clue as
-        # to what went wrong, so they are surfaced rather than swallowed.
-        raise RuntimeError(
-            f"ogr2ogr failed with exit code {result.returncode}:\n{result.stderr.strip()}"
-        )
-    if result.stderr.strip():
-        logger.warning("ogr2ogr: %s", result.stderr.strip())
-
-
 def get_or_create_data_provider(session: Session, logger: logging.Logger) -> DataProvider:
-    """Return the OCHA provider row, creating it on first import.
-
-    Looked up by the ``(name, product)`` pair, which is what is unique: OCHA
-    publishes more than one dataset and each is its own provider row.
-    """
-    existing: DataProvider | None = session.scalar(
-        select(DataProvider).where(DataProvider.name == PROVIDER_NAME,
-                                   DataProvider.product == PROVIDER_PRODUCT)
+    """Return the OCHA provider row, creating it on first import."""
+    return common.get_or_create_data_provider(
+        session, PROVIDER_NAME, PROVIDER_PRODUCT, PROVIDER_FULL_NAME, PROVIDER_URL, logger
     )
-    if existing is not None:
-        logger.debug("Using existing data provider %s", existing)
-        return existing
-
-    provider = DataProvider(name=PROVIDER_NAME, product=PROVIDER_PRODUCT,
-                            full_name=PROVIDER_FULL_NAME, url=PROVIDER_URL)
-    session.add(provider)
-    session.flush()
-    logger.info("Created data provider %s / %s", PROVIDER_NAME, PROVIDER_PRODUCT)
-    return provider
 
 
 def transform(session: Session, provider: DataProvider, staging_table: str,
@@ -273,11 +161,6 @@ def transform(session: Session, provider: DataProvider, staging_table: str,
     return imported
 
 
-def drop_staging_table(session: Session, staging_table: str, logger: logging.Logger) -> None:
-    session.execute(text(f"DROP TABLE IF EXISTS {staging_table}"))
-    logger.debug("Dropped staging table %s", staging_table)
-
-
 def import_boundaries(args: argparse.Namespace, engine: Engine, logger: logging.Logger) -> int:
     """Run the whole import against ``engine``, returning the rows imported.
 
@@ -287,17 +170,15 @@ def import_boundaries(args: argparse.Namespace, engine: Engine, logger: logging.
     """
     staging_table = f"{args.staging_schema}.{args.staging_table}"
 
-    with Session(engine) as session:
-        session.execute(text(f"CREATE SCHEMA IF NOT EXISTS {args.staging_schema}"))
-        session.commit()
-
-    load_staging_table(args, resolve_database_settings(args), logger)
+    common.create_staging_schema(engine, args.staging_schema)
+    common.load_staging_table(str(args.geopackage), args.layer, staging_table, args,
+                              common.resolve_database_settings(args), logger)
 
     with Session(engine) as session:
         provider = get_or_create_data_provider(session, logger)
         imported = transform(session, provider, staging_table, logger)
         if not args.keep_staging:
-            drop_staging_table(session, staging_table, logger)
+            common.drop_staging_table(session, staging_table, logger)
         session.commit()
 
     if args.keep_staging:
@@ -324,7 +205,7 @@ def main(argv: list[str] | None = None) -> int:
         logger.error("%s", error)
         return 1
 
-    engine = create_engine(database_url(settings))
+    engine = create_engine(common.database_url(settings))
     try:
         import_boundaries(args, engine, logger)
     except Exception as error:  # noqa: BLE001  (the CLI boundary: report, do not traceback)

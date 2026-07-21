@@ -93,14 +93,54 @@ Generic domain models (:class:`~src.data_model.data_provider.DataProvider`,
 subclasses add the columns particular to each data source. They live under
 ``src/providers/`` and use joined table inheritance — see :doc:`providers`.
 
+Dates: one instant, plus the zone it came from
+----------------------------------------------
+
+Providers do not agree on how they report time. Some publish an instant in UTC, some a
+local wall-clock time, some — GWIS among them — a bare date whose hours are implied to be
+local midnight. Storing each as published would make two agencies' data incomparable, so
+the project fixes **one rule** and every import obeys it.
+
+.. important::
+
+   Datetime columns are ``timestamptz``, which in PostgreSQL is **an instant** — stored
+   internally as UTC, with no zone attached to the row. Converting to it is the
+   *importer's* job, done once. Alongside it, a ``time_zone`` column records the IANA
+   zone name that instant was derived from.
+
+The reason for the pair, rather than one or the other:
+
+* A ``timestamptz`` alone is comparable, sortable and index-scannable across every
+  provider with no per-query conversion — but it cannot say what wall-clock time the
+  provider actually printed, because the zone is discarded on write.
+* A naive ``timestamp`` plus a zone would keep the published reading faithfully, but then
+  every range query has to convert before it can compare anything, which prevents plain
+  index scans over tens of millions of rows.
+
+Keeping both gives the comparable instant *and* the provenance. A GWIS fire starting on
+2021-07-29 in California is stored as ``2021-07-29T07:00:00Z`` with
+``time_zone = 'America/Los_Angeles'``, and the published reading comes back with:
+
+.. code-block:: sql
+
+   SELECT start_date_time AT TIME ZONE time_zone;   -- 2021-07-29 00:00:00
+
+The zone is kept as a **name** and never as a fixed offset, because the offset is a
+property of the date: the same place is UTC+1 in January and UTC+2 in July.
+``AT TIME ZONE`` resolves that from the date itself.
+
+Turning a coordinate into a zone name needs polygons that IANA does not publish — see
+:doc:`data_model/geography_time_zone`.
+
 Geographic reference data
 -------------------------
 
 ``src/data_model/geography/`` holds a different kind of model. It is not an observation
 of anything but a description of the world the observations sit in: administrative
-divisions, used to clip a dataset to an area of interest or to attribute a wildfire to a
-country. It is imported once from an authoritative source and changes only when that
-source republishes, which is why it is kept apart from the wildfire domain proper.
+divisions used to clip a dataset or to attribute a wildfire to a country, and time zone
+areas used to date one. It is imported once from an authoritative source and changes only
+when that source republishes, which is why it is kept apart from the wildfire domain
+proper.
 
 Nesting
 ^^^^^^^
@@ -194,6 +234,11 @@ below as they are ported.
     An administrative division — a country, a region, a province, a municipality — as a
     PostGIS ``MULTIPOLYGON`` in EPSG:4326, nested under the division above it.
 
+:doc:`data_model/geography_time_zone`
+    The area over which one IANA time zone applies, as a PostGIS ``MULTIPOLYGON`` in
+    EPSG:4326. Turns a coordinate into a zone name, which is what lets a provider's local
+    wall-clock time be converted to an instant.
+
 .. toctree::
    :maxdepth: 1
    :hidden:
@@ -202,3 +247,4 @@ below as they are ported.
    data_model/data_provider
    data_model/wildfire
    data_model/geography_admin_boundary
+   data_model/geography_time_zone

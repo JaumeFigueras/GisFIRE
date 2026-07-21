@@ -32,11 +32,13 @@ provider-specific ones in the child — and reading it joins them.
    wildfire                          gwis_wildfire
    ------------------------          ---------------------
    id            (PK)      <-------- id       (PK, FK)
-   type          'gwis_wildfire'     gwis_id
+   type          'gwis_wildfire'     gwis_id  (indexed, NOT unique)
    data_provider_id
    start_date_time
    end_date_time
+   time_zone
    perimeter
+   admin_boundary_id
    created_at / updated_at
 
 The ``type`` discriminator column on the parent records which subclass a row belongs to,
@@ -50,11 +52,17 @@ With single-table inheritance every provider's columns would be piled into one w
 table and each of them would have to be nullable, because a row from one provider has
 nothing to put in another provider's columns. That loses the ability to say *this column
 is mandatory for this provider*. With joined tables, ``gwis_wildfire.gwis_id`` can be —
-and is — ``NOT NULL`` and ``UNIQUE``, which is what makes re-importing the same GWIS
-record idempotent instead of duplicating it.
+and is — ``NOT NULL``, on a table where every row is a GWIS fire and so must have one.
 
 The cost is a join on read and two inserts on write. For the volumes here that is a
 good trade.
+
+.. note::
+
+   The split does have one real limit: a constraint cannot span the two tables. GWIS
+   fires would be uniquely identified by ``(Id, IDate)``, but ``Id`` is on the child and
+   the start date on the parent — and the parent's is a converted instant rather than the
+   date as published. See :doc:`providers/gwis_wildfire`.
 
 Registering the tables
 ^^^^^^^^^^^^^^^^^^^^^^
@@ -76,7 +84,15 @@ several products; each one is its own
 :doc:`providers/gwis_wildfire`
     The *Global Wildfire Database* product: wildfire perimeters. It supplies a start and
     end date, a perimeter in EPSG:4326 and its own identifier — the first three are
-    already the generic model's, so the subclass adds only the identifier.
+    already the generic model's, so the subclass adds only the identifier. Imported by
+    :doc:`applications/gwis_import_wildfires`.
+
+.. warning::
+
+   The GWIS ``Id`` is **not unique**: across the 23,299,416 fires of GlobFire v3 there
+   are 359 identifiers naming two genuinely different fires. It is therefore indexed but
+   not constrained, and the GWIS import cannot be made idempotent — see
+   :doc:`providers/gwis_wildfire` for what follows from that.
 
 OCHA
 ----

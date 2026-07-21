@@ -104,14 +104,28 @@ def test_gwis_id_is_required(db_session, gwis):
         db_session.commit()
 
 
-def test_gwis_id_must_be_unique(db_session, gwis):
-    """The provider's own identifier is what makes a re-import idempotent."""
-    start = datetime.datetime(2024, 7, 15, tzinfo=datetime.timezone.utc)
-    db_session.add(GwisWildfire(gwis_id="duplicate", data_provider=gwis, start_date_time=start))
+def test_gwis_id_is_not_unique(db_session, gwis):
+    """GWIS reuses ``Id`` across genuinely different fires, so the column cannot be a key.
+
+    359 times over the 23,299,416 fires of the published 2000-2021 files, one
+    ``Id`` names two different fires — ``24935861`` is a fire in Papua New Guinea
+    on 8 January 2021 and another in California on 23 February. A unique
+    constraint here would make the second of each pair unimportable, so there
+    isn't one. See :class:`~src.providers.gwis.wildfire.GwisWildfire`.
+    """
+    db_session.add(GwisWildfire(
+        gwis_id="24935861", data_provider=gwis,
+        start_date_time=datetime.datetime(2021, 1, 8, tzinfo=datetime.timezone.utc)))
+    db_session.add(GwisWildfire(
+        gwis_id="24935861", data_provider=gwis,
+        start_date_time=datetime.datetime(2021, 2, 23, tzinfo=datetime.timezone.utc)))
     db_session.commit()
-    db_session.add(GwisWildfire(gwis_id="duplicate", data_provider=gwis, start_date_time=start))
-    with pytest.raises(IntegrityError):
-        db_session.commit()
+
+    both = db_session.scalars(
+        select(GwisWildfire).where(GwisWildfire.gwis_id == "24935861")
+    ).all()
+    assert len(both) == 2
+    assert both[0].id != both[1].id
 
 
 def test_inherited_columns_are_still_enforced(db_session, gwis):

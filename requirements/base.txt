@@ -21,6 +21,11 @@ numpy>=2.1
 pandas>=2.2
 geopandas>=1.0
 
+# --- Report output ---
+# Writes the .docx of the statistics applications. Pure Python, no system
+# dependency; CSV output needs nothing beyond the stdlib.
+python-docx>=1.1
+
 # --- Machine learning ---
 scikit-learn>=1.5
 
