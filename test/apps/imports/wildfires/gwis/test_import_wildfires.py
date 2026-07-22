@@ -528,6 +528,92 @@ def test_a_broken_archive_is_reported(database, boundaries, time_zones, args, tm
         app.import_wildfires(args, engine, logger)
 
 
+# --------------------------------------------------------------------------
+# Importing several archives at once (--jobs)
+# --------------------------------------------------------------------------
+
+def archive_directory(tmp_path, years):
+    for year in years:
+        shutil.copy(SAMPLE_ARCHIVE, tmp_path / f"Final_GlobFirev3_GWIS_MCD64A1__{year}.zip")
+    return tmp_path
+
+
+def test_one_job_is_the_default():
+    assert app.parse_arguments(["-s", "x.zip"]).jobs == 1
+
+
+@pytest.mark.parametrize("value", ["0", "-2"])
+def test_jobs_below_one_is_rejected(value):
+    with pytest.raises(SystemExit):
+        app.parse_arguments(["-s", "x.zip", "--jobs", value])
+
+
+@needs_ogr2ogr
+def test_parallel_imports_everything_exactly_once(database, boundaries, time_zones,
+                                                  connection_arguments, tmp_path):
+    """Four archives across three processes must come to the same as importing them serially."""
+    directory = archive_directory(tmp_path, (2018, 2019, 2020, 2021))
+    args = app.parse_arguments(["--directory", str(directory), "--jobs", "3",
+                                *connection_arguments])
+
+    engine, _ = database
+    assert app.import_wildfires(args, engine, logger) == 4 * 7
+
+    with Session(engine) as session:
+        assert len(session.scalars(select(GwisWildfire)).all()) == 4 * 7
+        # One provider row, not one per worker: the ON CONFLICT lookup found it.
+        assert len(session.scalars(
+            select(DataProvider).where(DataProvider.name == "GWIS")).all()) == 1
+
+
+@needs_ogr2ogr
+def test_each_worker_stages_into_its_own_table_and_drops_it(database, boundaries, time_zones,
+                                                            connection_arguments, tmp_path):
+    """Sharing one staging table would have the workers overwrite each other's load."""
+    directory = archive_directory(tmp_path, (2020, 2021))
+    args = app.parse_arguments(["--directory", str(directory), "--jobs", "2",
+                                "--keep-staging", *connection_arguments])
+
+    engine, _ = database
+    app.import_wildfires(args, engine, logger)
+
+    with Session(engine) as session:
+        kept = sorted(session.scalars(text(
+            "SELECT table_name FROM information_schema.tables WHERE table_schema = 'staging'"
+        )).all())
+    assert kept == ["gwis_globfire_00", "gwis_globfire_01"]
+
+
+@needs_ogr2ogr
+def test_one_bad_archive_does_not_cost_the_others(database, boundaries, time_zones,
+                                                  connection_arguments, tmp_path, caplog):
+    """Each archive is its own transaction, so the good ones are kept and reported."""
+    directory = archive_directory(tmp_path, (2020, 2021))
+    (directory / "Final_GlobFirev3_GWIS_MCD64A1__2022.zip").write_text("not a zip")
+
+    args = app.parse_arguments(["--directory", str(directory), "--jobs", "3",
+                                *connection_arguments])
+    engine, _ = database
+    with pytest.raises(RuntimeError, match="1 of 3 archive"):
+        app.import_wildfires(args, engine, logger)
+
+    with Session(engine) as session:
+        assert len(session.scalars(select(GwisWildfire)).all()) == 2 * 7
+    assert "2022.zip" in caplog.text
+
+
+@needs_ogr2ogr
+def test_more_jobs_than_archives_does_not_spawn_idle_workers(database, boundaries, time_zones,
+                                                             args, monkeypatch):
+    """One archive is a serial run whatever was asked for."""
+    args.jobs = 8
+    monkeypatch.setattr(app, "import_in_parallel",
+                        lambda *a, **k: pytest.fail("a single archive went through the pool"))
+
+    engine, _ = database
+    assert app.import_wildfires(args, engine, logger) == 7
+
+
 @needs_ogr2ogr
 def test_main_runs_the_whole_import(database, boundaries, time_zones, connection_arguments):
     """The single command a user actually types."""

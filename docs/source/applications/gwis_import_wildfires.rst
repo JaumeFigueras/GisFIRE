@@ -44,6 +44,93 @@ Database settings are read from the environment (``.env``, see
 
       sudo apt install gdal-bin      # Debian/Ubuntu
 
+Following the progress
+----------------------
+
+A full import is twenty-odd archives of a million fires each and runs for a long time, in
+two slow phases per archive:
+
+.. code-block:: text
+
+   INFO Importing 24 archive(s)
+   INFO [3/24] Final_GlobFirev3_GWIS_MCD64A1__2004.zip
+   INFO Loading /vsizip/... into staging.gwis_wildfires with ogr2ogr
+   0...10...20...30...40...50...60...70...80...90...100 - done.
+   INFO Final_GlobFirev3_GWIS_MCD64A1__2004.zip: staged 883142 features in 71s, now mapping them onto the model
+   INFO Final_GlobFirev3_GWIS_MCD64A1__2004.zip: imported 883142 wildfires in 154s
+
+The bar is ``ogr2ogr``'s own, asked for with ``-progress`` and passed straight through to
+the terminal as it is drawn.
+
+The second phase has no bar and cannot have one: it is a single ``INSERT ... SELECT``
+whose spatial joins against the boundaries and the time zone areas report nothing until
+the statement finishes. That is why the line before it says how many features it is about
+to chew through — a run that has been quiet for a minute after "now mapping" is working,
+not hung. ``psql`` will confirm it:
+
+.. code-block:: sql
+
+   SELECT state, wait_event_type, now() - query_start AS running
+   FROM pg_stat_activity WHERE query LIKE 'INSERT INTO wildfire%';
+
+Passing ``--log-level WARNING`` silences both the per-archive lines and the progress bar,
+which is what to use when the output is redirected to a file.
+
+Importing several archives at once
+----------------------------------
+
+``--jobs N`` imports ``N`` archives at the same time, each in its own process:
+
+.. code-block:: bash
+
+   python3 -m src.apps.imports.wildfires.gwis.import_wildfires -d /path/to/zip/ --jobs 4
+
+Processes rather than threads — but not for the reason usually given. Both slow phases
+release the GIL anyway: one waits on a subprocess, the other on a socket. The reason is
+server-side. **PostgreSQL will not use a parallel plan for a statement that writes**, so
+the transform runs on one core no matter how the client is built. The same join proves
+it — read-only it is parallel, writing it is not:
+
+.. code-block:: text
+
+   EXPLAIN SELECT count(*) FROM wildfire w JOIN time_zone t ON ...
+     ->  Gather  (Workers Planned: 2)
+           ->  Parallel Seq Scan on wildfire w
+
+   EXPLAIN INSERT INTO ... SELECT ... FROM wildfire w JOIN time_zone t ON ...
+     Insert on time_zone
+       ->  Nested Loop
+             ->  Seq Scan on wildfire w
+
+More connections each doing one archive is therefore the only way to put more than one
+core on the work.
+
+.. warning::
+
+   Raise the server's memory settings **before** raising ``--jobs``. ``work_mem`` is per
+   operation per connection, and the ``MATERIALIZED`` CTEs hold a whole archive's rows,
+   so on a stock configuration (``work_mem`` 4 MB, ``shared_buffers`` 128 MB) the joins
+   already spill to disk and N workers multiply that. Four workers on an untuned server
+   can be slower than one.
+
+   There is little to gain past 3–4 in any case: WAL bandwidth and the GiST index on
+   ``wildfire.perimeter`` are shared, so the curve flattens and index contention rises.
+
+Each worker stages into a table of its own, ``staging.gwis_globfire_00``,
+``_01``, … — the load uses ``ogr2ogr -overwrite``, so archives sharing one staging table
+would destroy each other's work. ``--jobs 1`` (the default) keeps the plain
+``staging.gwis_globfire``, and asking for more jobs than there are archives just runs
+serially.
+
+Two differences from a serial run:
+
+- **The progress bars are suppressed.** Several drawn onto one terminal at once are
+  unreadable. The per-archive log lines remain, and each is prefixed with its archive,
+  which is what makes interleaved output attributable.
+- **A failing archive no longer stops the rest.** Every archive is its own transaction, so
+  the others finish and are kept; the failures are collected and reported together at the
+  end, and the exit code is still non-zero.
+
 Import these first
 ------------------
 

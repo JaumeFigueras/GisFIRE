@@ -18,13 +18,17 @@ dates are bare and mean local midnight) cannot be converted to an instant
 without a set of polygons drawn by someone else.
 
 *timezone-boundary-builder* is that someone: it derives the polygons from
-OpenStreetMap and releases them once per IANA update. Download the shapefile
-release — the ``with-oceans`` variant, so that a coordinate at sea still
-resolves rather than coming back empty — from
+OpenStreetMap and releases them once per IANA update. From
 
     https://github.com/evansiroky/timezone-boundary-builder/releases
 
-and run this once::
+download ``timezones-with-oceans.shapefile.zip``. A release holds six
+``.shapefile.zip`` assets: ``with-oceans`` adds the maritime areas, so that a
+coordinate at sea still resolves rather than coming back empty, while the
+``-1970`` and ``-now`` suffixes merge zones that have agreed on timekeeping
+since those dates. The merged sets are smaller but drop zone names — a
+Norwegian coordinate comes back as ``Europe/Berlin`` under ``-1970`` — so the
+unsuffixed set is the one to take. Then run this once::
 
     python3 -m src.apps.imports.time_zones.timezone_boundary_builder.import_time_zones \\
         -s timezones-with-oceans.shapefile.zip
@@ -101,9 +105,9 @@ def parse_arguments(argv: list[str] | None = None) -> argparse.Namespace:
     """Parse the command line."""
     parser = argparse.ArgumentParser(
         description="Import timezone-boundary-builder time zone areas into GisFIRE.",
-        epilog=f"Download the shapefile release from {RELEASES_URL} (prefer the "
-               f"'with-oceans' variant). Database settings not given here are read "
-               f"from the environment (.env).",
+        epilog=f"Download timezones-with-oceans.shapefile.zip from {RELEASES_URL} "
+               f"(not the '-1970' or '-now' variants, which merge zone names). "
+               f"Database settings not given here are read from the environment (.env).",
     )
     parser.add_argument("-s", "--shapefile", required=True, type=Path,
                         help="the release .zip, a directory holding the shapefile, or the .shp")
@@ -138,6 +142,7 @@ def import_time_zones(args: argparse.Namespace, engine: Engine, logger: logging.
     staging_table = f"{args.staging_schema}.{args.staging_table}"
     datasource, layer = common.shapefile_datasource(args.shapefile)
 
+    common.require_tables(engine, ["time_zone"], logger)
     common.create_staging_schema(engine, args.staging_schema)
     common.load_staging_table(datasource, layer, staging_table, args,
                               common.resolve_database_settings(args), logger)

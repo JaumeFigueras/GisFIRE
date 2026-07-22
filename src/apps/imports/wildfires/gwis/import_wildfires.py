@@ -76,7 +76,10 @@ import argparse
 import logging
 import shutil
 import sys
+import time
 
+from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures import as_completed
 from pathlib import Path
 
 from sqlalchemy import Engine
@@ -100,6 +103,12 @@ DEFAULT_START_FIELD = "idate"
 DEFAULT_END_FIELD = "fdate"
 
 DEFAULT_STAGING_TABLE = "gwis_globfire"
+
+#: Shared by the parent and by every worker process, so a parallel run's output
+#: is one stream in one shape. Worker lines name their archive (see
+#: :class:`ArchiveLogger`), which is what keeps interleaved lines readable —
+#: the process id would not, since it says nothing about what is being imported.
+LOG_FORMAT = "%(asctime)s %(levelname)s %(message)s"
 
 #: Zone assumed for a fire whose interior point matches no time zone area. Only
 #: reachable when the time zone table is empty or does not cover the oceans.
@@ -257,11 +266,25 @@ def parse_arguments(argv: list[str] | None = None) -> argparse.Namespace:
     fields.add_argument("--end-field", default=DEFAULT_END_FIELD,
                         help=f"attribute holding the end date (default: {DEFAULT_END_FIELD})")
 
+    parser.add_argument("-j", "--jobs", type=positive_int, default=1,
+                        help="archives to import at the same time, in separate processes "
+                             "(default: 1). Each is another connection doing spatial joins, "
+                             "so raise the server's work_mem and shared_buffers before "
+                             "raising this, and expect little past 3-4")
+
     common.add_database_arguments(parser)
     common.add_staging_arguments(parser, DEFAULT_STAGING_TABLE)
     common.add_common_arguments(parser)
 
     return parser.parse_args(argv)
+
+
+def positive_int(value: str) -> int:
+    """Parse ``--jobs``, rejecting zero and negatives at the command line."""
+    number = int(value)
+    if number < 1:
+        raise argparse.ArgumentTypeError(f"must be 1 or more, not {number}")
+    return number
 
 
 def find_archives(args: argparse.Namespace) -> list[Path]:
@@ -361,13 +384,17 @@ def find_boundary_provider(session: Session, logger: logging.Logger) -> DataProv
     return provider
 
 
-def transform(session: Session, provider: DataProvider, boundary_provider: DataProvider | None,
+def transform(session: Session, provider_id: int, boundary_provider_id: int | None,
               staging_table: str, args: argparse.Namespace, logger: logging.Logger) -> int:
     """Map the staging table onto the model, returning the number of fires imported.
 
     The count is computed by the statement itself rather than by counting the ids
     it returns: a year's file is a million rows, and pulling a million ids back
     only to call ``len`` on them would cost more memory than the import.
+
+    Providers arrive as ids rather than as ORM objects because a parallel run
+    hands them to a worker process, and an id survives being pickled and used
+    against a different connection where a detached instance would not.
     """
     statement = TRANSFORM_SQL.format(
         staging_table=staging_table,
@@ -376,23 +403,49 @@ def transform(session: Session, provider: DataProvider, boundary_provider: DataP
         end_field=args.end_field,
     )
     return session.scalar(text(statement), {
-        "provider_id": provider.id,
+        "provider_id": provider_id,
         # -1 matches no provider, so with no boundaries imported the join simply
         # finds nothing and every fire gets a NULL country — no separate query.
-        "boundary_provider_id": boundary_provider.id if boundary_provider is not None else -1,
+        "boundary_provider_id": boundary_provider_id if boundary_provider_id is not None else -1,
         "fallback_time_zone": FALLBACK_TIME_ZONE,
     })
 
 
-def import_archive(archive: Path, engine: Engine, args: argparse.Namespace,
-                   provider: DataProvider, boundary_provider: DataProvider | None,
-                   logger: logging.Logger) -> int:
-    """Import one archive in its own transaction, returning the fires imported."""
-    staging_table = f"{args.staging_schema}.{args.staging_table}"
-    datasource, layer = common.shapefile_datasource(archive)
+class ArchiveLogger(logging.LoggerAdapter):
+    """Prefixes every line with the archive it is about.
 
+    Parallel workers all write to the same stderr, so their lines interleave and
+    a line that does not name its archive cannot be attributed to one. Serial
+    runs are wrapped too, which is why the messages below no longer pass
+    ``archive.name`` by hand: the output is the same either way.
+    """
+
+    def process(self, msg: object, kwargs: dict) -> tuple[str, dict]:
+        return f"{self.extra['archive']}: {msg}", kwargs
+
+
+def import_archive(archive: Path, engine: Engine, args: argparse.Namespace,
+                   provider_id: int, boundary_provider_id: int | None,
+                   logger: logging.Logger, staging_table: str | None = None,
+                   progress: bool | None = None) -> int:
+    """Import one archive in its own transaction, returning the fires imported.
+
+    The two slow phases are announced as they start. ``ogr2ogr`` draws its own
+    progress bar for the first, but the second is a single statement and
+    PostgreSQL reports nothing at all until it commits, so the only feedback that
+    can honestly be given is how much work went into it and when it began.
+
+    ``staging_table`` is what makes a parallel run possible: the table is loaded
+    with ``-overwrite``, so two archives sharing one would destroy each other's
+    work. Workers are each given their own; a serial run keeps the plain name.
+    """
+    staging_table = staging_table or f"{args.staging_schema}.{args.staging_table}"
+    datasource, layer = common.shapefile_datasource(archive)
+    log = ArchiveLogger(logger, {"archive": archive.name})
+
+    started = time.monotonic()
     common.load_staging_table(datasource, layer, staging_table, args,
-                              common.resolve_database_settings(args), logger)
+                              common.resolve_database_settings(args), log, progress=progress)
 
     with Session(engine) as session:
         # ogr2ogr leaves the table with no statistics at all, so without this the
@@ -400,12 +453,96 @@ def import_archive(archive: Path, engine: Engine, args: argparse.Namespace,
         # picks nested loops over the spatial joins below.
         session.execute(text(f"ANALYZE {staging_table}"))
 
-        imported = transform(session, provider, boundary_provider, staging_table, args, logger)
+        staged = session.scalar(text(f"SELECT count(*) FROM {staging_table}"))
+        log.info("staged %d features in %.0fs, now mapping them onto the model",
+                 staged, time.monotonic() - started)
+
+        imported = transform(session, provider_id, boundary_provider_id, staging_table, args, log)
         if not args.keep_staging:
-            common.drop_staging_table(session, staging_table, logger)
+            common.drop_staging_table(session, staging_table, log)
         session.commit()
 
-    logger.info("%s: imported %d wildfires", archive.name, imported)
+    log.info("imported %d wildfires in %.0fs", imported, time.monotonic() - started)
+    return imported
+
+
+#: Per-process state of a parallel worker. A module global because a pool
+#: initializer is the only place a worker can build something once and reuse it
+#: across the archives it is handed, and an :class:`~sqlalchemy.engine.Engine`
+#: must not be inherited across a fork: its pooled connections would be shared by
+#: two processes writing over each other's protocol state.
+_WORKER: dict[str, object] = {}
+
+
+def _worker_init(args: argparse.Namespace, provider_id: int,
+                 boundary_provider_id: int | None) -> None:
+    """Give this worker process its own engine and the ids every archive needs."""
+    logging.basicConfig(level=args.log_level, format=LOG_FORMAT)
+    _WORKER["args"] = args
+    _WORKER["provider_id"] = provider_id
+    _WORKER["boundary_provider_id"] = boundary_provider_id
+    _WORKER["engine"] = create_engine(common.database_url(common.resolve_database_settings(args)))
+
+
+def _worker_import(task: tuple[Path, str]) -> tuple[str, int, str | None]:
+    """Import one archive in this worker, returning the failure instead of raising.
+
+    A raise would come back as a pickled exception and stop the whole pool. One
+    archive that cannot be read is not a reason to throw away the others — each
+    is its own transaction — so the error is carried back as text and reported
+    together with the rest at the end.
+    """
+    archive, staging_table = task
+    logger = logging.getLogger("gwis-import")
+    try:
+        imported = import_archive(archive, _WORKER["engine"], _WORKER["args"],
+                                  _WORKER["provider_id"], _WORKER["boundary_provider_id"],
+                                  logger, staging_table=staging_table, progress=False)
+        return archive.name, imported, None
+    except Exception as error:  # noqa: BLE001  (carried back to the parent, not swallowed)
+        return archive.name, 0, str(error)
+
+
+def import_in_parallel(archives: list[Path], args: argparse.Namespace, provider_id: int,
+                       boundary_provider_id: int | None, jobs: int,
+                       logger: logging.Logger) -> int:
+    """Import the archives across ``jobs`` processes, returning the fires imported.
+
+    Processes rather than threads, but not for the usual reason: both slow phases
+    release the GIL anyway, since one waits on a subprocess and the other on a
+    socket. What parallelism buys is server-side — PostgreSQL will not use a
+    parallel plan for a statement that writes, so the transform runs on a single
+    core however the client is built, and the only way to get more cores onto it
+    is more connections doing it at once.
+
+    Raises
+    ------
+    RuntimeError
+        If any archive failed, after every other one has finished.
+    """
+    tasks = [(archive, f"{args.staging_schema}.{args.staging_table}_{index:02d}")
+             for index, archive in enumerate(archives)]
+    logger.info("Importing %d archive(s) across %d process(es)", len(archives), jobs)
+
+    imported = 0
+    failures: list[tuple[str, str]] = []
+    with ProcessPoolExecutor(max_workers=jobs, initializer=_worker_init,
+                             initargs=(args, provider_id, boundary_provider_id)) as pool:
+        futures = [pool.submit(_worker_import, task) for task in tasks]
+        for finished, future in enumerate(as_completed(futures), start=1):
+            name, count, error = future.result()
+            if error is None:
+                imported += count
+            else:
+                failures.append((name, error))
+                logger.error("%s: failed: %s", name, error)
+            logger.info("[%d/%d archives done]", finished, len(archives))
+
+    if failures:
+        raise RuntimeError(
+            f"{len(failures)} of {len(archives)} archive(s) failed: "
+            + "; ".join(f"{name} ({error})" for name, error in failures)
+        )
     return imported
 
 
@@ -417,6 +554,7 @@ def import_wildfires(args: argparse.Namespace, engine: Engine, logger: logging.L
     fourteen before it.
     """
     archives = find_archives(args)
+    common.require_tables(engine, ["wildfire", "gwis_wildfire", "time_zone", "data_provider"], logger)
     common.create_staging_schema(engine, args.staging_schema)
 
     with Session(engine) as session:
@@ -429,27 +567,34 @@ def import_wildfires(args: argparse.Namespace, engine: Engine, logger: logging.L
         boundary_provider = find_boundary_provider(session, logger)
         session.commit()
         # Read back after the commit: the objects are expired and the ids are
-        # needed by every archive that follows.
+        # what the archives — and any worker process — actually need.
         provider_id, boundary_provider_id = provider.id, (
             boundary_provider.id if boundary_provider is not None else None
         )
 
-    imported = 0
-    with Session(engine) as session:
-        provider = session.get(DataProvider, provider_id)
-        boundary_provider = (session.get(DataProvider, boundary_provider_id)
-                             if boundary_provider_id is not None else None)
+    started = time.monotonic()
+    # More workers than archives would just be idle processes, and one archive is
+    # a serial run whatever was asked for.
+    jobs = min(args.jobs, len(archives))
+    if jobs > 1:
+        imported = import_in_parallel(archives, args, provider_id, boundary_provider_id,
+                                      jobs, logger)
+    else:
+        imported = 0
         logger.info("Importing %d archive(s)", len(archives))
-        for archive in archives:
-            imported += import_archive(archive, engine, args, provider, boundary_provider, logger)
+        for index, archive in enumerate(archives, start=1):
+            logger.info("[%d/%d] %s", index, len(archives), archive.name)
+            imported += import_archive(archive, engine, args, provider_id,
+                                       boundary_provider_id, logger)
 
-    logger.info("Imported %d wildfires from %d archive(s)", imported, len(archives))
+    logger.info("Imported %d wildfires from %d archive(s) in %.0fs", imported, len(archives),
+                time.monotonic() - started)
     return imported
 
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_arguments(argv)
-    logging.basicConfig(level=args.log_level, format="%(asctime)s %(levelname)s %(message)s")
+    logging.basicConfig(level=args.log_level, format=LOG_FORMAT)
     logger = logging.getLogger("gwis-import")
 
     source = args.directory if args.directory is not None else args.shapefile

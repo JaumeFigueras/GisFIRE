@@ -206,6 +206,25 @@ def test_a_broken_archive_is_reported(database, args, tmp_path):
         app.import_time_zones(args, engine, logger)
 
 
+def test_an_unmigrated_database_is_reported_before_the_staging_load(database, args):
+    """The check must come first: the load takes minutes and would be thrown away.
+
+    An unmigrated database is the likely reason ``time_zone`` is missing, so the
+    message has to name the fix rather than repeat PostgreSQL's ``relation does
+    not exist``.
+    """
+    engine, _ = database
+    with engine.begin() as connection:
+        connection.execute(text("DROP TABLE time_zone"))
+
+    with pytest.raises(RuntimeError, match="make migrate"):
+        app.import_time_zones(args, engine, logger)
+
+    # Nothing was loaded: the staging schema was never even created.
+    with Session(engine) as session:
+        assert session.scalar(text("SELECT to_regclass('staging.tzbb_time_zones')")) is None
+
+
 @needs_ogr2ogr
 def test_main_runs_the_whole_import(database):
     """The single command a user actually types."""

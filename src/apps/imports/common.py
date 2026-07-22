@@ -30,6 +30,7 @@ from pathlib import Path
 from sqlalchemy import Engine
 from sqlalchemy import select
 from sqlalchemy import text
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.engine import URL
 from sqlalchemy.orm import Session
 
@@ -131,6 +132,38 @@ def ogr_connection_string(settings: dict[str, str]) -> str:
 
 
 # --------------------------------------------------------------------------
+# Schema
+# --------------------------------------------------------------------------
+
+def require_tables(engine: Engine, tables: list[str], logger: logging.Logger) -> None:
+    """Fail before the staging load if a table the import writes to is missing.
+
+    Checked up front because the alternative is discovering it at the very end:
+    the staging load runs first and takes minutes on a large source, and what
+    PostgreSQL then reports is ``relation "x" does not exist``, which names the
+    symptom rather than the cause. The cause is nearly always a database that has
+    not been migrated to the revision adding the table.
+
+    Raises
+    ------
+    RuntimeError
+        If any of ``tables`` is not in the database.
+    """
+    with Session(engine) as session:
+        missing = [
+            table for table in tables
+            if not session.scalar(text("SELECT to_regclass(:table)"), {"table": table})
+        ]
+    if missing:
+        raise RuntimeError(
+            f"Table(s) {', '.join(missing)} not found in the database. Upgrade it to the "
+            f"latest revision with 'make migrate' (or '.venv/bin/alembic upgrade head') "
+            f"and run this again."
+        )
+    logger.debug("Target tables present: %s", ", ".join(tables))
+
+
+# --------------------------------------------------------------------------
 # Reading the source file
 # --------------------------------------------------------------------------
 
@@ -192,13 +225,27 @@ def shapefile_datasource(path: Path) -> tuple[str, str]:
 
 def load_staging_table(datasource: str, layer: str, staging_table: str,
                        args: argparse.Namespace, settings: dict[str, str],
-                       logger: logging.Logger, geometry_type: str = "MULTIPOLYGON") -> None:
+                       logger: logging.Logger, geometry_type: str = "MULTIPOLYGON",
+                       progress: bool | None = None) -> None:
     """Copy one layer into the staging table with ``ogr2ogr``.
 
     Geometries are promoted to ``geometry_type`` and forced to EPSG:4326 to match
     the models, even for sources that already publish both — an import should not
     quietly depend on the source never changing.
+
+    A year of GWIS fires takes minutes to load, so ``-progress`` is passed and
+    ``ogr2ogr``'s progress bar is let through to the terminal instead of being
+    captured: it writes it to *stdout*, character by character with a flush after
+    each, while its warnings and errors go to stderr, which is still captured so
+    a failure can be reported. Without it the import looks hung.
+
+    The bar is only asked for when the log level says the user wants to be told
+    what is happening; a quieter run gets no output to interleave with a
+    redirected log. ``progress`` overrides that decision either way — parallel
+    workers pass ``False``, because several bars drawn onto one terminal at once
+    are unreadable.
     """
+    show_progress = logger.isEnabledFor(logging.INFO) if progress is None else progress
     command = [
         args.ogr2ogr,
         "-f", "PostgreSQL", ogr_connection_string(settings), datasource, layer,
@@ -209,6 +256,8 @@ def load_staging_table(datasource: str, layer: str, staging_table: str,
         "-lco", "GEOMETRY_NAME=geom",
         "-lco", "FID=fid",
     ]
+    if show_progress:
+        command.append("-progress")
     logger.info("Loading %s (layer %s) into %s with ogr2ogr", datasource, layer, staging_table)
     logger.debug("Running %s", " ".join(command))
 
@@ -216,7 +265,9 @@ def load_staging_table(datasource: str, layer: str, staging_table: str,
     if settings["password"]:
         environment["PGPASSWORD"] = settings["password"]
 
-    result = subprocess.run(command, env=environment, capture_output=True, text=True)
+    result = subprocess.run(command, env=environment, text=True,
+                            stdout=None if show_progress else subprocess.DEVNULL,
+                            stderr=subprocess.PIPE)
     if result.returncode != 0:
         # ogr2ogr writes its diagnostics to stderr and they are the only clue as
         # to what went wrong, so they are surfaced rather than swallowed.
@@ -249,16 +300,29 @@ def get_or_create_data_provider(session: Session, name: str, product: str, full_
 
     Looked up by the pair, which is what is unique: an agency publishes more than
     one dataset and each is its own provider row.
+
+    The insert is ``ON CONFLICT DO NOTHING`` followed by a second lookup rather
+    than a plain ``INSERT``, because a look-then-insert races: parallel importers
+    starting against a database that has no provider row yet would all find
+    nothing and all try to insert, and every one but the winner would die on
+    ``uq_data_provider_name_product``. Under ``READ COMMITTED`` the insert blocks
+    until the winner commits and the lookup that follows takes a fresh snapshot,
+    so the losers read the row the winner wrote.
     """
-    existing: DataProvider | None = session.scalar(
-        select(DataProvider).where(DataProvider.name == name, DataProvider.product == product)
-    )
+    lookup = select(DataProvider).where(DataProvider.name == name, DataProvider.product == product)
+
+    existing: DataProvider | None = session.scalar(lookup)
     if existing is not None:
         logger.debug("Using existing data provider %s", existing)
         return existing
 
-    provider = DataProvider(name=name, product=product, full_name=full_name, url=url)
-    session.add(provider)
-    session.flush()
+    session.execute(
+        pg_insert(DataProvider.__table__)
+        .values(name=name, product=product, full_name=full_name, url=url)
+        .on_conflict_do_nothing(constraint="uq_data_provider_name_product")
+    )
+    provider = session.scalar(lookup)
+    if provider is None:  # pragma: no cover - the row was just inserted or already there
+        raise RuntimeError(f"Data provider {name} / {product} could not be created")
     logger.info("Created data provider %s / %s", name, product)
     return provider

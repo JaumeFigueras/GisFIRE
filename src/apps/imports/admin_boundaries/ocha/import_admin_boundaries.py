@@ -170,6 +170,7 @@ def import_boundaries(args: argparse.Namespace, engine: Engine, logger: logging.
     """
     staging_table = f"{args.staging_schema}.{args.staging_table}"
 
+    common.require_tables(engine, ["admin_boundary", "ocha_admin_boundary", "data_provider"], logger)
     common.create_staging_schema(engine, args.staging_schema)
     common.load_staging_table(str(args.geopackage), args.layer, staging_table, args,
                               common.resolve_database_settings(args), logger)

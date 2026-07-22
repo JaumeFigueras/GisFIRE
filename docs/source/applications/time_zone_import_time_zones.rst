@@ -22,19 +22,58 @@ Getting the data
 
 `timezone-boundary-builder <https://github.com/evansiroky/timezone-boundary-builder>`_ is
 the de facto standard set: it derives the polygons from OpenStreetMap and publishes a
-release per IANA update. Download the **shapefile** release from
-https://github.com/evansiroky/timezone-boundary-builder/releases.
+release per IANA update. From the latest release at
+https://github.com/evansiroky/timezone-boundary-builder/releases, download
 
-.. tip::
+.. code-block:: text
 
-   Prefer the ``with-oceans`` variant. Without it, a coordinate at sea matches no zone at
-   all, and every fire on a coastline or an island whose interior point falls just
-   offshore would silently fall back to UTC.
+   timezones-with-oceans.shapefile.zip
+
+Every release ships six ``.shapefile.zip`` assets (plus the same six as GeoJSON), which
+combine two independent choices. Pick the wrong one and the import still succeeds — it
+just stores a different set of zone names.
+
+**Coverage** — with or without ``with-oceans``:
+
+``with-oceans``
+   Land plus the maritime areas out to the EEZ. **Use this one.** Without it a coordinate
+   at sea matches no zone at all, and every fire on a coastline or an island whose
+   interior point falls just offshore would silently fall back to UTC.
+
+**Zone set** — the ``-1970`` and ``-now`` suffixes, which merge zones that never actually
+differ:
+
+*(no suffix)*
+   Every distinct IANA zone name. **Use this one.**
+
+``-1970``
+   Merges zones that have agreed on timekeeping since 1970-01-01, the point at which the
+   IANA database itself stops guaranteeing that separate names mean anything. Fewer and
+   simpler polygons, but names disappear: a fire in Norway comes back as
+   ``Europe/Berlin``, because ``Europe/Oslo`` has had identical offsets and DST rules
+   since 1970. Correct arithmetic, confusing data — and wrong outright for any provider
+   with pre-1970 dates.
+
+``-now``
+   Merges zones agreeing as of the release date. Suitable only for "what time is it there
+   right now" and unfit here, where dates are historical.
+
+.. note::
+
+   The suffix goes after the coverage in the file name — ``timezones-with-oceans-1970``,
+   not ``timezones-1970-with-oceans``.
 
 Usage
 -----
 
-Run it once, then again whenever a newer release is wanted:
+The database has to be at the latest revision first — the ``time_zone`` table is created
+by a migration, not by the importer:
+
+.. code-block:: bash
+
+   make migrate
+
+Then run the import once, and again whenever a newer release is wanted:
 
 .. code-block:: bash
 
