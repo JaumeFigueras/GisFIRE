@@ -24,6 +24,7 @@ under ``src/apps/imports/``::
    src/apps/imports/admin_boundaries/ocha/import_admin_boundaries.py
    src/apps/imports/time_zones/timezone_boundary_builder/import_time_zones.py
    src/apps/imports/wildfires/gwis/import_wildfires.py
+   src/apps/imports/wildfires/gfa/import_wildfires.py
 
 so that a second source for the same kind of data — OSM for the administrative levels
 below the country, another agency's fire perimeters — sits beside the first rather than
@@ -61,6 +62,13 @@ Data import
     fires across 22 zipped shapefiles, read without ever being unpacked. Resolves each
     fire's local start and end time and the country it burnt in as it goes.
 
+:doc:`applications/gfa_import_wildfires`
+    Imports the *Global Fire Atlas* perimeters — one loose shapefile per year, 2002
+    onwards, each carrying an ignition point and a set of measurements of how the fire
+    spread. Collects the multipart fires into one row each, repairs the invalid
+    perimeters, and resolves the zone and the country from the ignition point. Unlike the
+    GWIS import, re-running it is a no-op.
+
 .. note::
 
    Order matters for the wildfire import: the boundaries and the time zone areas are
@@ -93,4 +101,5 @@ as the importers::
    applications/ocha_import_admin_boundaries
    applications/time_zone_import_time_zones
    applications/gwis_import_wildfires
+   applications/gfa_import_wildfires
    applications/gwis_wildfire_statistics

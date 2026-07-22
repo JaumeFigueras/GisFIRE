@@ -91,6 +91,14 @@ from sqlalchemy.orm import Session
 import src.settings  # noqa: F401  (imported for the side effect of loading .env)
 
 from src.apps.imports import common
+
+# The plumbing every wildfire importer shares, re-exported so this module reads
+# as one application: see :mod:`src.apps.imports.common`.
+from src.apps.imports.common import ArchiveLogger  # noqa: F401
+from src.apps.imports.common import FALLBACK_TIME_ZONE  # noqa: F401
+from src.apps.imports.common import UNKNOWN_TIME_ZONES_SQL  # noqa: F401
+from src.apps.imports.common import check_time_zones  # noqa: F401
+from src.apps.imports.common import find_boundary_provider  # noqa: F401
 from src.data_model.data_provider import DataProvider
 from src.data_model.wildfire import Wildfire
 from src.providers import gwis
@@ -109,22 +117,6 @@ DEFAULT_STAGING_TABLE = "gwis_globfire"
 #: :class:`ArchiveLogger`), which is what keeps interleaved lines readable —
 #: the process id would not, since it says nothing about what is being imported.
 LOG_FORMAT = "%(asctime)s %(levelname)s %(message)s"
-
-#: Zone assumed for a fire whose interior point matches no time zone area. Only
-#: reachable when the time zone table is empty or does not cover the oceans.
-FALLBACK_TIME_ZONE = "UTC"
-
-#: Time zone names in the database that this PostgreSQL server does not know.
-#:
-#: Checked before the import rather than during it: ``AT TIME ZONE`` on an
-#: unknown name raises mid-statement, which would abort a whole year's file with
-#: a message naming neither the fire nor the file. A newer IANA release than the
-#: server's own tzdata is the usual cause.
-UNKNOWN_TIME_ZONES_SQL = """
-SELECT time_zone.name FROM time_zone
-WHERE NOT EXISTS (SELECT 1 FROM pg_timezone_names WHERE pg_timezone_names.name = time_zone.name)
-ORDER BY time_zone.name
-"""
 
 #: Maps one staging table onto the two tables of the model in a single statement.
 #:
@@ -305,36 +297,6 @@ def find_archives(args: argparse.Namespace) -> list[Path]:
     return archives
 
 
-def check_time_zones(session: Session, logger: logging.Logger) -> None:
-    """Warn if no time zone areas are loaded; refuse if any is unusable.
-
-    Raises
-    ------
-    RuntimeError
-        If the table holds a zone name this PostgreSQL server cannot resolve, so
-        the import stops here rather than half way through a year's file.
-    """
-    zones = session.scalar(text("SELECT count(*) FROM time_zone"))
-    if not zones:
-        logger.warning(
-            "No time zone areas loaded: every fire will be dated in %s instead of local "
-            "time. Import them with "
-            "src.apps.imports.time_zones.timezone_boundary_builder.import_time_zones",
-            FALLBACK_TIME_ZONE,
-        )
-        return
-
-    unknown = session.scalars(text(UNKNOWN_TIME_ZONES_SQL)).all()
-    if unknown:
-        raise RuntimeError(
-            f"{len(unknown)} time zone name(s) in the database are unknown to this "
-            f"PostgreSQL server ({', '.join(unknown[:5])}"
-            f"{', ...' if len(unknown) > 5 else ''}). Its tzdata is older than the "
-            f"release that was imported; update the server or import an older release."
-        )
-    logger.debug("%d time zone areas available", zones)
-
-
 def warn_if_already_imported(session: Session, provider: DataProvider,
                              logger: logging.Logger) -> bool:
     """Warn that a re-run duplicates, returning whether any GWIS fire is already in.
@@ -364,26 +326,6 @@ def warn_if_already_imported(session: Session, provider: DataProvider,
     return existing
 
 
-def find_boundary_provider(session: Session, logger: logging.Logger) -> DataProvider | None:
-    """Return the OCHA provider whose boundaries fires are attributed to, if imported.
-
-    Returning ``None`` rather than raising is deliberate: the perimeters and the
-    dates are worth having on their own, and the boundaries can be imported later
-    without the fires having to be.
-    """
-    provider = session.scalar(
-        select(DataProvider).where(DataProvider.name == ocha.PROVIDER_NAME,
-                                   DataProvider.product == ocha.PROVIDER_PRODUCT)
-    )
-    if provider is None:
-        logger.warning(
-            "No %s / %s boundaries imported: fires will have no country. Import them with "
-            "src.apps.imports.admin_boundaries.ocha.import_admin_boundaries",
-            ocha.PROVIDER_NAME, ocha.PROVIDER_PRODUCT,
-        )
-    return provider
-
-
 def transform(session: Session, provider_id: int, boundary_provider_id: int | None,
               staging_table: str, args: argparse.Namespace, logger: logging.Logger) -> int:
     """Map the staging table onto the model, returning the number of fires imported.
@@ -409,19 +351,6 @@ def transform(session: Session, provider_id: int, boundary_provider_id: int | No
         "boundary_provider_id": boundary_provider_id if boundary_provider_id is not None else -1,
         "fallback_time_zone": FALLBACK_TIME_ZONE,
     })
-
-
-class ArchiveLogger(logging.LoggerAdapter):
-    """Prefixes every line with the archive it is about.
-
-    Parallel workers all write to the same stderr, so their lines interleave and
-    a line that does not name its archive cannot be attributed to one. Serial
-    runs are wrapped too, which is why the messages below no longer pass
-    ``archive.name`` by hand: the output is the same either way.
-    """
-
-    def process(self, msg: object, kwargs: dict) -> tuple[str, dict]:
-        return f"{self.extra['archive']}: {msg}", kwargs
 
 
 def import_archive(archive: Path, engine: Engine, args: argparse.Namespace,

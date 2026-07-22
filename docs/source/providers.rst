@@ -94,6 +94,27 @@ several products; each one is its own
    not constrained, and the GWIS import cannot be made idempotent — see
    :doc:`providers/gwis_wildfire` for what follows from that.
 
+GFA
+---
+
+The `Global Fire Atlas <https://zenodo.org/records/17669692>`_ derives individual fire
+events from the MODIS MCD64A1 burnt area product, publishing perimeters and ignition
+points as separate sets of shapefiles, one per year.
+
+:doc:`providers/gfa_wildfire`
+    The *Fire Atlas* product: fire perimeters. Beyond the generic model's dates and
+    perimeter it adds the ignition point and the Atlas's measurements of how the fire
+    spread — size, duration, speed, dominant direction, land cover, GFED region — each
+    kept in the units it was published in. Imported by
+    :doc:`applications/gfa_import_wildfires`.
+
+.. note::
+
+   The GFA ``fire_ID`` **is** unique, unlike the GWIS one: it carries the year, and within
+   a year it repeats only across the parts of one multipart fire, which the import
+   collects into a single row. It is therefore constrained ``UNIQUE``, and the GFA import
+   *is* idempotent — a second run of the same file imports nothing.
+
 OCHA
 ----
 
@@ -175,5 +196,6 @@ were checked against the 2025-07-29 release, which has 318 features:
    :maxdepth: 1
    :hidden:
 
+   providers/gfa_wildfire
    providers/gwis_wildfire
    providers/ocha_admin_boundary

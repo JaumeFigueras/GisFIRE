@@ -35,6 +35,7 @@ from sqlalchemy.engine import URL
 from sqlalchemy.orm import Session
 
 from src.data_model.data_provider import DataProvider
+from src.providers import ocha
 
 #: Where the importers unload their staging tables. A schema of its own,
 #: deliberately: a staging table in ``public`` would be picked up by Alembic
@@ -288,6 +289,90 @@ def create_staging_schema(engine: Engine, schema: str) -> None:
 def drop_staging_table(session: Session, staging_table: str, logger: logging.Logger) -> None:
     session.execute(text(f"DROP TABLE IF EXISTS {staging_table}"))
     logger.debug("Dropped staging table %s", staging_table)
+
+
+class ArchiveLogger(logging.LoggerAdapter):
+    """Prefixes every line with the source file it is about.
+
+    An importer that walks a directory emits the same messages once per file, and
+    parallel workers all write to the same stderr, so their lines interleave. A
+    line that does not name its file cannot be attributed to one. Serial runs are
+    wrapped too, so the output has one shape either way.
+    """
+
+    def process(self, msg: object, kwargs: dict) -> tuple[str, dict]:
+        return f"{self.extra['archive']}: {msg}", kwargs
+
+
+# --------------------------------------------------------------------------
+# What a wildfire importer needs before it starts
+# --------------------------------------------------------------------------
+
+#: Zone assumed for a fire whose point matches no time zone area. Only reachable
+#: when the time zone table is empty or does not cover the oceans.
+FALLBACK_TIME_ZONE = "UTC"
+
+#: Time zone names in the database that this PostgreSQL server does not know.
+#:
+#: Checked before an import rather than during it: ``AT TIME ZONE`` on an unknown
+#: name raises mid-statement, which would abort a whole year's file with a
+#: message naming neither the fire nor the file. A newer IANA release than the
+#: server's own tzdata is the usual cause.
+UNKNOWN_TIME_ZONES_SQL = """
+SELECT time_zone.name FROM time_zone
+WHERE NOT EXISTS (SELECT 1 FROM pg_timezone_names WHERE pg_timezone_names.name = time_zone.name)
+ORDER BY time_zone.name
+"""
+
+
+def check_time_zones(session: Session, logger: logging.Logger) -> None:
+    """Warn if no time zone areas are loaded; refuse if any is unusable.
+
+    Raises
+    ------
+    RuntimeError
+        If the table holds a zone name this PostgreSQL server cannot resolve, so
+        the import stops here rather than half way through a year's file.
+    """
+    zones = session.scalar(text("SELECT count(*) FROM time_zone"))
+    if not zones:
+        logger.warning(
+            "No time zone areas loaded: every fire will be dated in %s instead of local "
+            "time. Import them with "
+            "src.apps.imports.time_zones.timezone_boundary_builder.import_time_zones",
+            FALLBACK_TIME_ZONE,
+        )
+        return
+
+    unknown = session.scalars(text(UNKNOWN_TIME_ZONES_SQL)).all()
+    if unknown:
+        raise RuntimeError(
+            f"{len(unknown)} time zone name(s) in the database are unknown to this "
+            f"PostgreSQL server ({', '.join(unknown[:5])}"
+            f"{', ...' if len(unknown) > 5 else ''}). Its tzdata is older than the "
+            f"release that was imported; update the server or import an older release."
+        )
+    logger.debug("%d time zone areas available", zones)
+
+
+def find_boundary_provider(session: Session, logger: logging.Logger) -> DataProvider | None:
+    """Return the OCHA provider whose boundaries fires are attributed to, if imported.
+
+    Returning ``None`` rather than raising is deliberate: the perimeters and the
+    dates are worth having on their own, and the boundaries can be imported later
+    without the fires having to be.
+    """
+    provider = session.scalar(
+        select(DataProvider).where(DataProvider.name == ocha.PROVIDER_NAME,
+                                   DataProvider.product == ocha.PROVIDER_PRODUCT)
+    )
+    if provider is None:
+        logger.warning(
+            "No %s / %s boundaries imported: fires will have no country. Import them with "
+            "src.apps.imports.admin_boundaries.ocha.import_admin_boundaries",
+            ocha.PROVIDER_NAME, ocha.PROVIDER_PRODUCT,
+        )
+    return provider
 
 
 # --------------------------------------------------------------------------

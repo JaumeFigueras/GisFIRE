@@ -25,4 +25,5 @@ class Base(DeclarativeBase):
 from src.data_model.data_provider import DataProvider  # noqa: E402,F401
 from src.data_model.geography.admin_boundary import AdminBoundary  # noqa: E402,F401
 from src.data_model.geography.time_zone import TimeZone  # noqa: E402,F401
+from src.data_model.ignition import Ignition  # noqa: E402,F401
 from src.data_model.wildfire import Wildfire  # noqa: E402,F401
