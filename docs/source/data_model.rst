@@ -230,6 +230,11 @@ below as they are ported.
     A wildfire event — when it started, when it was extinguished and the burnt area, kept
     as a PostGIS ``MULTIPOLYGON`` in EPSG:4326.
 
+:doc:`data_model/ignition`
+    Where and when a fire started — a PostGIS ``POINT`` in EPSG:4326 and the instant it
+    ignited. A separate observation from the perimeter: not every provider publishes both,
+    and a point is unambiguous about its country in a way a perimeter is not.
+
 :doc:`data_model/geography_admin_boundary`
     An administrative division — a country, a region, a province, a municipality — as a
     PostGIS ``MULTIPOLYGON`` in EPSG:4326, nested under the division above it.
@@ -246,5 +251,6 @@ below as they are ported.
    data_model/base
    data_model/data_provider
    data_model/wildfire
+   data_model/ignition
    data_model/geography_admin_boundary
    data_model/geography_time_zone

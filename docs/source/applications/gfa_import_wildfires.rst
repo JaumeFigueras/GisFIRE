@@ -12,8 +12,9 @@ columns in ``wildfire`` and the Atlas measurements in ``gfa_wildfire``.
 Usage
 -----
 
-Migrate the database first — ``gfa_wildfire`` is created by a migration, not by the
-importer — then point it at the directory the shapefiles were unpacked into:
+Migrate the database first — the ``ignition``, ``gfa_ignition`` and ``gfa_wildfire``
+tables are created by migrations, not by the importer — then point it at the directory the
+shapefiles were unpacked into:
 
 .. code-block:: bash
 
@@ -118,7 +119,7 @@ and the zone is kept alongside as provenance (see :mod:`src.data_model.wildfire`
 of a fire is the last second of its end date, ``23:59:59`` local.
 
 Both the zone and the country come from the **ignition point**, built from the published
-``lat``/``lon`` and stored on :attr:`~src.providers.gfa.wildfire.GfaWildfire.ignition_point`:
+``lat``/``lon``:
 
 .. code-block:: sql
 
@@ -134,7 +135,38 @@ shape.
    holding the **largest share of its perimeter**. The two providers therefore answer
    "which country" by different rules, which matters when comparing per-country totals
    between them: a large fire that ignites just inside one country and burns mostly into
-   its neighbour is counted differently by each.
+   its neighbour is counted differently by each. This is deliberate and permanent: for a
+   fire service the ignition point determines the fire's identity — its name, its
+   location, its flanks — so for GFA the ignition point is the authority.
+
+The ignition is a row of its own
+--------------------------------
+
+The point is not a column on the wildfire. Each import writes an
+:doc:`../providers/gfa_ignition` — a point, the instant the fire began, and the country
+and zone that follow from the point — and links the wildfire to it through
+``gfa_wildfire.gfa_ignition_id``:
+
+.. code-block:: text
+
+   ignition ──< gfa_ignition           gfa_wildfire >── wildfire
+     geometry     gfa_id  ◄─────────────  gfa_ignition_id
+     date_time                            gfa_id
+     time_zone                            size_km2, speed_km_day, …
+     admin_boundary_id
+
+An ignition and a perimeter are two different observations, and not every provider
+publishes both — modelling the point as an attribute of the perimeter would leave nowhere
+to put a detection that never gets a burnt area, and would make "every ignition last year"
+a query over a table of polygons. Storing it once, on the ignition, is also about 2 GB
+cheaper across the full dataset than carrying it on both.
+
+Because the wildfire's country and start instant are resolved *from* this point, the
+ignition and the wildfire always agree on them: ``ignition.date_time`` equals the
+wildfire's ``start_date_time``, and ``ignition.admin_boundary_id`` its country. The
+Atlas also publishes the ignition points as their own set of shapefiles, but they carry
+the same ``lat``/``lon`` these files do, so there is no separate ignitions import — the
+ignition is built here.
 
 What is stored as published
 ---------------------------

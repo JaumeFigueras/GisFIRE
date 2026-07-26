@@ -32,8 +32,10 @@ from src.apps.imports.time_zones.timezone_boundary_builder import import_time_zo
 from src.apps.imports.wildfires.gfa import import_wildfires as app
 from src.data_model import Base
 from src.data_model.data_provider import DataProvider
+from src.data_model.ignition import Ignition
 from src.data_model.wildfire import Wildfire
 from src.providers import ocha
+from src.providers.gfa.ignition import GfaIgnition
 from src.providers.gfa.wildfire import GfaWildfire
 from src.providers.ocha.admin_boundary import OchaAdminBoundary
 from src.settings import ROOT_DIR
@@ -294,6 +296,67 @@ def test_the_joined_inheritance_rows_are_written_in_pairs(imported):
 
 
 # --------------------------------------------------------------------------
+# The ignition, and the link from the wildfire to it
+# --------------------------------------------------------------------------
+
+@needs_ogr2ogr
+def test_every_fire_writes_one_ignition(imported):
+    """Nine fires, nine ignitions and nine gfa_ignitions — one apiece."""
+    engine, count = imported
+    with Session(engine) as session:
+        assert count == 9
+        assert session.scalar(select(func.count()).select_from(Ignition)) == 9
+        assert session.scalar(select(func.count()).select_from(GfaIgnition)) == 9
+        # The ignition ids match the fires by gfa_id.
+        assert {row.gfa_id for row in session.scalars(select(GfaIgnition))} == FIRE_IDS
+
+
+@needs_ogr2ogr
+def test_the_wildfire_links_to_its_own_ignition(imported):
+    """The relationship resolves, and both rows carry the same gfa_id."""
+    engine, _ = imported
+    with Session(engine) as session:
+        spain = fire(session, 20000001)
+        assert spain.ignition is not None
+        assert spain.gfa_ignition_id == spain.ignition.id
+        assert spain.ignition.gfa_id == spain.gfa_id
+
+
+@needs_ogr2ogr
+def test_the_ignition_carries_the_start_instant_zone_and_country(imported):
+    """The ignition is where and when the fire began: its date_time is the start."""
+    engine, _ = imported
+    with Session(engine) as session:
+        spain = fire(session, 20000001)
+        ignition = spain.ignition
+        assert ignition.date_time == spain.start_date_time
+        assert ignition.time_zone == spain.time_zone == "Europe/Madrid"
+        # Country resolved from the same point, so the two rows agree.
+        assert ignition.admin_boundary_id == spain.admin_boundary_id
+        assert ignition.admin_boundary.name == "Spain"
+
+
+@needs_ogr2ogr
+def test_the_ignition_geometry_is_a_point_in_4326(imported):
+    engine, _ = imported
+    with Session(engine) as session:
+        types = set(session.scalars(select(func.GeometryType(Ignition.geometry))).all())
+        assert types == {"POINT"}
+        assert set(session.scalars(select(func.ST_SRID(Ignition.geometry)))) == {4326}
+
+
+@needs_ogr2ogr
+def test_a_fire_at_sea_still_gets_an_ignition_with_no_country(imported):
+    """The point is always valid, so the ignition exists even where the country does not."""
+    engine, _ = imported
+    with Session(engine) as session:
+        atlantic = fire(session, 20000006)
+        assert atlantic.ignition is not None
+        assert atlantic.ignition.admin_boundary_id is None
+        assert atlantic.ignition.time_zone is None
+
+
+# --------------------------------------------------------------------------
 # Geometry
 # --------------------------------------------------------------------------
 
@@ -323,13 +386,17 @@ def test_every_perimeter_is_a_valid_multipolygon_in_4326(imported):
 
 @needs_ogr2ogr
 def test_the_ignition_point_is_built_from_lat_and_lon(imported):
-    """lon then lat: swapping them would put every Spanish fire in the Indian Ocean."""
+    """lon then lat: swapping them would put every Spanish fire in the Indian Ocean.
+
+    The point lives on the ignition now, not on the wildfire, so it is read
+    through the link.
+    """
     engine, _ = imported
     with Session(engine) as session:
         spain = fire(session, 20000001)
         lon, lat = session.execute(
-            select(func.ST_X(GfaWildfire.ignition_point), func.ST_Y(GfaWildfire.ignition_point))
-            .where(GfaWildfire.id == spain.id)
+            select(func.ST_X(GfaIgnition.geometry), func.ST_Y(GfaIgnition.geometry))
+            .where(GfaIgnition.id == spain.gfa_ignition_id)
         ).one()
         assert (lon, lat) == pytest.approx((-3.70, 40.40))
 
@@ -486,6 +553,9 @@ def test_re_importing_is_a_no_op(database, boundaries, time_zones, args, caplog)
     with Session(engine) as session:
         assert session.scalar(select(func.count()).select_from(GfaWildfire)) == 9
         assert session.scalar(select(func.count()).select_from(Wildfire)) == 9
+        # No orphan ignitions from the skipped second run either.
+        assert session.scalar(select(func.count()).select_from(Ignition)) == 9
+        assert session.scalar(select(func.count()).select_from(GfaIgnition)) == 9
     assert "9 GFA fires already stored" in caplog.text
 
 
@@ -504,6 +574,7 @@ def test_a_second_year_adds_to_the_first(database, boundaries, time_zones,
     assert app.import_wildfires(args, engine, logger) == 3
     with Session(engine) as session:
         assert session.scalar(select(func.count()).select_from(GfaWildfire)) == 12
+        assert session.scalar(select(func.count()).select_from(GfaIgnition)) == 12
 
 
 @needs_ogr2ogr

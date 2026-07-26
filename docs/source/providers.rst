@@ -103,17 +103,25 @@ points as separate sets of shapefiles, one per year.
 
 :doc:`providers/gfa_wildfire`
     The *Fire Atlas* product: fire perimeters. Beyond the generic model's dates and
-    perimeter it adds the ignition point and the Atlas's measurements of how the fire
-    spread — size, duration, speed, dominant direction, land cover, GFED region — each
-    kept in the units it was published in. Imported by
+    perimeter it adds the Atlas's measurements of how the fire spread — size, duration,
+    speed, dominant direction, land cover, GFED region — each kept in the units it was
+    published in, and a link to the fire's ignition. Imported by
     :doc:`applications/gfa_import_wildfires`.
+
+:doc:`providers/gfa_ignition`
+    The point of origin the Atlas publishes for the same fire. It is a
+    :doc:`../data_model/ignition` of its own, not a column on the wildfire — the point
+    describes where the fire began, not its burnt area — and the two share the ``fire_ID``
+    that matches them. Built from the same perimeter import; there is no separate ignitions
+    import.
 
 .. note::
 
    The GFA ``fire_ID`` **is** unique, unlike the GWIS one: it carries the year, and within
    a year it repeats only across the parts of one multipart fire, which the import
-   collects into a single row. It is therefore constrained ``UNIQUE``, and the GFA import
-   *is* idempotent — a second run of the same file imports nothing.
+   collects into a single row. It is therefore constrained ``UNIQUE`` on both the wildfire
+   and the ignition, and the GFA import *is* idempotent — a second run of the same file
+   imports nothing.
 
 OCHA
 ----
@@ -196,6 +204,7 @@ were checked against the 2025-07-29 release, which has 318 features:
    :maxdepth: 1
    :hidden:
 
+   providers/gfa_ignition
    providers/gfa_wildfire
    providers/gwis_wildfire
    providers/ocha_admin_boundary

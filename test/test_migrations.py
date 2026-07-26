@@ -19,6 +19,7 @@ from alembic.migration import MigrationContext
 from geoalchemy2 import alembic_helpers
 from sqlalchemy import create_engine
 from sqlalchemy import inspect
+from sqlalchemy import text
 
 import src.providers  # noqa: F401  (registers the provider tables on Base.metadata)
 
@@ -75,6 +76,30 @@ def test_migrations_match_the_models(alembic_config):
     engine.dispose()
 
     assert differences == []
+
+
+@pytest.mark.parametrize("table", ["wildfire", "ignition"])
+def test_the_sequence_backed_ids_have_a_usable_sequence(alembic_config, table):
+    """The wildfire importers draw ids with ``nextval(pg_get_serial_sequence(...))``.
+
+    ``compare_metadata`` does not catch a primary key created as a plain integer
+    instead of a ``SERIAL``: the difference is a missing owned sequence, not a
+    type or a default the model states explicitly. So the drift test would pass
+    while the import fails on ``nextval(NULL)``. This checks the sequence directly
+    on the schema the *migrations* build, not the one ``create_all`` builds.
+    """
+    config, url = alembic_config
+    upgrade(config, "head")
+
+    engine = create_engine(url)
+    with engine.connect() as connection:
+        sequence = connection.execute(
+            text("SELECT pg_get_serial_sequence(:table, 'id')"), {"table": table}
+        ).scalar()
+        assert sequence is not None, f"{table}.id has no owned sequence"
+        # And it actually advances, which is all the transform asks of it.
+        assert connection.execute(text(f"SELECT nextval('{sequence}')")).scalar() >= 1
+    engine.dispose()
 
 
 def test_migrations_downgrade_to_base(alembic_config):

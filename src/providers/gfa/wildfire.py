@@ -4,8 +4,15 @@
 
 The Global Fire Atlas publishes, for each fire, the three things the generic
 :class:`~src.data_model.wildfire.Wildfire` already holds — a start date, an end
-date and a perimeter — plus its own identifier, the ignition coordinate, and a
-set of measurements of how the fire spread. Those last are what this model adds.
+date and a perimeter — plus its own identifier, a set of measurements of how the
+fire spread, and an ignition point. The measurements are what this model adds.
+
+The ignition point is *not* stored here: it is an
+:class:`~src.providers.gfa.ignition.GfaIgnition` of its own, and this model links
+to it with :attr:`gfa_ignition_id`. The point describes where the fire began, not
+its burnt area, so it belongs on the ignition rather than being duplicated onto
+the perimeter — and storing it once, indexed once, is not free at twenty million
+fires.
 
 Units are the provider's own and are kept as published rather than converted, so
 that a row can be checked against the published file without arithmetic. They
@@ -15,15 +22,16 @@ guess.
 
 from __future__ import annotations
 
-from geoalchemy2 import Geometry
 from sqlalchemy import Float
 from sqlalchemy import ForeignKey
 from sqlalchemy import Integer
 from sqlalchemy import String
 from sqlalchemy.orm import Mapped
 from sqlalchemy.orm import mapped_column
+from sqlalchemy.orm import relationship
 
 from src.data_model.wildfire import Wildfire
+from src.providers.gfa.ignition import GfaIgnition
 
 
 class GfaWildfire(Wildfire):
@@ -42,11 +50,15 @@ class GfaWildfire(Wildfire):
     gfa_id : int
         The identifier GFA gives the fire (``fire_ID``). **Unique**, unlike its
         GWIS counterpart — see the note below.
-    ignition_point : geoalchemy2.elements.WKBElement
-        Where the fire started, as a ``POINT`` in EPSG:4326, built from the
-        published ``lat``/``lon``. This is the point the country and the time
-        zone are resolved from, since it is the fire's own reported origin
-        rather than something derived from the perimeter.
+    gfa_ignition_id : int
+        Foreign key to the :class:`~src.providers.gfa.ignition.GfaIgnition` this
+        fire started from. The country and the local start time on the parent
+        :class:`~src.data_model.wildfire.Wildfire` were both resolved from that
+        ignition's point, so the two rows always agree on them.
+    ignition : GfaIgnition
+        The fire's point of origin. Its
+        :attr:`~src.data_model.ignition.Ignition.geometry` is the ignition point;
+        reach for it instead of a coordinate column on this table.
     size_km2 : float or None
         Fire size, km² (``size``). This is the size of the *whole* fire, so it
         is not the area of :attr:`~src.data_model.wildfire.Wildfire.perimeter`
@@ -101,9 +113,7 @@ class GfaWildfire(Wildfire):
 
     id: Mapped[int] = mapped_column(ForeignKey(Wildfire.id), primary_key=True)
     gfa_id: Mapped[int] = mapped_column(Integer, unique=True, nullable=False)
-    ignition_point: Mapped[str] = mapped_column(
-        Geometry(geometry_type="POINT", srid=4326), nullable=False
-    )
+    gfa_ignition_id: Mapped[int] = mapped_column(ForeignKey(GfaIgnition.id), nullable=False)
     size_km2: Mapped[float | None] = mapped_column(Float, nullable=True)
     perimeter_km: Mapped[float | None] = mapped_column(Float, nullable=True)
     duration_days: Mapped[int | None] = mapped_column(Integer, nullable=True)
@@ -116,6 +126,8 @@ class GfaWildfire(Wildfire):
     landcover: Mapped[str | None] = mapped_column(String, nullable=True)
     landcover_fraction: Mapped[float | None] = mapped_column(Float, nullable=True)
     gfed_region: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+    ignition: Mapped[GfaIgnition] = relationship()
 
     __mapper_args__ = {
         "polymorphic_identity": "gfa_wildfire",
