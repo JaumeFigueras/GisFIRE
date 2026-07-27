@@ -123,6 +123,61 @@ points as separate sets of shapefiles, one per year.
    and the ignition, and the GFA import *is* idempotent — a second run of the same file
    imports nothing.
 
+ICNF
+----
+
+The Portuguese `Instituto da Conservação da Natureza e das Florestas
+<https://www.icnf.pt>`_ publishes the national burnt area cartography — the *áreas
+ardidas* layers — through the WFS of its ``BDG`` GeoServer: three multi-year layers
+covering 1975-2008, then one per year.
+
+:doc:`providers/icnf_wildfire`
+    The *Áreas Ardidas* product: burnt area polygons. Beyond the generic model's dates
+    and perimeter it adds the fire's identifiers in the two national systems, the
+    administrative location it started at, its duration, its burnt area split by land
+    type, and the polygon as published in EPSG:3763. Imported by
+    :doc:`applications/icnf_import_wildfires`.
+
+:doc:`providers/icnf_fire_cause`
+    The cause classification, as a lookup table: 97 codes naming 101 distinct
+    classifications, each with the published Portuguese type and description and an
+    English translation beside them.
+
+:doc:`providers/icnf_provider`
+    The constants the two models and the importers share.
+
+Three things about this dataset are worth knowing before using it. All three were checked
+against the twenty published layers, 68,435 features in total:
+
+The attributes change half way through, and so do the rows
+    1975-2013 publishes two attributes — the year and the burnt area. 2014-2025 publishes
+    twenty-two. But 901 features *within* those later years are unmatched polygons
+    carrying the old two, so the layer a row came from does not tell you what it has.
+    :attr:`~src.providers.icnf.wildfire.IcnfWildfire.date_time_precision` does.
+
+71% of the fires have no date, only a year
+    48,860 of 68,435. Their ``start_date_time`` is the 1st of January of their year
+    because the ``NOT NULL`` column needs an instant, and ``date_time_precision`` is
+    ``year`` to say that nothing happened that day. Any analysis over time has to filter
+    on it.
+
+    Even the dated ones are dated to the day and no finer: the archives are
+    ``SHAPE-ZIP`` exports and a DBF has no datetime type, so the published times were
+    truncated on the way out. ``duration_minutes`` is the only trace of them left.
+
+The perimeter is stored twice, in EPSG:3763 and EPSG:4326
+    Deliberately. The national grid is in metres, so an area computed on it is the number
+    Portuguese forestry works in; EPSG:4326 is what makes the fire comparable with a GWIS
+    or GFA one. Neither can be derived from the other for free, so both are kept, and the
+    4326 one is derived from the stored 3763 one at import so they cannot disagree.
+
+.. note::
+
+   There is no :doc:`../data_model/ignition` for an ICNF fire, unlike a GFA one. The
+   ``PI_`` attributes name where the fire started — district, municipality, parish,
+   place — but the layers publish **no ignition coordinate**, so there would be no point
+   to put in it.
+
 OCHA
 ----
 
@@ -207,4 +262,7 @@ were checked against the 2025-07-29 release, which has 318 features:
    providers/gfa_ignition
    providers/gfa_wildfire
    providers/gwis_wildfire
+   providers/icnf_provider
+   providers/icnf_wildfire
+   providers/icnf_fire_cause
    providers/ocha_admin_boundary

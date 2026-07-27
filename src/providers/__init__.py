@@ -19,4 +19,6 @@ import :mod:`src.providers`, not just :mod:`src.data_model`.
 from src.providers.gfa.ignition import GfaIgnition  # noqa: E402,F401
 from src.providers.gfa.wildfire import GfaWildfire  # noqa: E402,F401
 from src.providers.gwis.wildfire import GwisWildfire  # noqa: E402,F401
+from src.providers.icnf.fire_cause import IcnfFireCause  # noqa: E402,F401
+from src.providers.icnf.wildfire import IcnfWildfire  # noqa: E402,F401
 from src.providers.ocha.admin_boundary import OchaAdminBoundary  # noqa: E402,F401

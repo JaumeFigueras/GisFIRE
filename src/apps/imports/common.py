@@ -227,12 +227,24 @@ def shapefile_datasource(path: Path) -> tuple[str, str]:
 def load_staging_table(datasource: str, layer: str, staging_table: str,
                        args: argparse.Namespace, settings: dict[str, str],
                        logger: logging.Logger, geometry_type: str = "MULTIPOLYGON",
-                       progress: bool | None = None) -> None:
+                       progress: bool | None = None, target_srs: str = "EPSG:4326",
+                       open_options: list[str] | None = None) -> None:
     """Copy one layer into the staging table with ``ogr2ogr``.
 
-    Geometries are promoted to ``geometry_type`` and forced to EPSG:4326 to match
-    the models, even for sources that already publish both — an import should not
-    quietly depend on the source never changing.
+    Geometries are promoted to ``geometry_type`` and forced to ``target_srs``,
+    even for a source that already publishes in it — an import should not quietly
+    depend on the source never changing.
+
+    ``target_srs`` defaults to EPSG:4326, which is what the generic models store
+    and so what nearly every import wants. An importer that also keeps the
+    published geometry in the source's own CRS passes that CRS instead and
+    reprojects in SQL, so that the two stored geometries are provably the same
+    one (see
+    :mod:`src.apps.imports.wildfires.portugal_icnf.import_wildfires`).
+
+    ``open_options`` are GDAL ``-oo`` driver options, needed where the file does
+    not describe itself well enough to be read correctly — a shapefile with no
+    ``.cpg`` alongside it, whose character set GDAL would otherwise guess wrong.
 
     A year of GWIS fires takes minutes to load, so ``-progress`` is passed and
     ``ogr2ogr``'s progress bar is let through to the terminal instead of being
@@ -249,11 +261,16 @@ def load_staging_table(datasource: str, layer: str, staging_table: str,
     show_progress = logger.isEnabledFor(logging.INFO) if progress is None else progress
     command = [
         args.ogr2ogr,
-        "-f", "PostgreSQL", ogr_connection_string(settings), datasource, layer,
+        "-f", "PostgreSQL", ogr_connection_string(settings),
+    ]
+    for option in open_options or []:
+        command += ["-oo", option]
+    command += [
+        datasource, layer,
         "-nln", staging_table,
         "-overwrite",
         "-nlt", geometry_type,
-        "-t_srs", "EPSG:4326",
+        "-t_srs", target_srs,
         "-lco", "GEOMETRY_NAME=geom",
         "-lco", "FID=fid",
     ]
@@ -325,8 +342,16 @@ ORDER BY time_zone.name
 """
 
 
-def check_time_zones(session: Session, logger: logging.Logger) -> None:
+def check_time_zones(session: Session, logger: logging.Logger,
+                     fallback: str = FALLBACK_TIME_ZONE) -> None:
     """Warn if no time zone areas are loaded; refuse if any is unusable.
+
+    ``fallback`` is the zone the caller will date its events in when the lookup
+    finds nothing, and is only used to say so. It is a parameter because it is not
+    the same for every importer: a worldwide source has nothing better than
+    :data:`FALLBACK_TIME_ZONE`, but a source covering one country knows the zone
+    its data is in, and telling the user their fires will be dated in UTC when
+    they will not is worse than saying nothing.
 
     Raises
     ------
@@ -337,10 +362,10 @@ def check_time_zones(session: Session, logger: logging.Logger) -> None:
     zones = session.scalar(text("SELECT count(*) FROM time_zone"))
     if not zones:
         logger.warning(
-            "No time zone areas loaded: every fire will be dated in %s instead of local "
-            "time. Import them with "
+            "No time zone areas loaded: every fire will be dated in %s instead of a zone "
+            "resolved from its own location. Import them with "
             "src.apps.imports.time_zones.timezone_boundary_builder.import_time_zones",
-            FALLBACK_TIME_ZONE,
+            fallback,
         )
         return
 

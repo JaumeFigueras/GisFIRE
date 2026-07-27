@@ -25,6 +25,7 @@ under ``src/apps/imports/``::
    src/apps/imports/time_zones/timezone_boundary_builder/import_time_zones.py
    src/apps/imports/wildfires/gwis/import_wildfires.py
    src/apps/imports/wildfires/gfa/import_wildfires.py
+   src/apps/imports/wildfires/portugal_icnf/import_wildfires.py
 
 so that a second source for the same kind of data — OSM for the administrative levels
 below the country, another agency's fire perimeters — sits beside the first rather than
@@ -69,6 +70,14 @@ Data import
     perimeters, and resolves the zone and the country from the ignition point. Unlike the
     GWIS import, re-running it is a no-op.
 
+:doc:`applications/icnf_import_wildfires`
+    Imports the Portuguese national burnt area cartography — twenty zipped shapefiles
+    covering 1975 to 2025, read without ever being unpacked. The dataset publishes two
+    attributes for its first forty years and twenty-two for its last twelve, so the
+    import normalises the staging table and reads both eras with one mapping. Keeps the
+    published EPSG:3763 geometry as well as the EPSG:4326 one, and records per row how
+    much of its date the provider actually published.
+
 .. note::
 
    Order matters for the wildfire import: the boundaries and the time zone areas are
@@ -102,4 +111,5 @@ as the importers::
    applications/time_zone_import_time_zones
    applications/gwis_import_wildfires
    applications/gfa_import_wildfires
+   applications/icnf_import_wildfires
    applications/gwis_wildfire_statistics
