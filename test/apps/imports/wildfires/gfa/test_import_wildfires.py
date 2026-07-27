@@ -604,6 +604,100 @@ def test_an_unmigrated_database_is_reported_before_the_staging_load(database, ar
         app.import_wildfires(args, engine, logger)
 
 
+# --------------------------------------------------------------------------
+# Importing several shapefiles at once (--jobs)
+# --------------------------------------------------------------------------
+
+def year_directory(directory, years, start_id=20000001):
+    """A directory of one shapefile per year, each holding one fire with a distinct id.
+
+    fire_ID carries the year in the real data, so the fixture keeps the ids
+    disjoint between files too — that is what lets a parallel run skip safely.
+    """
+    for offset, year in enumerate(years):
+        features = [(attributes(start_id + offset, -3.70, 40.40,
+                                 f"{year}-06-25", f"{year}-06-26"), square(-3.70, 40.40))]
+        write_shapefile(directory, year, features)
+    return directory
+
+
+def test_one_job_is_the_default():
+    assert app.parse_arguments(["-s", "x.shp"]).jobs == 1
+
+
+@pytest.mark.parametrize("value", ["0", "-2"])
+def test_jobs_below_one_is_rejected(value):
+    with pytest.raises(SystemExit):
+        app.parse_arguments(["-s", "x.shp", "--jobs", value])
+
+
+@needs_ogr2ogr
+def test_parallel_imports_everything_exactly_once(database, boundaries, time_zones,
+                                                  connection_arguments, tmp_path):
+    """Four shapefiles across three processes must match importing them serially."""
+    directory = year_directory(tmp_path, (2002, 2003, 2004, 2005))
+    args = app.parse_arguments(["--directory", str(directory), "--jobs", "3",
+                                *connection_arguments])
+
+    engine, _ = database
+    assert app.import_wildfires(args, engine, logger) == 4
+
+    with Session(engine) as session:
+        assert session.scalar(select(func.count()).select_from(GfaWildfire)) == 4
+        assert session.scalar(select(func.count()).select_from(GfaIgnition)) == 4
+        # One provider row, not one per worker: the get-or-create found it.
+        assert len(session.scalars(
+            select(DataProvider).where(DataProvider.name == "GFA")).all()) == 1
+
+
+@needs_ogr2ogr
+def test_each_worker_stages_into_its_own_table_and_drops_it(database, boundaries, time_zones,
+                                                            connection_arguments, tmp_path):
+    """Sharing one staging table would have the workers overwrite each other's load."""
+    directory = year_directory(tmp_path, (2002, 2003))
+    args = app.parse_arguments(["--directory", str(directory), "--jobs", "2",
+                                "--keep-staging", *connection_arguments])
+
+    engine, _ = database
+    app.import_wildfires(args, engine, logger)
+
+    with Session(engine) as session:
+        kept = sorted(session.scalars(text(
+            "SELECT table_name FROM information_schema.tables WHERE table_schema = 'staging'"
+        )).all())
+    assert kept == ["gfa_perimeters_00", "gfa_perimeters_01"]
+
+
+@needs_ogr2ogr
+def test_one_bad_shapefile_does_not_cost_the_others(database, boundaries, time_zones,
+                                                    connection_arguments, tmp_path, caplog):
+    """Each shapefile is its own transaction, so the good ones are kept and reported."""
+    directory = year_directory(tmp_path, (2002, 2003))
+    (directory / "GFA_v20260408_perimeters_2004.shp").write_text("not a shapefile")
+
+    args = app.parse_arguments(["--directory", str(directory), "--jobs", "3",
+                                *connection_arguments])
+    engine, _ = database
+    with pytest.raises(RuntimeError, match="1 of 3 shapefile"):
+        app.import_wildfires(args, engine, logger)
+
+    with Session(engine) as session:
+        assert session.scalar(select(func.count()).select_from(GfaWildfire)) == 2
+    assert "2004.shp" in caplog.text
+
+
+@needs_ogr2ogr
+def test_more_jobs_than_shapefiles_does_not_spawn_idle_workers(database, boundaries, time_zones,
+                                                               args, monkeypatch):
+    """One shapefile is a serial run whatever was asked for."""
+    args.jobs = 8
+    monkeypatch.setattr(app, "import_in_parallel",
+                        lambda *a, **k: pytest.fail("a single shapefile went through the pool"))
+
+    engine, _ = database
+    assert app.import_wildfires(args, engine, logger) == 9
+
+
 @needs_ogr2ogr
 def test_main_runs_the_whole_import(database, boundaries, time_zones,
                                     perimeters, connection_arguments):

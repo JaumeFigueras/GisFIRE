@@ -21,6 +21,17 @@ Each file is imported in its own transaction: a year is either wholly in or
 wholly out, and a failure on the fifteenth file does not throw away the fourteen
 before it.
 
+The Atlas ships a great many features per year, and the slow part is the
+server-side mapping. Pass ``--jobs`` to import several years at once, each in its
+own process and its own connection::
+
+    python3 -m src.apps.imports.wildfires.gfa.import_wildfires -d /path/to/SHP_perimeters/ --jobs 3
+
+``fire_ID`` carries the year, so the files never share an identifier and the
+workers cannot race on the skip-what-is-already-held probe. Each is another
+connection running spatial joins, so raise the server's ``work_mem`` and
+``shared_buffers`` before raising this, and expect little past 3-4.
+
 Three things about this dataset shape the mapping
 -------------------------------------------------
 
@@ -76,6 +87,8 @@ import shutil
 import sys
 import time
 
+from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures import as_completed
 from pathlib import Path
 
 from sqlalchemy import Engine
@@ -105,6 +118,10 @@ DEFAULT_END_FIELD = "end_date"
 
 DEFAULT_STAGING_TABLE = "gfa_perimeters"
 
+#: Shared by the parent and by every worker process, so a parallel run's output
+#: is one stream in one shape. Worker lines name their shapefile (see
+#: :class:`ArchiveLogger`), which is what keeps interleaved lines readable — the
+#: process id would not, since it says nothing about what is being imported.
 LOG_FORMAT = "%(asctime)s %(levelname)s %(message)s"
 
 #: Maps one staging table onto the four tables of the model in a single statement.
@@ -272,11 +289,25 @@ def parse_arguments(argv: list[str] | None = None) -> argparse.Namespace:
     fields.add_argument("--end-field", default=DEFAULT_END_FIELD,
                         help=f"attribute holding the end date (default: {DEFAULT_END_FIELD})")
 
+    parser.add_argument("-j", "--jobs", type=positive_int, default=1,
+                        help="shapefiles to import at the same time, in separate processes "
+                             "(default: 1). Each is another connection doing spatial joins, "
+                             "so raise the server's work_mem and shared_buffers before "
+                             "raising this, and expect little past 3-4")
+
     common.add_database_arguments(parser)
     common.add_staging_arguments(parser, DEFAULT_STAGING_TABLE)
     common.add_common_arguments(parser)
 
     return parser.parse_args(argv)
+
+
+def positive_int(value: str) -> int:
+    """Parse ``--jobs``, rejecting zero and negatives at the command line."""
+    number = int(value)
+    if number < 1:
+        raise argparse.ArgumentTypeError(f"must be 1 or more, not {number}")
+    return number
 
 
 def find_shapefiles(args: argparse.Namespace) -> list[Path]:
@@ -341,15 +372,21 @@ def transform(session: Session, provider_id: int, boundary_provider_id: int | No
 
 def import_shapefile(shapefile: Path, engine: Engine, args: argparse.Namespace,
                      provider_id: int, boundary_provider_id: int | None,
-                     logger: logging.Logger) -> int:
-    """Import one shapefile in its own transaction, returning the fires imported."""
-    staging_table = f"{args.staging_schema}.{args.staging_table}"
+                     logger: logging.Logger, staging_table: str | None = None,
+                     progress: bool | None = None) -> int:
+    """Import one shapefile in its own transaction, returning the fires imported.
+
+    ``staging_table`` is what makes a parallel run possible: the table is loaded
+    with ``-overwrite``, so two shapefiles sharing one would destroy each other's
+    work. Workers are each given their own; a serial run keeps the plain name.
+    """
+    staging_table = staging_table or f"{args.staging_schema}.{args.staging_table}"
     datasource, layer = common.shapefile_datasource(shapefile)
     log = ArchiveLogger(logger, {"archive": shapefile.name})
 
     started = time.monotonic()
     common.load_staging_table(datasource, layer, staging_table, args,
-                              common.resolve_database_settings(args), log)
+                              common.resolve_database_settings(args), log, progress=progress)
 
     with Session(engine) as session:
         # ogr2ogr leaves the table with no statistics at all, so without this the
@@ -368,6 +405,90 @@ def import_shapefile(shapefile: Path, engine: Engine, args: argparse.Namespace,
 
     log.info("imported %d fires from %d features in %.0fs", imported, staged,
              time.monotonic() - started)
+    return imported
+
+
+#: Per-process state of a parallel worker. A module global because a pool
+#: initializer is the only place a worker can build something once and reuse it
+#: across the shapefiles it is handed, and an :class:`~sqlalchemy.engine.Engine`
+#: must not be inherited across a fork: its pooled connections would be shared by
+#: two processes writing over each other's protocol state.
+_WORKER: dict[str, object] = {}
+
+
+def _worker_init(args: argparse.Namespace, provider_id: int,
+                 boundary_provider_id: int | None) -> None:
+    """Give this worker process its own engine and the ids every shapefile needs."""
+    logging.basicConfig(level=args.log_level, format=LOG_FORMAT)
+    _WORKER["args"] = args
+    _WORKER["provider_id"] = provider_id
+    _WORKER["boundary_provider_id"] = boundary_provider_id
+    _WORKER["engine"] = create_engine(common.database_url(common.resolve_database_settings(args)))
+
+
+def _worker_import(task: tuple[Path, str]) -> tuple[str, int, str | None]:
+    """Import one shapefile in this worker, returning the failure instead of raising.
+
+    A raise would come back as a pickled exception and stop the whole pool. One
+    shapefile that cannot be read is not a reason to throw away the others — each
+    is its own transaction — so the error is carried back as text and reported
+    together with the rest at the end.
+    """
+    shapefile, staging_table = task
+    logger = logging.getLogger("gfa-import")
+    try:
+        imported = import_shapefile(shapefile, _WORKER["engine"], _WORKER["args"],
+                                    _WORKER["provider_id"], _WORKER["boundary_provider_id"],
+                                    logger, staging_table=staging_table, progress=False)
+        return shapefile.name, imported, None
+    except Exception as error:  # noqa: BLE001  (carried back to the parent, not swallowed)
+        return shapefile.name, 0, str(error)
+
+
+def import_in_parallel(shapefiles: list[Path], args: argparse.Namespace, provider_id: int,
+                       boundary_provider_id: int | None, jobs: int,
+                       logger: logging.Logger) -> int:
+    """Import the shapefiles across ``jobs`` processes, returning the fires imported.
+
+    Processes rather than threads, but not for the usual reason: both slow phases
+    release the GIL anyway, since one waits on a subprocess and the other on a
+    socket. What parallelism buys is server-side — PostgreSQL will not use a
+    parallel plan for a statement that writes, so the transform runs on a single
+    core however the client is built, and the only way to get more cores onto it
+    is more connections doing it at once.
+
+    ``fire_ID`` carries the year and so does not collide between files, which is
+    what makes this safe: two workers importing two years never race on the
+    ``NOT EXISTS`` skip, because no id one holds can appear in the other's file.
+
+    Raises
+    ------
+    RuntimeError
+        If any shapefile failed, after every other one has finished.
+    """
+    tasks = [(shapefile, f"{args.staging_schema}.{args.staging_table}_{index:02d}")
+             for index, shapefile in enumerate(shapefiles)]
+    logger.info("Importing %d shapefile(s) across %d process(es)", len(shapefiles), jobs)
+
+    imported = 0
+    failures: list[tuple[str, str]] = []
+    with ProcessPoolExecutor(max_workers=jobs, initializer=_worker_init,
+                             initargs=(args, provider_id, boundary_provider_id)) as pool:
+        futures = [pool.submit(_worker_import, task) for task in tasks]
+        for finished, future in enumerate(as_completed(futures), start=1):
+            name, count, error = future.result()
+            if error is None:
+                imported += count
+            else:
+                failures.append((name, error))
+                logger.error("%s: failed: %s", name, error)
+            logger.info("[%d/%d shapefiles done]", finished, len(shapefiles))
+
+    if failures:
+        raise RuntimeError(
+            f"{len(failures)} of {len(shapefiles)} shapefile(s) failed: "
+            + "; ".join(f"{name} ({error})" for name, error in failures)
+        )
     return imported
 
 
@@ -394,12 +515,19 @@ def import_wildfires(args: argparse.Namespace, engine: Engine, logger: logging.L
         )
 
     started = time.monotonic()
-    imported = 0
-    logger.info("Importing %d shapefile(s)", len(shapefiles))
-    for index, shapefile in enumerate(shapefiles, start=1):
-        logger.info("[%d/%d] %s", index, len(shapefiles), shapefile.name)
-        imported += import_shapefile(shapefile, engine, args, provider_id,
-                                     boundary_provider_id, logger)
+    # More workers than shapefiles would just be idle processes, and one shapefile
+    # is a serial run whatever was asked for.
+    jobs = min(args.jobs, len(shapefiles))
+    if jobs > 1:
+        imported = import_in_parallel(shapefiles, args, provider_id, boundary_provider_id,
+                                      jobs, logger)
+    else:
+        imported = 0
+        logger.info("Importing %d shapefile(s)", len(shapefiles))
+        for index, shapefile in enumerate(shapefiles, start=1):
+            logger.info("[%d/%d] %s", index, len(shapefiles), shapefile.name)
+            imported += import_shapefile(shapefile, engine, args, provider_id,
+                                         boundary_provider_id, logger)
 
     logger.info("Imported %d fires from %d shapefile(s) in %.0fs", imported, len(shapefiles),
                 time.monotonic() - started)
