@@ -255,10 +255,72 @@ were checked against the 2025-07-29 release, which has 318 features:
    filter on the field. Should a later release ship several views, the same country would
    appear more than once and the import would need to choose.
 
+CAOP
+----
+
+The `DGT <https://www.dgterritorio.gov.pt>`_ (Direção-Geral do Território) publishes the
+*Carta Administrativa Oficial de Portugal*, the country's official administrative map.
+GisFIRE imports three of its levels — *distritos*, *municípios* and *freguesias* — as
+administrative levels 1 to 3 below the country:
+
+    https://www.dgterritorio.gov.pt/dados-abertos
+
+:doc:`providers/caop_provider`
+    The dataset itself: its two hierarchies, its four files and why each edition is a
+    data provider of its own.
+
+:doc:`providers/caop_admin_boundary`
+    The boundary model. The code, the name, the nesting and the polygon are already the
+    generic model's, so the subclass adds the edition, which division it is, the parish's
+    simplified name and the NUTS region it belongs to.
+
+It is imported for a reason the other boundary datasets do not share: the ICNF says where
+a fire started as administrative codes and names, never as a coordinate, so these
+polygons are what locates such a fire. See
+:doc:`applications/caop_import_admin_boundaries`.
+
+Four properties of the source are worth knowing before importing it:
+
+Each of the four files is in a different CRS
+    The mainland is EPSG:3763 (ETRS89 / Portugal TM06), the island groups EPSG:5014,
+    5015 and 5016 (PTRA08 / UTM zones 25N, 26N and 28N). All are ETRS89/PTRA08-based, so
+    reprojecting to EPSG:4326 is sub-metre, but there is no single source CRS for the
+    country.
+
+The codes nest exactly, and are the hierarchy
+    ``dt`` (2 characters) is a prefix of ``dtmn`` (4) is a prefix of ``dtmnfr`` (6),
+    without one exception in the 3 259 parishes, and the codes are unique across the four
+    files. The tree is built from them by prefix rather than by a spatial containment
+    test. ``dtmnfr`` is the DICOFRE the ICNF publishes.
+
+NUTS is a second hierarchy, and it does not nest inside the first
+    12 of the 26 NUTS 3 regions span more than one *distrito* — *Tâmega e Sousa* spans
+    four. Since
+    :class:`~src.data_model.geography.admin_boundary.AdminBoundary` has one ``parent_id``,
+    only one hierarchy can be the tree. GisFIRE makes the *distrito* one the tree and
+    carries the NUTS region as columns, so grouping by it is a ``GROUP BY`` rather than a
+    walk.
+
+There is no Portugal
+    The ``nuts1`` layers give *Continente*, *R.A. Açores* and *R.A. Madeira*, never the
+    country. The *distritos* are parented to the OCHA level 0 boundary instead, which is
+    the only country polygon GisFIRE has — the one place where a boundary's parent comes
+    from a different provider.
+
+.. warning::
+
+   Parish boundaries and their codes are **not stable across editions**. The 2013 reform
+   merged Portugal's parishes from about 4 260 to some 3 092 and reassigned codes, so a
+   DICOFRE from a 2010 fire may name nothing in CAOP 2025, or name a differently shaped
+   parish. Each edition is imported as its own data provider so that editions can sit
+   side by side and a fire can be matched to the boundaries in force when it burnt.
+
 .. toctree::
    :maxdepth: 1
    :hidden:
 
+   providers/caop_provider
+   providers/caop_admin_boundary
    providers/gfa_ignition
    providers/gfa_wildfire
    providers/gwis_wildfire

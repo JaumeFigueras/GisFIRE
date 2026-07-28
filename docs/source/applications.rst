@@ -53,6 +53,12 @@ Data import
     wildfire to a country. Drives ``ogr2ogr`` for the geometry handling and maps the
     result onto the model in SQL.
 
+:doc:`applications/caop_import_admin_boundaries`
+    Imports the Portuguese *distritos*, *municípios* and *freguesias* from the Carta
+    Administrativa Oficial de Portugal as levels 1 to 3 below the country. What turns an
+    ICNF fire's DICOFRE code into a location, since that dataset publishes no coordinate
+    for where a fire started.
+
 :doc:`applications/time_zone_import_time_zones`
     Imports IANA time zone polygons from *timezone-boundary-builder*. Reference data with
     one job: turning a coordinate into a zone name, so that a provider publishing local
@@ -108,6 +114,7 @@ as the importers::
    :hidden:
 
    applications/ocha_import_admin_boundaries
+   applications/caop_import_admin_boundaries
    applications/time_zone_import_time_zones
    applications/gwis_import_wildfires
    applications/gfa_import_wildfires

@@ -228,12 +228,20 @@ def load_staging_table(datasource: str, layer: str, staging_table: str,
                        args: argparse.Namespace, settings: dict[str, str],
                        logger: logging.Logger, geometry_type: str = "MULTIPOLYGON",
                        progress: bool | None = None, target_srs: str = "EPSG:4326",
-                       open_options: list[str] | None = None) -> None:
+                       open_options: list[str] | None = None,
+                       append: bool = False) -> None:
     """Copy one layer into the staging table with ``ogr2ogr``.
 
     Geometries are promoted to ``geometry_type`` and forced to ``target_srs``,
     even for a source that already publishes in it — an import should not quietly
     depend on the source never changing.
+
+    ``append`` adds to the staging table instead of replacing it, which is what a
+    source split across several files needs: the CAOP publishes each of Portugal's
+    territories separately, in four different projected CRSs, and the import wants
+    the four gathered into one table already reprojected. The layer creation
+    options are dropped when appending — the table exists, so GDAL would only warn
+    that it is ignoring them.
 
     ``target_srs`` defaults to EPSG:4326, which is what the generic models store
     and so what nearly every import wants. An importer that also keeps the
@@ -268,12 +276,12 @@ def load_staging_table(datasource: str, layer: str, staging_table: str,
     command += [
         datasource, layer,
         "-nln", staging_table,
-        "-overwrite",
+        "-append" if append else "-overwrite",
         "-nlt", geometry_type,
         "-t_srs", target_srs,
-        "-lco", "GEOMETRY_NAME=geom",
-        "-lco", "FID=fid",
     ]
+    if not append:
+        command += ["-lco", "GEOMETRY_NAME=geom", "-lco", "FID=fid"]
     if show_progress:
         command.append("-progress")
     logger.info("Loading %s (layer %s) into %s with ogr2ogr", datasource, layer, staging_table)
