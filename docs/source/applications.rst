@@ -89,6 +89,12 @@ Data import
     published EPSG:3763 geometry as well as the EPSG:4326 one, and records per row how
     much of its date the provider actually published.
 
+:doc:`applications/icnf_resync_wildfires`
+    Goes back to the ICNF's WFS for the times the shapefile export truncated — a
+    shapefile's DBF has no datetime type, so every published instant arrived as a bare
+    date — and refreshes the rest of the published attributes while it is there. One
+    HTTP request per year, rate-limited and retrying, restartable a layer at a time.
+
 .. note::
 
    Order matters for the wildfire import: the boundaries and the time zone areas are
@@ -125,4 +131,5 @@ as the importers::
    applications/gwis_import_wildfires
    applications/gfa_import_wildfires
    applications/icnf_import_wildfires
+   applications/icnf_resync_wildfires
    applications/gwis_wildfire_statistics
