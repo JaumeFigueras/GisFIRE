@@ -102,6 +102,123 @@ The extension itself is created by the initial revision, which runs
 ``downgrade()`` does not drop the extension: other schemas in the same database may
 depend on it.
 
+.. _migrations-views:
+
+Views
+-----
+
+Each dataset is stored across two tables — the generic ``wildfire`` or ``ignition`` row
+and the provider's own columns beside it (joined table inheritance, see
+:doc:`../providers`). That is right for the model and wrong for QGIS, which wants one
+relation with everything on it. So the schema also carries a **view per dataset**,
+flattening the two tables and resolving the foreign keys to names:
+
+===========================  ==========================================  =====================
+View                         Flattens                                    Geometry
+===========================  ==========================================  =====================
+``v_gwis_wildfire``          ``wildfire`` + ``gwis_wildfire``            ``MULTIPOLYGON``, 4326
+``v_gfa_wildfire``           ``wildfire`` + ``gfa_wildfire``             ``MULTIPOLYGON``, 4326
+``v_gfa_ignition``           ``ignition`` + ``gfa_ignition``             ``POINT``, 4326
+``v_icnf_wildfire_4326``     ``wildfire`` + ``icnf_wildfire``            ``MULTIPOLYGON``, 4326
+``v_icnf_wildfire_3763``     ``wildfire`` + ``icnf_wildfire``            ``MULTIPOLYGON``, 3763
+===========================  ==========================================  =====================
+
+Portugal appears twice because a QGIS layer takes a single geometry column and the ICNF
+data has two perimeters: the one it publishes in EPSG:3763 (ETRS89 / PT-TM06), on
+``icnf_wildfire``, and the EPSG:4326 one the import reprojects onto ``wildfire``. Both
+views name it ``perimeter``, so a style or an expression written against one works on
+the other.
+
+The views are read-only, add no storage and no constraints, and every datetime comes
+with a ``*_local`` companion giving the reading as the provider published it.
+
+Writing them
+^^^^^^^^^^^^
+
+Alembic has no view construct: it diffs tables and columns, and a view has no diffable
+state — it is a definition that is either there or not. So the project uses the
+cookbook's `replaceable objects
+<https://alembic.sqlalchemy.org/en/latest/cookbook.html#replaceable-objects>`_ recipe,
+implemented in :doc:`../data_model/replaceable`. A view is a
+:class:`~src.data_model.replaceable.ReplaceableObject`, and a revision gets
+``op.create_view()``, ``op.drop_view()`` and ``op.replace_view()``:
+
+.. code-block:: python
+
+   from src.data_model.replaceable import ReplaceableObject
+
+   my_view = ReplaceableObject("v_something", "SELECT ...")
+
+   def upgrade() -> None:
+       op.create_view(my_view)
+
+   def downgrade() -> None:
+       op.drop_view(my_view)
+
+To change an existing view, write the new definition in a **new** revision and point it
+at the old one by ``<revision>.<variable name>``; the downgrade is the mirror image:
+
+.. code-block:: python
+
+   def upgrade() -> None:
+       op.replace_view(my_view, replaces="e4b7c1a90f3d.gwis_wildfire_view")
+
+   def downgrade() -> None:
+       op.replace_view(my_view, replace_with="e4b7c1a90f3d.gwis_wildfire_view")
+
+Every revision therefore keeps its **own copy** of the SQL, rather than importing a
+shared definition that later edits would change underneath it. A migration has to stay a
+faithful snapshot of the schema as it was, or downgrading a database that has been
+sitting at an old revision stops working.
+
+.. note::
+
+   Autogenerate never sees views — Alembic reflects tables only. That means it will not
+   propose creating or updating one (they are written by hand), but also that a view can
+   never turn into a spurious ``drop_table`` in a generated revision, and that
+   ``test_migrations_match_the_models`` keeps passing with the views in place.
+
+.. warning::
+
+   PostgreSQL records a dependency from a view to every column it selects, so while a
+   view exists, ``ALTER COLUMN ... TYPE`` or ``DROP COLUMN`` on one of those columns
+   **fails**. A revision that changes such a column has to ``op.drop_view()`` first and
+   ``op.create_view()`` again at the end — which is the reason the definitions are worth
+   keeping tidy and in one file per revision.
+
+What makes them work in QGIS
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Four properties, all asserted by ``test/test_migrations.py`` so a future edit cannot
+quietly break a layer:
+
+``id`` is the parent's integer primary key
+    QGIS cannot infer a key for a view and needs a unique integer column to identify
+    features with.
+
+The geometry column is selected straight from its table
+    Never wrapped in a function. That preserves the type modifier
+    (``geometry(MultiPolygon,4326)``), which is what registers the view in PostGIS's
+    ``geometry_columns`` and lets QGIS detect geometry type and SRID on its own. A
+    wrapped expression such as ``ST_Transform(perimeter, 3763)`` returns an untyped
+    ``geometry``: the layer still loads, but the user has to fill in type and SRID by
+    hand. Cast it back — ``::geometry(MultiPolygon,3763)`` — if a transform is ever
+    genuinely needed.
+
+One geometry per view
+    Hence the two Portugal views.
+
+Foreign keys come with their names
+    ``data_provider_name``, ``admin_boundary_name`` and the ICNF cause columns, so the
+    attribute table reads as text instead of integers. Both lookups are ``LEFT JOIN``\ s:
+    a fire whose boundary was never resolved must not vanish from the view.
+
+Loading a view in QGIS is the same as loading a table (*Add PostGIS Layers*); pick ``id``
+as the feature id if the browser asks. If the perimeter tables grow to the point where
+the join costs real time, the next step is a materialised view with its own GiST index
+and a refresh in the importers — not built, and not worth building until something is
+measurably slow.
+
 .. _migrations-drift:
 
 Keeping migrations and models in sync

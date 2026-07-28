@@ -244,6 +244,12 @@ below as they are ported.
     EPSG:4326. Turns a coordinate into a zone name, which is what lets a provider's local
     wall-clock time be converted to an instant.
 
+:doc:`data_model/replaceable`
+    Not a model: the Alembic support that lets a migration create and drop a **view**.
+    The joined table inheritance above is right for the model and awkward for QGIS, which
+    wants one relation per layer, so the schema also carries a view per dataset —
+    see :ref:`migrations-views`.
+
 .. toctree::
    :maxdepth: 1
    :hidden:
@@ -254,3 +260,4 @@ below as they are ported.
    data_model/ignition
    data_model/geography_admin_boundary
    data_model/geography_time_zone
+   data_model/replaceable

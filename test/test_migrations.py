@@ -9,6 +9,8 @@ goes with it. These tests run the migrations against a real (ephemeral)
 PostgreSQL and compare the result with the models.
 """
 
+import datetime
+
 import pytest
 
 from alembic.autogenerate import compare_metadata
@@ -25,6 +27,20 @@ import src.providers  # noqa: F401  (registers the provider tables on Base.metad
 
 from src.data_model import Base
 from src.settings import ROOT_DIR
+
+
+#: The QGIS views the migrations create, each with the geometry column it
+#: exposes and the type and SRID that column must have. Keeping the expectation
+#: here rather than reading it back from the migration is the point: a view whose
+#: geometry stops being detectable is a broken QGIS layer, and the test has to
+#: fail on it instead of following the change.
+VIEWS = {
+    "v_gwis_wildfire": ("perimeter", "MULTIPOLYGON", 4326),
+    "v_gfa_wildfire": ("perimeter", "MULTIPOLYGON", 4326),
+    "v_gfa_ignition": ("geometry", "POINT", 4326),
+    "v_icnf_wildfire_4326": ("perimeter", "MULTIPOLYGON", 4326),
+    "v_icnf_wildfire_3763": ("perimeter", "MULTIPOLYGON", 3763),
+}
 
 
 @pytest.fixture
@@ -102,16 +118,153 @@ def test_the_sequence_backed_ids_have_a_usable_sequence(alembic_config, table):
     engine.dispose()
 
 
+@pytest.mark.parametrize("view", sorted(VIEWS))
+def test_the_dataset_views_are_queryable(alembic_config, view):
+    """Each dataset view exists after upgrading and its ``SELECT`` runs.
+
+    ``CREATE VIEW`` already parses the query against the real schema, so a view
+    naming a column that does not exist fails the upgrade rather than this
+    assertion. What is checked here is the step after that: the join actually
+    executes, and the view is a view rather than something the recipe left half
+    made.
+    """
+    config, url = alembic_config
+    upgrade(config, "head")
+
+    engine = create_engine(url)
+    with engine.connect() as connection:
+        assert view in set(inspect(engine).get_view_names())
+        # Empty database, so the count is 0 — running the query is the assertion.
+        assert connection.execute(text(f"SELECT count(*) FROM {view}")).scalar() == 0
+    engine.dispose()
+
+
+@pytest.mark.parametrize("view", sorted(VIEWS))
+def test_the_dataset_views_carry_a_qgis_usable_key(alembic_config, view):
+    """Every view exposes ``id`` as a plain integer.
+
+    QGIS cannot infer a primary key for a view: it needs a unique integer column
+    to identify features with, and picks ``id`` here. A view that returned it as
+    ``bigint``, or dropped it, would still load in QGIS and then misbehave on
+    selection and editing, so it is checked explicitly.
+    """
+    config, url = alembic_config
+    upgrade(config, "head")
+
+    engine = create_engine(url)
+    with engine.connect() as connection:
+        data_type = connection.execute(
+            text(
+                "SELECT data_type FROM information_schema.columns "
+                "WHERE table_name = :view AND column_name = 'id'"
+            ),
+            {"view": view},
+        ).scalar()
+    engine.dispose()
+
+    assert data_type == "integer"
+
+
+@pytest.mark.parametrize("view", sorted(VIEWS))
+def test_the_dataset_views_register_their_geometry(alembic_config, view):
+    """PostGIS resolves each view's geometry column, with the right type and SRID.
+
+    This is the property the views are written around. Selecting a geometry
+    column straight through keeps its type modifier, which is what puts the view
+    in ``geometry_columns`` and lets QGIS detect geometry type and SRID on its
+    own. Wrap that column in a function without casting the result back and the
+    entry silently degrades to an untyped ``GEOMETRY`` with SRID 0 — the view
+    still loads, but only after the user fills the two in by hand.
+    """
+    config, url = alembic_config
+    upgrade(config, "head")
+
+    column, geometry_type, srid = VIEWS[view]
+    engine = create_engine(url)
+    with engine.connect() as connection:
+        registered = connection.execute(
+            text(
+                "SELECT type, srid FROM geometry_columns "
+                "WHERE f_table_name = :view AND f_geometry_column = :column"
+            ),
+            {"view": view, "column": column},
+        ).one_or_none()
+    engine.dispose()
+
+    assert registered is not None, f"{view}.{column} is not registered in geometry_columns"
+    assert tuple(registered) == (geometry_type, srid)
+
+
+def test_a_dataset_view_flattens_the_two_tables(alembic_config):
+    """A wildfire inserted across the inheritance comes back as one view row.
+
+    The other view tests check shape; this one checks the join is right. The
+    parent's columns, the subclass's identifier and the provider's name have to
+    arrive on a single row, and ``start_date_time_local`` has to give back the
+    wall-clock reading the provider published — 2021-07-29 local from the instant
+    ``2021-07-29T07:00:00Z`` and ``America/Los_Angeles``, the worked example in
+    the ``wildfire`` module docstring.
+    """
+    config, url = alembic_config
+    upgrade(config, "head")
+
+    engine = create_engine(url)
+    with engine.begin() as connection:
+        provider_id = connection.execute(
+            text(
+                "INSERT INTO data_provider (name, product, full_name) "
+                "VALUES ('GWIS', 'Global Wildfire Database', 'Global Wildfire Information System') "
+                "RETURNING id"
+            )
+        ).scalar()
+        wildfire_id = connection.execute(
+            text(
+                "INSERT INTO wildfire (type, data_provider_id, start_date_time, time_zone, perimeter) "
+                "VALUES ('gwis_wildfire', :provider_id, '2021-07-29T07:00:00Z', 'America/Los_Angeles', "
+                "ST_GeomFromText('MULTIPOLYGON(((0 0, 0 1, 1 1, 1 0, 0 0)))', 4326)) "
+                "RETURNING id"
+            ),
+            {"provider_id": provider_id},
+        ).scalar()
+        connection.execute(
+            text("INSERT INTO gwis_wildfire (id, gwis_id) VALUES (:id, '24935861')"),
+            {"id": wildfire_id},
+        )
+
+    with engine.connect() as connection:
+        row = connection.execute(
+            text(
+                "SELECT id, gwis_id, data_provider_name, admin_boundary_name, "
+                "start_date_time_local, end_date_time_local, ST_SRID(perimeter) "
+                "FROM v_gwis_wildfire"
+            )
+        ).one()
+    engine.dispose()
+
+    assert row.id == wildfire_id
+    assert row.gwis_id == "24935861"
+    assert row.data_provider_name == "GWIS"
+    # LEFT JOIN: an unresolved boundary must not drop the fire from the view.
+    assert row.admin_boundary_name is None
+    assert row.start_date_time_local == datetime.datetime(2021, 7, 29, 0, 0)
+    # NULL in, NULL out — the fire is still burning, not extinguished at epoch.
+    assert row.end_date_time_local is None
+    assert row.st_srid == 4326
+
+
 def test_migrations_downgrade_to_base(alembic_config):
-    """Every revision can be undone, leaving no GisFIRE table behind."""
+    """Every revision can be undone, leaving no GisFIRE table or view behind."""
     config, url = alembic_config
     upgrade(config, "head")
     downgrade(config, "base")
 
     engine = create_engine(url)
-    tables = set(inspect(engine).get_table_names())
+    inspector = inspect(engine)
+    tables = set(inspector.get_table_names())
+    views = set(inspector.get_view_names())
     engine.dispose()
 
     assert "data_provider" not in tables
     assert "wildfire" not in tables
     assert "gwis_wildfire" not in tables
+    assert views & set(VIEWS) == set()
