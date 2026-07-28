@@ -315,6 +315,67 @@ There is no Portugal
    parish. Each edition is imported as its own data provider so that editions can sit
    side by side and a fire can be matched to the boundaries in force when it burnt.
 
+IGN
+---
+
+The `IGN <https://www.ign.es>`_ (Instituto Geográfico Nacional) publishes the *Base de
+Datos de Divisiones Administrativas de España*, the national administrative map, through
+the CNIG download centre. GisFIRE imports its three polygon levels — *comunidades
+autónomas*, *provincias* and *municipios* — as administrative levels 1 to 3 below the
+country:
+
+    https://centrodedescargas.cnig.es
+
+:doc:`providers/ign_provider`
+    The dataset itself: its padded hierarchy, its two datums, its NUTS columns and what
+    the import leaves out.
+
+:doc:`providers/ign_admin_boundary`
+    The boundary model. The code, the name, the nesting and the polygon are already the
+    generic model's, so the subclass adds the edition, which division it is, the INE
+    municipal code and the NUTS region.
+
+Five properties of the source are worth knowing before importing it:
+
+The published layers are INSPIRE, not Spanish
+    Fields are ``NATCODE``, ``NAMEUNIT`` and ``CODNUT1``/``2``/``3``. The ``recintos_*``
+    layers are the areas; the ``ll_*`` layers are the boundary lines and are not
+    imported.
+
+``NATCODE`` nests, but it is padded
+    Eleven digits at every level — ``34`` + *comunidad* (2) + *provincia* (2) + INE
+    municipal code (5) — zero-filled on the right. A child's code begins with its
+    parent's, so the tree is built from the codes, but the padding has to be put back:
+    ``left(natcode, 6) || '00000'`` rather than a plain prefix.
+
+Both datums transform to WGS84 without moving a coordinate
+    ETRS89 (EPSG:4258) for the peninsula and the Balearics, REGCAN95 (EPSG:4081) for the
+    Canaries. Both are geographic, both on GRS80, and both declare a null transformation
+    — unlike the CAOP's four projected grids, where reprojection is real work.
+
+NUTS refines the administrative tree instead of crossing it
+    ``CODNUT2`` maps one-to-one onto the *comunidad autónoma*, and no NUTS 3 region spans
+    more than one province — it equals the province except in three island provinces,
+    which it splits one region per island. So unlike Portugal, there is no hierarchy to
+    choose between and the NUTS codes are simply columns. The IGN fills ``CODNUT3`` on
+    *municipios* only.
+
+81 of the *municipios* are not municipalities
+    *Condominios*, *comuneros*, *facerías* and *parzonerías* — land shared between
+    municipalities, mapped at the same level with a pseudo-province code of ``53``. They
+    are imported: they are real ground that can burn. Excluding them would leave holes in
+    the coverage, and without them the count is the INE's 8 132.
+
+.. warning::
+
+   The dataset includes **Gibraltar**, the *plazas de soberanía* off the Moroccan coast
+   and the Franco-Spanish condominium of the Isla de los Faisanes, as seven areas the IGN
+   types ``Territorio`` rather than ``Municipio``. They are **excluded by default**,
+   along with the pseudo *comunidad* and *provincia* that exist only to hold them:
+   Gibraltar is a separate country in the OCHA boundaries GisFIRE already imports, so
+   keeping it here would put one place in the tree twice under two sovereigns.
+   ``--include-territories`` brings all nine back, typed ``territorio``.
+
 .. toctree::
    :maxdepth: 1
    :hidden:
@@ -327,4 +388,6 @@ There is no Portugal
    providers/icnf_provider
    providers/icnf_wildfire
    providers/icnf_fire_cause
+   providers/ign_provider
+   providers/ign_admin_boundary
    providers/ocha_admin_boundary

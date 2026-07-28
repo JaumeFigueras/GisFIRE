@@ -59,6 +59,11 @@ Data import
     ICNF fire's DICOFRE code into a location, since that dataset publishes no coordinate
     for where a fire started.
 
+:doc:`applications/ign_import_admin_boundaries`
+    Imports the Spanish *comunidades autónomas*, *provincias* and *municipios* from the
+    IGN's administrative database as levels 1 to 3 below the country. Carries the INE
+    municipal code, which is what Spanish statistical and wildfire sources join on.
+
 :doc:`applications/time_zone_import_time_zones`
     Imports IANA time zone polygons from *timezone-boundary-builder*. Reference data with
     one job: turning a coordinate into a zone name, so that a provider publishing local
@@ -115,6 +120,7 @@ as the importers::
 
    applications/ocha_import_admin_boundaries
    applications/caop_import_admin_boundaries
+   applications/ign_import_admin_boundaries
    applications/time_zone_import_time_zones
    applications/gwis_import_wildfires
    applications/gfa_import_wildfires
