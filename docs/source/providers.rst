@@ -178,6 +178,99 @@ The perimeter is stored twice, in EPSG:3763 and EPSG:4326
    place — but the layers publish **no ignition coordinate**, so there would be no point
    to put in it.
 
+EGIF
+----
+
+The Spanish `MITECO <https://www.miteco.gob.es>`_ compiles the *Estadística General de
+Incendios Forestales*, the national fire statistics, from the **PIF** (*Parte de Incendio
+Forestal*) — the official report form filled in for every forest fire in the country.
+It is published through a public search service:
+
+    https://servicio.mapa.gob.es/incendios/Search/Publico
+
+:doc:`providers/egif_wildfire`
+    The report itself: where the fire is filed administratively, what it burnt split by
+    land type, its cause and — for an intentional fire — its motivation.
+
+:doc:`providers/egif_ignition`
+    The *punto de inicio*, the point the fire started at. A
+    :doc:`data_model/ignition` of its own, as for GFA, and the reason this dataset is
+    worth importing at all.
+
+:doc:`providers/egif_wildfire_report`
+    The blocks of the report that only the XML export publishes, as a one-to-one child
+    of the wildfire.
+
+:doc:`providers/egif_fire_cause` and :doc:`providers/egif_fire_motivation`
+    The two code catalogues, each with the Spanish label published beside the code.
+
+:doc:`providers/egif_provider`
+    The constants the models and the importers share.
+
+Five things about this dataset are worth knowing before using it. All five were checked
+against a national Excel export of 13,656 fires (campaigns 2022 and 2023) and the XML
+export of Barcelona 2020:
+
+There is no perimeter, and there never will be
+    EGIF is an administrative statistic. It publishes a burnt *area* in hectares, split
+    by land type, and no polygon in any of its exports. An EGIF fire's
+    :attr:`~src.data_model.wildfire.Wildfire.perimeter` is ``NULL`` for good.
+
+    What it does publish, alone among the Iberian datasets here, is a **coordinate for
+    the ignition point** — which is what the ICNF data lacks and what makes the two
+    complementary rather than redundant.
+
+The two exports are read together, in a fixed order
+    The **Excel** "resumen" is one flat row per fire and prints codes *with their
+    labels* — ``[213]  Quema de restos agrícolas (viñas,etc)``. The **XML** carries the
+    full report with the numeric identifiers the Excel drops, but every code in it is
+    bare. Since the service's own catalogue endpoints are behind a login, the Excel is
+    the only public source of the labels, so an Excel export seeds the two lookup tables
+    and the XML import resolves its codes against them.
+
+    Both key on ``numeroparte``, so the same fire lands on one row whichever export it
+    came from. Whether it has been seen in the XML is recorded by the presence of an
+    :doc:`providers/egif_wildfire_report` row and nothing else.
+
+A published year is never complete
+    Every fire the service exports is in state *Cerrado Revisión*, and a region's fires
+    appear only once that region has closed them. The 2022 campaign in the export
+    checked here is missing Cantabria and Navarra; 2023 is missing Cataluña,
+    Extremadura and Canarias; Navarra is absent from both. The 2022 forest total of
+    243,610 ha is well short of the ~306,000 ha eventually published.
+
+    So a year has to be re-exported and re-imported later, and the import is an upsert
+    on the report number rather than an append.
+
+The cause families are not what the paper form suggests
+    ``idcausa`` is hierarchical, but ``400`` is *Intencionado*, ``500`` *Desconocida*
+    and ``600`` *Reproducido* — one family further along than the order printed on the
+    form implies. Reading it the other way would file 7,117 intentional fires of 13,656
+    as unknown.
+
+    ``idmotivacion`` is a **different code space** that overlaps: ``400`` is
+    *Motivación desconocida* there. The two are separate tables and must never be joined
+    on the code alone.
+
+Times are local, and not all in the same zone
+    Both exports publish naive wall-clock readings. They are resolved against
+    ``Europe/Madrid``, except in the Canary Islands, which are an hour behind. And
+    :attr:`~src.data_model.wildfire.Wildfire.start_date_time` is the **detection**
+    instant: nothing in EGIF says when the fire actually started.
+
+.. note::
+
+   ``v_egif_wildfire`` is the one wildfire view whose geometry is a ``POINT``. Every
+   other one exposes a perimeter; EGIF has none, so the fire is mapped where it started,
+   by joining the ignition. See :doc:`setup/database_migrations`.
+
+.. warning::
+
+   The interval between detection and extinction is unreliable at the tail. The export
+   contains a 0.02 ha fire stamped as burning for exactly 365 days and a 0.10 ha one for
+   141 days, alongside genuine multi-week fires such as the 22,233 ha Sierra de la
+   Culebra. Treat anything beyond about a week as suspect rather than as data.
+
 OCHA
 ----
 
@@ -382,6 +475,12 @@ NUTS refines the administrative tree instead of crossing it
 
    providers/caop_provider
    providers/caop_admin_boundary
+   providers/egif_provider
+   providers/egif_ignition
+   providers/egif_wildfire
+   providers/egif_wildfire_report
+   providers/egif_fire_cause
+   providers/egif_fire_motivation
    providers/gfa_ignition
    providers/gfa_wildfire
    providers/gwis_wildfire

@@ -17,6 +17,11 @@ import :mod:`src.providers`, not just :mod:`src.data_model`.
 # Imported for the side effect of registering the tables; kept at the bottom of
 # the module for the same reason as in src/data_model/__init__.py.
 from src.providers.caop.admin_boundary import CaopAdminBoundary  # noqa: E402,F401
+from src.providers.egif.fire_cause import EgifFireCause  # noqa: E402,F401
+from src.providers.egif.fire_motivation import EgifFireMotivation  # noqa: E402,F401
+from src.providers.egif.ignition import EgifIgnition  # noqa: E402,F401
+from src.providers.egif.wildfire import EgifWildfire  # noqa: E402,F401
+from src.providers.egif.wildfire_report import EgifWildfireReport  # noqa: E402,F401
 from src.providers.gfa.ignition import GfaIgnition  # noqa: E402,F401
 from src.providers.gfa.wildfire import GfaWildfire  # noqa: E402,F401
 from src.providers.gwis.wildfire import GwisWildfire  # noqa: E402,F401

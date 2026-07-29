@@ -121,6 +121,8 @@ View                         Flattens                                    Geometr
 ``v_gfa_ignition``           ``ignition`` + ``gfa_ignition``             ``POINT``, 4326
 ``v_icnf_wildfire_4326``     ``wildfire`` + ``icnf_wildfire``            ``MULTIPOLYGON``, 4326
 ``v_icnf_wildfire_3763``     ``wildfire`` + ``icnf_wildfire``            ``MULTIPOLYGON``, 3763
+``v_egif_ignition``          ``ignition`` + ``egif_ignition``            ``POINT``, 4326
+``v_egif_wildfire``          ``wildfire`` + ``egif_wildfire``            ``POINT``, 4326
 ===========================  ==========================================  =====================
 
 Portugal appears twice because a QGIS layer takes a single geometry column and the ICNF
@@ -128,6 +130,13 @@ data has two perimeters: the one it publishes in EPSG:3763 (ETRS89 / PT-TM06), o
 ``icnf_wildfire``, and the EPSG:4326 one the import reprojects onto ``wildfire``. Both
 views name it ``perimeter``, so a style or an expression written against one works on
 the other.
+
+``v_egif_wildfire`` is the odd one out: a wildfire view whose geometry is a ``POINT``.
+EGIF publishes no perimeter at all — see :doc:`../providers` — so a ``perimeter`` column
+would be a layer of NULLs, and the useful layer is the fire's attributes mapped at the
+point it started. The view therefore joins through to ``egif_ignition`` and exposes that
+point. It also carries ``has_full_report``, which says whether the fire has been read
+from the XML export as well as the Excel one.
 
 The views are read-only, add no storage and no constraints, and every datetime comes
 with a ``*_local`` companion giving the reading as the provider published it.

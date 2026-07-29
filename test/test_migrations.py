@@ -40,6 +40,10 @@ VIEWS = {
     "v_gfa_ignition": ("geometry", "POINT", 4326),
     "v_icnf_wildfire_4326": ("perimeter", "MULTIPOLYGON", 4326),
     "v_icnf_wildfire_3763": ("perimeter", "MULTIPOLYGON", 3763),
+    "v_egif_ignition": ("geometry", "POINT", 4326),
+    # A POINT on a wildfire view, alone among them: EGIF publishes no perimeter,
+    # so the fire is mapped at the point it started. See revision 9a3d61c07e84.
+    "v_egif_wildfire": ("geometry", "POINT", 4326),
 }
 
 
