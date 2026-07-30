@@ -1,8 +1,8 @@
 GWIS wildfire statistics
 ========================
 
-Reports the burnt area of the GWIS GlobFire wildfires, per country and year: the smallest
-single fire, the largest single fire and the total, in hectares.
+Reports the GWIS GlobFire wildfires per country and year: how many there were, and the
+smallest single fire, the largest single fire and the total burnt area, in hectares.
 
 Usage
 -----
@@ -19,6 +19,10 @@ Over everything, or narrowed to one country, one year, or both:
 ``--country`` takes either a name (``Spain``) or an ISO 3166-1 alpha-3 code (``ESP``),
 case-insensitively. At least one of ``--csv`` and ``--docx`` is required.
 
+``--country-source`` decides whether a fire's country is taken from the real country
+geometry (the default) or from what the import stored — see *Which country a fire
+counts towards* below.
+
 The application only reads; it never modifies the database. Settings are read from the
 environment (``.env``, see :doc:`../setup/configuration`) and each can be overridden with
 ``--db-host``, ``--db-port``, ``--db-name``, ``--db-user``, ``--db-password``.
@@ -29,28 +33,28 @@ Output
 Both formats carry the same table. Each country's years run newest first, closed by a
 ``Total`` row:
 
-=============  ======  ============  ============  ============
-Country        Year    Minimum (ha)  Maximum (ha)  Total (ha)
-=============  ======  ============  ============  ============
-Spain          2021           21.47      21985.45      91721.90
-Spain          2020           21.47        193.30        622.93
-Spain          Total          21.47      21985.45      92344.83
-France         2021           21.51       7978.39      11271.13
-France         Total          21.51       7978.39      11271.13
-=============  ======  ============  ============  ============
+=============  ======  =======  ============  ============  ============
+Country        Year      Fires  Minimum (ha)  Maximum (ha)  Total (ha)
+=============  ======  =======  ============  ============  ============
+Spain          2021       1204         21.47      21985.45      91721.90
+Spain          2020        876         21.47        193.30        622.93
+Spain          Total      2080         21.47      21985.45      92344.83
+France         2021        331         21.51       7978.39      11271.13
+France         Total       331         21.51       7978.39      11271.13
+=============  ======  =======  ============  ============  ============
 
 .. important::
 
-   A country's ``Total`` row is **not** a total of the column above it. Its minimum is the
-   smallest fire that country has had in *any* year in scope and its maximum the largest;
-   only the last column is a sum. Summing a column of minima would produce a number with
-   no meaning.
+   A country's ``Total`` row is **not** a total of every column above it. ``Fires`` and
+   ``Total (ha)`` are sums; ``Minimum`` and ``Maximum`` are the smallest and largest fire
+   that country had in *any* year in scope. Summing a column of minima would produce a
+   number with no meaning.
 
 The two formats differ deliberately in one respect: the ``.csv`` writes bare numbers
-(``21985.45``) because it is read by another program more often than by a person, while
-the ``.docx`` writes them with thousands separators and right-aligned, because it is not.
-In the Word document each ``Total`` row is bold, which is what separates the country
-blocks visually.
+(``21985.45``, ``1204``) because it is read by another program more often than by a
+person, while the ``.docx`` writes them with thousands separators and right-aligned,
+because it is not. In the Word document each ``Total`` row is bold, which is what
+separates the country blocks visually.
 
 .. note::
 
@@ -86,6 +90,62 @@ implementations rather than a number copied out of the first run.
    500 m MCD64A1 burned-area product, whose cells are 463.31 m on a side — so it is the
    dataset's own floor showing through, not an artefact of the measurement.
 
+Which country a fire counts towards
+-----------------------------------
+
+Chosen with ``--country-source``:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 20 80
+
+   * - Mode
+     - What it does
+   * - ``geometry`` *(default)*
+     - Asks the database which country actually contains the fire, **at report
+       time**, by testing an interior point of its perimeter against the real
+       country polygons. A fire inside no country is excluded.
+   * - ``reported``
+     - Uses the ``admin_boundary_id`` the import stored.
+
+The default is the cautious one, and it is the default because of datasets other
+than this one.
+
+**Here the two agree.** GWIS resolves each fire's country by containment at import
+time, so ``reported`` is simply the faster path — and materially so:
+
+.. code-block:: text
+
+   60,000 fires, 5 countries of 2,000 vertices each
+     --country-source geometry    1.47 s
+     --country-source reported    0.14 s     (10.7x faster)
+
+   ~25 s per million fires -> the whole 23.3M-fire GWIS dataset ~ 10 minutes
+
+(Indicative: real OCHA outlines are more complex than the synthetic ones measured
+here, and ``ST_PointOnSurface`` on a large multipart perimeter costs more than on
+a small one. The ratio is the part to trust, not the absolute.)
+
+**Elsewhere they do not.** EGIF resolves its boundary from an INE municipal code
+rather than from a coordinate, so a *parte* filed in Ourense whose published
+northing is missing three digits keeps its Spanish boundary while its point sits
+in the Gulf of Guinea. Under ``reported`` that fire is in Spain's total; under
+``geometry`` it is in nobody's. The same applies to any dataset that states a
+region administratively — which, outside the two global Atlases, is most of them.
+
+.. note::
+
+   Both modes attribute a fire's **whole** area to one country. Splitting a
+   border-crossing fire between the countries it actually burnt in is a different
+   and larger question, and this report does not attempt it: ``Total (ha)`` is the
+   area of fires attributed to a country, not the area burnt inside its borders.
+
+.. tip::
+
+   Running the same report both ways is a cheap consistency check on a dataset:
+   any country whose figures move is a country whose attribution and whose
+   coordinates disagree.
+
 Which fires are counted
 ^^^^^^^^^^^^^^^^^^^^^^^
 
@@ -101,8 +161,14 @@ compare the row counts against the database:
 
    SELECT count(*), count(admin_boundary_id) FROM wildfire;
 
+.. note::
+
+   The ``Fires`` column counts exactly the fires that survived these rules, so it never
+   disagrees with the areas beside it — but it is therefore a count of *attributable*
+   fires, not of every fire in the database.
+
 Which year a fire counts towards
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+--------------------------------
 
 The year of its **local** start date — ``start_date_time AT TIME ZONE time_zone`` — which
 is the year of the ``IDate`` GWIS published, and so the year of the file the fire came

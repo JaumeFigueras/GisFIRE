@@ -1,39 +1,43 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Tests for the GWIS burnt-area statistics application.
+"""Tests for the GFA burnt-area statistics application.
 
 The fires here are inserted through the ORM rather than imported from a
-shapefile: what has to be asserted is arithmetic over known areas in known
-years, and building that by hand is both quicker and clearer than arranging for
-an importer to produce it.
+shapefile: what has to be asserted is arithmetic over known areas in known years,
+and building that by hand is both quicker and clearer than arranging for an
+importer to produce it.
 
 The absolute areas are checked against :mod:`pyproj`, which computes the same
 geodesic area through PROJ rather than through PostGIS. Two independent
 implementations agreeing is worth considerably more than a magic number copied
 out of whatever the code returned the first time it ran.
+
+A GFA fire needs one thing a GWIS fire does not — a
+:class:`~src.providers.gfa.ignition.GfaIgnition` to hang off, since
+``gfa_ignition_id`` is ``NOT NULL`` — so the fixture builds the pair.
 """
 
 import csv
 import datetime
 import logging
 
-from pathlib import Path
-
 import pytest
 
 from pyproj import Geod
 from shapely.geometry import MultiPolygon
 from shapely.geometry import box
+from sqlalchemy import func
 from sqlalchemy import select
 
-from src.apps.statistics.wildfires.gwis import wildfire_statistics as app
+from src.apps.statistics.wildfires.gfa import wildfire_statistics as app
 from src.data_model.data_provider import DataProvider
-from src.data_model.geography.admin_boundary import AdminBoundary
+from src.providers import gfa
 from src.providers import ocha
-from src.providers.gwis.wildfire import GwisWildfire
+from src.providers.gfa.ignition import GfaIgnition
+from src.providers.gfa.wildfire import GfaWildfire
 from src.providers.ocha.admin_boundary import OchaAdminBoundary
 
-logger = logging.getLogger("test-gwis-statistics")
+logger = logging.getLogger("test-gfa-statistics")
 
 GEOD = Geod(ellps="WGS84")
 
@@ -45,24 +49,24 @@ COUNTRIES = [
     ("AND", "Andorra", box(1.4, 42.4, 1.8, 42.7)),
 ]
 
-#: (gwis_id, country, local start date, perimeter). Sizes are deliberately
-#: unequal within a country and a year, so a minimum and a maximum are
-#: distinguishable from each other and from the total.
+#: (gfa_id, country, local start date, perimeter). Sizes are deliberately unequal
+#: within a country and a year, so a minimum and a maximum are distinguishable
+#: from each other and from the total.
 FIRES = [
     # Spain, 2021: three fires of clearly different sizes.
-    ("1", "Spain", datetime.date(2021, 7, 1), box(0.0, 41.0, 0.1, 41.1)),
-    ("2", "Spain", datetime.date(2021, 8, 1), box(0.5, 41.0, 0.9, 41.4)),
-    ("3", "Spain", datetime.date(2021, 9, 1), box(1.0, 41.0, 1.2, 41.2)),
+    (21000001, "Spain", datetime.date(2021, 7, 1), box(0.0, 41.0, 0.1, 41.1)),
+    (21000002, "Spain", datetime.date(2021, 8, 1), box(0.5, 41.0, 0.9, 41.4)),
+    (21000003, "Spain", datetime.date(2021, 9, 1), box(1.0, 41.0, 1.2, 41.2)),
     # Spain, 2020: one fire, smaller than every 2021 one.
-    ("4", "Spain", datetime.date(2020, 6, 1), box(0.0, 40.0, 0.05, 40.05)),
+    (20000004, "Spain", datetime.date(2020, 6, 1), box(0.0, 40.0, 0.05, 40.05)),
     # Spain, 2019: one fire, larger than every other Spanish one.
-    ("5", "Spain", datetime.date(2019, 6, 1), box(-2.0, 39.0, -1.0, 40.0)),
+    (19000005, "Spain", datetime.date(2019, 6, 1), box(-2.0, 39.0, -1.0, 40.0)),
     # France, 2021: one fire.
-    ("6", "France", datetime.date(2021, 7, 15), box(4.0, 44.0, 4.2, 44.2)),
+    (21000006, "France", datetime.date(2021, 7, 15), box(4.0, 44.0, 4.2, 44.2)),
 ]
 
 #: The fire that must never appear: attributable to no country.
-ORPHAN_FIRE = ("7", None, datetime.date(2021, 5, 5), box(-30.0, 10.0, -29.9, 10.1))
+ORPHAN_FIRE = (21000007, None, datetime.date(2021, 5, 5), box(-30.0, 10.0, -29.9, 10.1))
 
 
 def hectares(geometry) -> float:
@@ -71,12 +75,12 @@ def hectares(geometry) -> float:
     return abs(area) / app.SQUARE_METRES_PER_HECTARE
 
 
-def expected(gwis_id: str) -> float:
+def expected(gfa_id: int) -> float:
     """The area PROJ computes for one fixture fire."""
     for identifier, _, _, geometry in [*FIRES, ORPHAN_FIRE]:
-        if identifier == gwis_id:
+        if identifier == gfa_id:
             return hectares(geometry)
-    raise KeyError(gwis_id)
+    raise KeyError(gfa_id)
 
 
 @pytest.fixture
@@ -84,10 +88,9 @@ def populated(db_session):
     """The fixture world: three countries, six attributable fires and one orphan."""
     ocha_provider = DataProvider(name=ocha.PROVIDER_NAME, product=ocha.PROVIDER_PRODUCT,
                                  full_name=ocha.PROVIDER_FULL_NAME, url=ocha.PROVIDER_URL)
-    gwis_provider = DataProvider(name="GWIS", product="Global Wildfire Database v3",
-                                 full_name="Global Wildfire Information System",
-                                 url="https://doi.pangaea.de/10.1594/PANGAEA.943975")
-    db_session.add_all([ocha_provider, gwis_provider])
+    gfa_provider = DataProvider(name=gfa.PROVIDER_NAME, product=gfa.PROVIDER_PRODUCT,
+                                full_name=gfa.PROVIDER_FULL_NAME, url=gfa.PROVIDER_URL)
+    db_session.add_all([ocha_provider, gfa_provider])
     db_session.flush()
 
     boundaries = {}
@@ -105,26 +108,38 @@ def populated(db_session):
         db_session.flush()
         boundaries[name] = boundary
 
-    for gwis_id, country, start, geometry in [*FIRES, ORPHAN_FIRE]:
-        db_session.add(GwisWildfire(
-            gwis_id=gwis_id,
-            data_provider_id=gwis_provider.id,
+    for gfa_id, country, start, geometry in [*FIRES, ORPHAN_FIRE]:
+        start_instant = datetime.datetime.combine(
+            start, datetime.time(0, 0), tzinfo=datetime.timezone.utc)
+        boundary_id = boundaries[country].id if country else None
+        # The ignition point is the polygon's own corner: the importer resolves the
+        # country and the zone from it, so the two rows agree by construction.
+        ignition = GfaIgnition(
+            gfa_id=gfa_id, data_provider_id=gfa_provider.id,
+            geometry=f"SRID=4326;POINT({geometry.bounds[0]} {geometry.bounds[1]})",
+            date_time=start_instant, time_zone="UTC", admin_boundary_id=boundary_id,
+        )
+        db_session.add(ignition)
+        db_session.flush()
+        db_session.add(GfaWildfire(
+            gfa_id=gfa_id,
+            gfa_ignition_id=ignition.id,
+            data_provider_id=gfa_provider.id,
             # Stored the way the importer stores it: local midnight, in a zone
             # whose name is kept alongside.
-            start_date_time=datetime.datetime.combine(
-                start, datetime.time(0, 0), tzinfo=datetime.timezone.utc),
+            start_date_time=start_instant,
             time_zone="UTC",
             perimeter=f"SRID=4326;{MultiPolygon([geometry]).wkt}",
-            admin_boundary_id=boundaries[country].id if country else None,
+            admin_boundary_id=boundary_id,
         ))
     db_session.commit()
     return db_session
 
 
 def rows_for(session, country=None, year=None,
+             method=app.AREA_METHOD_GEODESIC,
              country_source=app.COUNTRY_SOURCE_GEOMETRY) -> list[app.Row]:
-    return app.compute(session, country, year, logger,
-                       country_source=country_source)
+    return app.compute(session, country, year, logger, method, country_source)
 
 
 def find(rows: list[app.Row], country: str, year: int | None) -> app.Row:
@@ -154,6 +169,18 @@ def test_the_scope_defaults_to_everything():
     assert parsed.year is None
 
 
+def test_the_area_method_defaults_to_geodesic():
+    """The same measurement the GWIS report uses, so the two can be compared."""
+    assert app.parse_arguments(["--csv", "out.csv"]).area_method == app.AREA_METHOD_GEODESIC
+
+
+def test_an_unknown_area_method_is_refused():
+    with pytest.raises(SystemExit):
+        app.parse_arguments(["--csv", "out.csv", "--area-method", "web-mercator"])
+    with pytest.raises(ValueError, match="unknown area method"):
+        app.burnt_area("web-mercator")
+
+
 # --------------------------------------------------------------------------
 # The statistics themselves
 # --------------------------------------------------------------------------
@@ -163,17 +190,17 @@ def test_the_area_matches_an_independent_geodesic_computation(populated):
     rows = rows_for(populated)
     spain_2021 = find(rows, "Spain", 2021)
 
-    # Fire 2 is the largest of Spain's 2021 fires, fire 1 the smallest.
-    assert spain_2021.maximum == pytest.approx(expected("2"), rel=1e-6)
-    assert spain_2021.minimum == pytest.approx(expected("1"), rel=1e-6)
+    # Fire 21000002 is the largest of Spain's 2021 fires, 21000001 the smallest.
+    assert spain_2021.maximum == pytest.approx(expected(21000002), rel=1e-6)
+    assert spain_2021.minimum == pytest.approx(expected(21000001), rel=1e-6)
     assert spain_2021.total == pytest.approx(
-        expected("1") + expected("2") + expected("3"), rel=1e-6)
+        expected(21000001) + expected(21000002) + expected(21000003), rel=1e-6)
 
 
 def test_the_areas_are_in_hectares(populated):
     """An order-of-magnitude check, to catch a missing or doubled unit conversion.
 
-    Fire 5 is a one-degree square at 39-40°N. A degree of latitude is about
+    Fire 19000005 is a one-degree square at 39-40°N. A degree of latitude is about
     111 km; a degree of longitude there is 111 km x cos(39.5°), about 86 km. So
     roughly 111 x 86 = 9,500 km², which is ~950,000 ha — not 95 (m² mistaken for
     ha) and not 9.5e9 (m² left unconverted).
@@ -211,8 +238,8 @@ def test_a_countrys_total_row_summarises_all_of_its_years(populated):
 
     # The smallest fire is 2020's and the largest is 2019's, so the total row
     # takes its two ends from different years — which a per-year total could not.
-    assert spain_total.minimum == pytest.approx(expected("4"), rel=1e-6)
-    assert spain_total.maximum == pytest.approx(expected("5"), rel=1e-6)
+    assert spain_total.minimum == pytest.approx(expected(20000004), rel=1e-6)
+    assert spain_total.maximum == pytest.approx(expected(19000005), rel=1e-6)
 
 
 def test_a_single_fire_is_its_own_minimum_maximum_and_total(populated):
@@ -227,13 +254,59 @@ def test_a_fire_with_no_country_is_excluded(populated):
     rows = rows_for(populated)
     assert sum(row.fires for row in rows if row.is_total) == len(FIRES)
 
-    orphan_area = expected("7")
+    orphan_area = expected(21000007)
     assert all(row.maximum != pytest.approx(orphan_area, rel=1e-9) for row in rows)
 
 
 def test_a_country_with_no_fires_is_absent(populated):
     """Andorra is a boundary with nothing in it; an empty row would be noise."""
     assert "Andorra" not in {row.country for row in rows_for(populated)}
+
+
+# --------------------------------------------------------------------------
+# How the area is measured
+# --------------------------------------------------------------------------
+
+def test_the_two_area_methods_agree(populated):
+    """Projecting to an equal-area CRS and measuring on the ellipsoid are the same thing.
+
+    Within 0.01% on every fixture fire, which is the whole justification for the
+    default: "convert to projected coordinates and compute the surface" and
+    "measure geodesically" give the same answer, so the choice can be made on
+    other grounds.
+    """
+    geodesic = rows_for(populated, method=app.AREA_METHOD_GEODESIC)
+    projected = rows_for(populated, method=app.AREA_METHOD_EQUAL_AREA)
+
+    assert len(geodesic) == len(projected)
+    for measured, transformed in zip(geodesic, projected):
+        assert (measured.country, measured.year) == (transformed.country, transformed.year)
+        for figure in ("minimum", "maximum", "total"):
+            assert getattr(transformed, figure) == pytest.approx(
+                getattr(measured, figure), rel=1e-4), f"{measured.country} {figure}"
+
+
+def test_the_equal_area_method_also_agrees_with_proj(populated):
+    """And it is the *right* answer, not merely a consistent one."""
+    projected = rows_for(populated, method=app.AREA_METHOD_EQUAL_AREA)
+    spain_2021 = find(projected, "Spain", 2021)
+    assert spain_2021.maximum == pytest.approx(expected(21000002), rel=1e-4)
+
+
+def test_a_conformal_projection_would_have_been_badly_wrong(populated):
+    """Why the option is called ``equal-area`` rather than ``projected``.
+
+    Web Mercator is what "project it and compute the area" most often means in
+    practice, and it inflates by ``sec²(latitude)`` — about 76% at Spain's
+    latitude. Asserted here so the reason the option is constrained is recorded
+    against a number rather than a claim.
+    """
+    web_mercator_hectares = populated.scalar(
+        select(func.ST_Area(func.ST_Transform(GfaWildfire.perimeter, 3857))
+               / app.SQUARE_METRES_PER_HECTARE)
+        .where(GfaWildfire.gfa_id == 21000002)
+    )
+    assert web_mercator_hectares > expected(21000002) * 1.5
 
 
 # --------------------------------------------------------------------------
@@ -366,6 +439,30 @@ def test_the_docx_records_the_scope_it_was_run_with(populated, tmp_path):
     assert "hectares" in prose
 
 
+def test_the_docx_says_which_area_method_produced_it(populated, tmp_path):
+    """Two documents that differ only in method should not be indistinguishable."""
+    docx = pytest.importorskip("docx")
+    target = tmp_path / "projected.docx"
+    app.write_docx(rows_for(populated, method=app.AREA_METHOD_EQUAL_AREA), target,
+                   None, None, logger, app.AREA_METHOD_EQUAL_AREA)
+
+    prose = "\n".join(paragraph.text for paragraph in docx.Document(str(target)).paragraphs)
+    assert str(app.EQUAL_AREA_SRID) in prose
+    assert "equal-area" in prose
+
+
+def test_the_docx_names_the_dataset_it_reports_on(populated, tmp_path):
+    """A GFA report and a GWIS report must not be mistakable for one another."""
+    docx = pytest.importorskip("docx")
+    target = tmp_path / "burnt.docx"
+    app.write_docx(rows_for(populated), target, None, None, logger)
+
+    document = docx.Document(str(target))
+    headings = [paragraph.text for paragraph in document.paragraphs
+                if paragraph.style.name.startswith("Heading")]
+    assert any("Global Fire Atlas" in heading for heading in headings)
+
+
 def test_both_outputs_are_written_together(populated, tmp_path):
     pytest.importorskip("docx")
     args = app.parse_arguments(["--csv", str(tmp_path / "b.csv"),
@@ -379,6 +476,7 @@ def test_both_outputs_are_written_together(populated, tmp_path):
 def test_a_missing_output_directory_is_created(populated, tmp_path):
     target = tmp_path / "reports" / "2021" / "burnt.csv"
     app.write_csv(rows_for(populated), target, logger)
+
     assert target.exists()
 
 
@@ -463,13 +561,20 @@ def misattributed(populated):
     """``populated`` plus two fires whose stored country is not where they are."""
     spain = populated.scalar(
         select(OchaAdminBoundary).where(OchaAdminBoundary.iso_3 == "ESP"))
-    for gwis_id, geometry in (("101", MISFILED_IN_FRANCE), ("102", MISFILED_AT_SEA)):
-        populated.add(GwisWildfire(
-            gwis_id=gwis_id,
-            data_provider_id=populated.scalar(
-                select(DataProvider.id).where(DataProvider.name == "GWIS")),
-            start_date_time=datetime.datetime(2018, 7, 1, tzinfo=datetime.timezone.utc),
-            time_zone="UTC",
+    provider_id = populated.scalar(
+        select(DataProvider.id).where(DataProvider.name == gfa.PROVIDER_NAME))
+    start = datetime.datetime(2018, 7, 1, tzinfo=datetime.timezone.utc)
+    for gfa_id, geometry in ((18000101, MISFILED_IN_FRANCE), (18000102, MISFILED_AT_SEA)):
+        ignition = GfaIgnition(
+            gfa_id=gfa_id, data_provider_id=provider_id,
+            geometry=f"SRID=4326;POINT({geometry.bounds[0]} {geometry.bounds[1]})",
+            date_time=start, time_zone="UTC", admin_boundary_id=spain.id,
+        )
+        populated.add(ignition)
+        populated.flush()
+        populated.add(GfaWildfire(
+            gfa_id=gfa_id, gfa_ignition_id=ignition.id, data_provider_id=provider_id,
+            start_date_time=start, time_zone="UTC",
             perimeter=f"SRID=4326;{MultiPolygon([geometry]).wkt}",
             admin_boundary_id=spain.id,
         ))

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Burnt-area statistics for the GWIS GlobFire wildfires.
+"""Burnt-area statistics for the Global Fire Atlas wildfires.
 
 Reports, per country and year, how many fires there were and the smallest,
 largest and total area burnt, in hectares::
@@ -20,8 +20,8 @@ nothing.
 
 Run it over everything, or narrow it to one country, one year, or both::
 
-    python3 -m src.apps.statistics.wildfires.gwis.wildfire_statistics --csv burnt.csv
-    python3 -m src.apps.statistics.wildfires.gwis.wildfire_statistics \\
+    python3 -m src.apps.statistics.wildfires.gfa.wildfire_statistics --csv burnt.csv
+    python3 -m src.apps.statistics.wildfires.gfa.wildfire_statistics \\
         --country Spain --year 2021 --csv spain_2021.csv --docx spain_2021.docx
 
 At least one of ``--csv`` and ``--docx`` is required: an application that
@@ -31,18 +31,56 @@ The application only reads. Database settings come from the environment
 (``.env``, see :mod:`src.settings`); every one of them can be overridden with a
 command-line argument.
 
+This is the GWIS report over a different dataset
+------------------------------------------------
+
+Deliberately so: it is the same four figures, grouped the same way, written the
+same way, so that a GFA report and a
+:mod:`GWIS one <src.apps.statistics.wildfires.gwis.wildfire_statistics>` can be
+put side by side and the difference read as a difference between the *datasets*
+rather than between two ways of counting. The two derive fire events from the
+same MODIS burnt-area product by different algorithms, so comparing them is a
+real question — and it is only answerable if the method is held fixed.
+
 How the area is measured
 ------------------------
 
-``ST_Area(perimeter::geography)``: the true area on the WGS84 ellipsoid, in
-square metres, divided by 10,000 for hectares.
+The perimeters are stored in EPSG:4326, whose units are degrees, so an area has
+to come from somewhere that yields metres. Two ways are offered and they agree:
 
-Deliberately *not* a projected area. Every map projection distorts something,
-and for a dataset spanning every latitude from the Arctic to Tasmania there is
-no projection whose distortion is negligible everywhere — a fire measured in Web
-Mercator at 70°N would come out roughly nine times too large. An equal-area
-projection would fix that, but the geodesic calculation is at least as accurate
-and needs no CRS to be chosen and justified in the first place.
+``geodesic`` (the default)
+    ``ST_Area(perimeter::geography)`` — the true area on the WGS84 ellipsoid, in
+    square metres, divided by 10,000. No projection is chosen, so none has to be
+    justified. This is what the GWIS report uses.
+
+``equal-area``
+    ``ST_Area(ST_Transform(perimeter, 6933))`` — projected into NSIDC EASE-Grid
+    2.0 Global, a cylindrical **equal-area** projection defined worldwide, and
+    measured there in metres.
+
+Measured against each other on the same polygons they differ by at most **0.003%**
+— at the equator, in Spain, in Sweden, at 70°N and in Tasmania alike. The choice
+therefore does not move any number in this report, and the default is geodesic
+only because it needs no CRS argued for.
+
+.. warning::
+
+   What *does* move the numbers is projecting into something that is not
+   equal-area. The same polygons measured in Web Mercator (EPSG:3857) come out
+   **76% too large in Spain, 82% too large in Tasmania and 759% too large at
+   70°N**, because Mercator's area distortion grows as ``sec²(latitude)``. For a
+   dataset that spans every latitude MODIS sees, "convert to projected
+   coordinates and compute the surface" is only safe if the projection is chosen
+   for area. That is why the option is named ``equal-area`` and not ``projected``.
+
+The published size is not used
+------------------------------
+
+:attr:`~src.providers.gfa.wildfire.GfaWildfire.size_km2` is the Atlas's own
+figure for the fire, and it is *not* what this reports. It is kept as published
+and is worth having as an independent check — a systematic gap between it and
+the measured area would say something about either the perimeter or the Atlas —
+but a report that mixed the two would be comparing a measurement with a claim.
 
 Which country a fire counts towards
 -----------------------------------
@@ -58,7 +96,7 @@ Chosen with ``--country-source``:
     Use the ``admin_boundary_id`` the import stored.
 
 The default is the cautious one, and it is the default because of datasets other
-than this one. GWIS resolves its country by containment at import, so the two
+than this one. GFA resolves its country by containment at import, so the two
 modes give the same answer here and ``reported`` is simply the faster path — an
 index lookup on a foreign key instead of a point-in-polygon test per fire, about
 ten times quicker, which on the whole dataset is minutes rather than tens of
@@ -69,6 +107,12 @@ code rather than from a coordinate, so a *parte* filed in Ourense whose publishe
 northing is missing three digits keeps its Spanish boundary while its point sits
 in the Gulf of Guinea. Under ``reported`` that fire is in Spain's total; under
 ``geometry`` it is in nobody's.
+
+For GFA the two can also differ for a reason that is nobody's error: ``reported``
+follows the **ignition point** — that is what the import resolves the country
+from — while ``geometry`` follows an interior point of the **perimeter**. A fire
+that ignites one side of a border and burns across it is attributed differently
+by the two, which makes the pair a useful way to find such fires.
 
 .. note::
 
@@ -90,8 +134,8 @@ Which year a fire counts towards
 --------------------------------
 
 The year of its **local** start date, ``start_date_time AT TIME ZONE
-time_zone`` — that is, the year of the ``IDate`` GWIS published, and so the year
-of the file the fire came from. Using the raw UTC instant instead would move
+time_zone``, which is the year of the ``start_date`` GFA published and so the
+year of the file the fire came from. Using the raw UTC instant instead would move
 fires across the New Year boundary: a fire starting on 1 January in Sydney is
 still 31 December in UTC.
 """
@@ -126,7 +170,7 @@ import src.settings  # noqa: F401  (imported for the side effect of loading .env
 from src.apps.imports import common
 from src.data_model.geography.admin_boundary import AdminBoundary
 from src.data_model.wildfire import Wildfire
-from src.providers.gwis.wildfire import GwisWildfire
+from src.providers.gfa.wildfire import GfaWildfire
 from src.providers.ocha.admin_boundary import OchaAdminBoundary
 
 #: Label used in the ``Year`` column for a country's summary row.
@@ -166,15 +210,59 @@ LOCATOR = func.ST_PointOnSurface(Wildfire.perimeter)
 #: Square metres in a hectare.
 SQUARE_METRES_PER_HECTARE = 10_000.0
 
-#: Burnt area of one fire, in hectares.
+#: NSIDC EASE-Grid 2.0 Global — a cylindrical equal-area projection in metres,
+#: defined for the whole world. The CRS behind ``--area-method equal-area``.
 #:
-#: The cast carries the geometry type and SRID rather than being a bare
-#: ``Geography()``: that renders as ``geography(GEOMETRY,-1)``, which PostGIS
-#: rejects, because -1 is not a SRID it knows.
-BURNT_AREA = (
-    func.ST_Area(cast(Wildfire.perimeter, Geography(geometry_type="MULTIPOLYGON", srid=4326)))
-    / SQUARE_METRES_PER_HECTARE
-)
+#: Equal-area is the whole requirement: the report sums and compares areas across
+#: every latitude MODIS covers, and a conformal projection such as Web Mercator
+#: would inflate a fire at 70°N by a factor of eight. EASE-Grid 2.0 is used rather
+#: than an equal-area projection centred on each fire because one fixed CRS can be
+#: applied in SQL to every row at once, and the difference between the two is
+#: smaller than the difference between either and the geodesic answer.
+EQUAL_AREA_SRID = 6933
+
+#: The two ways of turning a perimeter in degrees into hectares.
+AREA_METHOD_GEODESIC = "geodesic"
+AREA_METHOD_EQUAL_AREA = "equal-area"
+AREA_METHODS = (AREA_METHOD_GEODESIC, AREA_METHOD_EQUAL_AREA)
+
+
+def burnt_area(method: str) -> ColumnElement:
+    """Burnt area of one fire in hectares, by whichever method was asked for.
+
+    Parameters
+    ----------
+    method : str
+        One of :data:`AREA_METHODS`.
+
+    Returns
+    -------
+    ColumnElement
+        The SQL expression yielding hectares.
+
+    Raises
+    ------
+    ValueError
+        If ``method`` is not one of :data:`AREA_METHODS`.
+
+    Notes
+    -----
+    The geodesic cast carries the geometry type and SRID rather than being a bare
+    ``Geography()``: that renders as ``geography(GEOMETRY,-1)``, which PostGIS
+    rejects, because -1 is not a SRID it knows.
+    """
+    if method == AREA_METHOD_GEODESIC:
+        square_metres = func.ST_Area(
+            cast(Wildfire.perimeter, Geography(geometry_type="MULTIPOLYGON", srid=4326))
+        )
+    elif method == AREA_METHOD_EQUAL_AREA:
+        square_metres = func.ST_Area(func.ST_Transform(Wildfire.perimeter, EQUAL_AREA_SRID))
+    else:
+        raise ValueError(
+            f"unknown area method {method!r}; expected one of {', '.join(AREA_METHODS)}"
+        )
+    return square_metres / SQUARE_METRES_PER_HECTARE
+
 
 #: The year a fire counts towards: the year of its *local* start date.
 #:
@@ -268,6 +356,7 @@ def country_columns(source: str) -> tuple[ColumnElement, ColumnElement, list]:
 
 
 def statistics_query(country: str | None, year: int | None,
+                     method: str = AREA_METHOD_GEODESIC,
                      country_source: str = COUNTRY_SOURCE_GEOMETRY) -> Select:
     """Build the statistics query.
 
@@ -280,42 +369,42 @@ def statistics_query(country: str | None, year: int | None,
 
     Notes
     -----
-    Built against the mapped classes rather than written as SQL text, so a
-    column renamed on a model breaks this at import time rather than in front of
-    a user. It also lets the two filters be plain conditionals: written as text
-    they would each have to become an "unset, or matching" disjunction so that
-    one statement could serve every combination, leaving branches in the SQL
-    that are dead on every actual run.
+    Built against the mapped classes rather than written as SQL text, so a column
+    renamed on a model breaks this at import time rather than in front of a user.
+    It also lets the two filters be plain conditionals: written as text they would
+    each have to become an "unset, or matching" disjunction so that one statement
+    could serve every combination, leaving branches in the SQL that are dead on
+    every actual run.
 
     The inner query computes each area exactly once. Folded into the outer
-    aggregate instead, ``ST_Area`` would be evaluated three times per row — for
-    the minimum, the maximum and the sum — and it is by far the most expensive
-    thing here.
+    aggregate instead, the area expression would be evaluated three times per row
+    — for the minimum, the maximum and the sum — and it is by far the most
+    expensive thing here.
 
-    ``GROUPING SETS`` then produces the per-year rows and the per-country
-    summary row from that one pass, instead of aggregating twice or totalling in
-    Python. ``GROUPING(year)`` is 0 for a real year and 1 for a summary row,
-    which is what both sorts the two apart and tells them apart on the way out.
+    ``GROUPING SETS`` then produces the per-year rows and the per-country summary
+    row from that one pass, instead of aggregating twice or totalling in Python.
+    ``GROUPING(year)`` is 0 for a real year and 1 for a summary row, which is what
+    both sorts the two apart and tells them apart on the way out.
 
     Whichever way the country is resolved the join is inner, and that is what
-    drops the fires belonging to no country. ``gwis_wildfire`` is joined — by
+    drops the fires belonging to no country. ``gfa_wildfire`` is joined — by
     table, to keep SQLAlchemy from adding the polymorphic join of its own —
-    rather than filtering on ``wildfire.type``, so this stays a GWIS report even
-    if another provider ever adopts the same discriminator.
+    rather than filtering on ``wildfire.type``, so this stays a GFA report even if
+    another provider ever adopts the same discriminator.
 
     See :func:`country_columns` for what ``country_source`` changes.
     """
-    gwis = GwisWildfire.__table__
+    gfa_fire = GfaWildfire.__table__
     country_name, country_iso_3, joins = country_columns(country_source)
 
     fires = (
         select(
             country_name.label("country"),
             LOCAL_YEAR.label("year"),
-            BURNT_AREA.label("hectares"),
+            burnt_area(method).label("hectares"),
         )
         .select_from(Wildfire)
-        .join(gwis, gwis.c.id == Wildfire.id)
+        .join(gfa_fire, gfa_fire.c.id == Wildfire.id)
         .where(Wildfire.perimeter.is_not(None))
     )
     for target, condition, is_outer in joins:
@@ -393,16 +482,22 @@ class Row:
 def parse_arguments(argv: list[str] | None = None) -> argparse.Namespace:
     """Parse the command line."""
     parser = argparse.ArgumentParser(
-        description="Burnt-area statistics for the GWIS GlobFire wildfires.",
-        epilog="Areas are geodesic, on the WGS84 ellipsoid, in hectares. Fires with no "
-               "country are not counted. Database settings not given here are read from "
-               "the environment (.env).",
+        description="Burnt-area statistics for the Global Fire Atlas wildfires.",
+        epilog="Areas are in hectares, geodesic on the WGS84 ellipsoid by default. Fires "
+               "with no country are not counted. Database settings not given here are "
+               "read from the environment (.env).",
     )
     selection = parser.add_argument_group("selection", "report on everything unless narrowed")
     selection.add_argument("-c", "--country",
                            help="restrict to one country, by name ('Spain') or ISO 3166-1 "
                                 "alpha-3 code ('ESP'); case-insensitive")
     selection.add_argument("-y", "--year", type=int, help="restrict to one year, e.g. 2021")
+
+    parser.add_argument("--area-method", default=AREA_METHOD_GEODESIC, choices=AREA_METHODS,
+                        help="how to turn the EPSG:4326 perimeter into hectares: "
+                             "'geodesic' measures on the WGS84 ellipsoid (default, and what "
+                             "the GWIS report uses); 'equal-area' projects to EPSG:6933 and "
+                             "measures there. They agree to within 0.003%%")
 
     parser.add_argument("--country-source", default=COUNTRY_SOURCE_GEOMETRY,
                         choices=COUNTRY_SOURCES,
@@ -430,9 +525,10 @@ def parse_arguments(argv: list[str] | None = None) -> argparse.Namespace:
 
 def compute(session: Session, country: str | None, year: int | None,
             logger: logging.Logger,
+            method: str = AREA_METHOD_GEODESIC,
             country_source: str = COUNTRY_SOURCE_GEOMETRY) -> list[Row]:
     """Run the statistics query, returning the report's rows in order."""
-    result = session.execute(statistics_query(country, year, country_source))
+    result = session.execute(statistics_query(country, year, method, country_source))
     rows = [
         Row(country=record.country,
             year=None if record.is_total else record.year,
@@ -443,17 +539,17 @@ def compute(session: Session, country: str | None, year: int | None,
         for record in result
     ]
     countries = len({row.country for row in rows})
-    logger.info("Computed %d rows over %d countries (country from %s)",
-                len(rows), countries, country_source)
+    logger.info("Computed %d rows over %d countries (%s areas, country from %s)",
+                len(rows), countries, method, country_source)
     return rows
 
 
 def write_csv(rows: list[Row], path: Path, logger: logging.Logger) -> None:
     """Write the report as CSV.
 
-    The numbers go out unformatted apart from being rounded to two decimals —
-    no thousands separators — because a CSV is read by another program far more
-    often than by a person, and a separator would make every figure a string.
+    The numbers go out unformatted apart from being rounded to two decimals — no
+    thousands separators — because a CSV is read by another program far more often
+    than by a person, and a separator would make every figure a string.
     """
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", newline="", encoding="utf-8") as handle:
@@ -466,7 +562,8 @@ def write_csv(rows: list[Row], path: Path, logger: logging.Logger) -> None:
 
 
 def write_docx(rows: list[Row], path: Path, country: str | None, year: int | None,
-               logger: logging.Logger) -> None:
+               logger: logging.Logger,
+               method: str = AREA_METHOD_GEODESIC) -> None:
     """Write the report as a Word document.
 
     One table, with each country's summary row in bold so the blocks read apart
@@ -481,7 +578,7 @@ def write_docx(rows: list[Row], path: Path, country: str | None, year: int | Non
     from docx.shared import Pt
 
     document = Document()
-    document.add_heading("GWIS wildfire burnt area", level=1)
+    document.add_heading("Global Fire Atlas wildfire burnt area", level=1)
 
     scope = []
     if country is not None:
@@ -489,8 +586,10 @@ def write_docx(rows: list[Row], path: Path, country: str | None, year: int | Non
     if year is not None:
         scope.append(f"year: {year}")
     subtitle = "; ".join(scope) if scope else "all countries, all years"
+    measured = ("geodesically on the WGS84 ellipsoid" if method == AREA_METHOD_GEODESIC
+                else f"in the equal-area projection EPSG:{EQUAL_AREA_SRID}")
     document.add_paragraph(
-        f"Areas in hectares, computed geodesically on the WGS84 ellipsoid. "
+        f"Areas in hectares, computed {measured}. "
         f"Fires not attributable to a country are excluded. Scope: {subtitle}."
     )
 
@@ -521,28 +620,29 @@ def write_docx(rows: list[Row], path: Path, country: str | None, year: int | Non
 def report(args: argparse.Namespace, engine: Engine, logger: logging.Logger) -> list[Row]:
     """Compute the statistics and write whichever outputs were asked for."""
     with Session(engine) as session:
-        rows = compute(session, args.country, args.year, logger, args.country_source)
+        rows = compute(session, args.country, args.year, logger, args.area_method,
+                       args.country_source)
 
     if not rows:
         # An empty report is almost always a mistyped country or a year with no
         # data, and writing an empty file would hide that.
         raise RuntimeError(
             "No wildfires matched. Check --country (a name or an ISO alpha-3 code) and "
-            "--year, and that the GWIS fires and the OCHA boundaries are both imported "
+            "--year, and that the GFA fires and the OCHA boundaries are both imported "
             "— fires with no country are not counted."
         )
 
     if args.csv is not None:
         write_csv(rows, args.csv, logger)
     if args.docx is not None:
-        write_docx(rows, args.docx, args.country, args.year, logger)
+        write_docx(rows, args.docx, args.country, args.year, logger, args.area_method)
     return rows
 
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_arguments(argv)
     logging.basicConfig(level=args.log_level, format="%(asctime)s %(levelname)s %(message)s")
-    logger = logging.getLogger("gwis-statistics")
+    logger = logging.getLogger("gfa-statistics")
 
     try:
         settings = common.resolve_database_settings(args)

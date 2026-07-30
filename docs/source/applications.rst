@@ -118,11 +118,19 @@ They never modify anything, and live under ``src/apps/statistics/``, grouped the
 as the importers::
 
    src/apps/statistics/wildfires/gwis/wildfire_statistics.py
+   src/apps/statistics/wildfires/gfa/wildfire_statistics.py
 
 :doc:`applications/gwis_wildfire_statistics`
     Burnt area of the GWIS GlobFire wildfires, per country and year — smallest fire,
     largest fire and total, in hectares, measured geodesically on the WGS84 ellipsoid.
     Writes CSV and Word (``.docx``).
+
+:doc:`applications/gfa_wildfire_statistics`
+    The same report over the Global Fire Atlas perimeters — same three figures, same
+    grouping, same two formats, so a GFA report and a GWIS one can be read side by side as
+    a difference between the datasets rather than between two ways of counting. Adds
+    ``--area-method`` to measure either geodesically or in an equal-area projection; the
+    two agree to within 0.003%.
 
 .. note::
 
@@ -143,3 +151,4 @@ as the importers::
    applications/icnf_resync_wildfires
    applications/egif_import_wildfires
    applications/gwis_wildfire_statistics
+   applications/gfa_wildfire_statistics
