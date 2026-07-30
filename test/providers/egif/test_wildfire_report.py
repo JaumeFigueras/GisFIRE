@@ -243,5 +243,80 @@ def test_the_severity_level_is_an_ordinal_not_a_lookup(db_session, wildfire):
     assert isinstance(stored.max_severity_level, int)
 
 
+# --------------------------------------------------------------------------
+# The multi-valued code lists
+# --------------------------------------------------------------------------
+
+def test_the_fuel_model_is_a_set_of_codes(db_session, wildfire):
+    """``RelModeloCombustionPif`` is one-to-many and carries a code and nothing else.
+
+    Across the 29,926 fires of the 2020-2023 export no fire ever repeats a code
+    within the relation, so it is a set and an array holds it losslessly — instead
+    of a child table and a join to answer "what was burning".
+    """
+    db_session.add(a_report(wildfire, fuel_model_codes=["2", "3"]))
+    db_session.commit()
+    db_session.expunge_all()
+
+    stored = db_session.scalar(select(EgifWildfireReport))
+    assert stored.fuel_model_codes == ["2", "3"]
+
+
+def test_a_ground_fire_is_queryable_beside_the_holdover_interval(db_session, wildfire):
+    """The pair this migration exists for.
+
+    ``fire_type_codes`` containing ``'3'`` is *de subsuelo* — a fire smouldering
+    below the litter, which is the mechanism by which a strike becomes a fire days
+    later. Together with a non-zero ``days_since_storm`` it makes a long holdover
+    testable instead of merely asserted.
+    """
+    db_session.add(a_report(wildfire, days_since_storm=12,
+                            fire_type_codes=["1", "3"]))
+    db_session.commit()
+
+    found = db_session.scalars(
+        select(EgifWildfireReport)
+        .where(EgifWildfireReport.fire_type_codes.any("3"))
+        .where(EgifWildfireReport.days_since_storm > 0)
+    ).all()
+    assert [row.days_since_storm for row in found] == [12]
+
+
+def test_a_single_valued_list_is_still_a_list(db_session, wildfire):
+    """Most fires have one fire type; the column does not special-case that."""
+    db_session.add(a_report(wildfire, fire_type_codes=["1"]))
+    db_session.commit()
+
+    assert db_session.scalar(select(EgifWildfireReport)).fire_type_codes == ["1"]
+
+
+@pytest.mark.parametrize("column", ["fuel_model_codes", "fire_type_codes",
+                                    "start_area_type_codes", "started_next_to_codes"])
+def test_a_code_list_may_be_absent(db_session, wildfire, column):
+    """``RelTipoAreaIniciadoPif`` is on 5,480 fires in 2004-2005 and 38,267 in
+    2020-2023, so an empty list and a missing block are both normal — and NULL is
+    kept distinct from ``[]`` because "the export said nothing" is not "the report
+    said none"."""
+    db_session.add(a_report(wildfire, **{column: None}))
+    db_session.commit()
+
+    assert getattr(db_session.scalar(select(EgifWildfireReport)), column) is None
+
+
+def test_the_code_lists_are_text_like_their_scalar_neighbours(db_session, wildfire):
+    """They are identifiers, not quantities — the reason every other code column on
+    this table is text too. ``10`` occurs in ``started_next_to_codes`` and is not on
+    the 2011 form at all, which is exactly the kind of value that must survive
+    unexamined."""
+    db_session.add(a_report(wildfire, started_next_to_codes=["10"],
+                            started_next_to_other="Ribera del río"))
+    db_session.commit()
+
+    stored = db_session.scalar(select(EgifWildfireReport))
+    assert stored.started_next_to_codes == ["10"]
+    assert all(isinstance(code, str) for code in stored.started_next_to_codes)
+    assert stored.started_next_to_other == "Ribera del río"
+
+
 def test_repr_before_persist(wildfire):
     assert repr(a_report(wildfire)) == f"EgifWildfireReport(id={wildfire.id})"

@@ -110,13 +110,18 @@ class EgifWildfire(Wildfire):
         The report's state (``Estado``). Every fire the public service exports is
         ``"Cerrado Revisión"`` — closed and reviewed — which is precisely why the
         published data is never a complete year.
-    ignition_id : int
+    ignition_id : int or None
         Foreign key to the :class:`~src.providers.egif.ignition.EgifIgnition`
-        holding the fire's point of origin. ``NOT NULL``: every EGIF fire in both
-        exports carries a coordinate, and a *parte* without one would be a report
-        of a fire nobody located.
-    ignition : EgifIgnition
-        The fire's point of origin.
+        holding the fire's point of origin.
+
+        Nullable, because a *parte* really can be a report of a fire nobody
+        located: **22,855 of the 248,257 fires in the 2004-2023 XML exports carry
+        no coordinate at all.** It is an artefact of the archive rather than of the
+        form — 8,872 missing in 2004-2005, 987 in 2011-2013, 22 in 2014-2016, none
+        from 2017 on — so a recent-campaigns-only import will never see one, and
+        the historical series would be short by 9% if the column were required.
+    ignition : EgifIgnition or None
+        The fire's point of origin, where one was published.
     ccaa_name : str or None
         *Comunidad autónoma*, as published (uppercase, ``"CASTILLA-MANCHA"``).
     province_name : str or None
@@ -226,7 +231,9 @@ class EgifWildfire(Wildfire):
     egif_id: Mapped[int | None] = mapped_column(Integer, unique=True, nullable=True)
     campaign: Mapped[int] = mapped_column(Integer, nullable=False)
     status: Mapped[str | None] = mapped_column(String, nullable=True)
-    ignition_id: Mapped[int] = mapped_column(ForeignKey(EgifIgnition.id), nullable=False)
+    ignition_id: Mapped[int | None] = mapped_column(
+        ForeignKey(EgifIgnition.id), nullable=True
+    )
     ccaa_name: Mapped[str | None] = mapped_column(String, nullable=True)
     province_name: Mapped[str | None] = mapped_column(String, nullable=True)
     province_ine_code: Mapped[str] = mapped_column(String, nullable=False)
@@ -253,7 +260,7 @@ class EgifWildfire(Wildfire):
     zar_affected: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     pss_report_number: Mapped[str | None] = mapped_column(String, nullable=True)
 
-    ignition: Mapped[EgifIgnition] = relationship()
+    ignition: Mapped[EgifIgnition | None] = relationship()
     cause: Mapped[EgifFireCause | None] = relationship()
     motivation: Mapped[EgifFireMotivation | None] = relationship()
 

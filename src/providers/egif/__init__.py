@@ -15,6 +15,10 @@ is a :class:`~src.data_model.ignition.Ignition` with a
 :class:`~src.data_model.wildfire.Wildfire` attached, and why that wildfire's
 :attr:`~src.data_model.wildfire.Wildfire.perimeter` stays ``NULL`` for good.
 
+Usually. 9% of the 2004-2023 archive is a *parte* with no coordinate at all,
+almost all of it before 2011, so
+:attr:`~src.providers.egif.wildfire.EgifWildfire.ignition_id` is nullable.
+
 Two exports, one record
 -----------------------
 
@@ -45,6 +49,31 @@ What the XML adds beyond the Excel lands on
 child of the wildfire. Its presence *is* the provenance: a fire with a report row
 was seen in the XML, one without was only ever in the Excel. Nothing needs a flag
 column to say so.
+
+How much of the XML is modelled, and why that much
+--------------------------------------------------
+
+Not all of it. The XSD carries 13 ``pif_*`` blocks, a per-forest-unit
+``ParteMonte`` block and **25 ``Rel*`` relations**, all of which are populated in
+the real exports — none of it is dead schema. Modelling the lot is of the order
+of fifteen extra tables.
+
+What is kept is **the fire**: where, when, why, how certain the why is, what
+burnt, the weather at the time, and the fuel and behaviour codes. That is the
+subset a study of lightning-caused fires reads, and on the lightning subset of
+2004-2023 it is populated at 94-100% for everything except the weather block
+(49-94%, worse the further back you go).
+
+What is left out is the response and the accounting: ``pif_medios`` (personnel,
+aircraft, machinery), ``pif_tecnicas``, the casualty and by-ownership breakdowns,
+``pif_anexo``'s regeneration and erosion indices, and the whole ``ParteMonte``
+tree with its species detail and timber valuations.
+
+Adding any of it later is additive and does not disturb what is here: the report
+is 1:1 on the wildfire's primary key, and ``numeroparte`` is a stable unique key
+present in both export formats, so a re-import backfills new columns by upsert.
+Do get the *types* right first time, though — the ``v_egif_*`` views block
+``ALTER COLUMN ... TYPE`` on every column they select.
 
 The published data is never complete
 ------------------------------------
@@ -123,14 +152,36 @@ DATUM_ETRS89 = "ETRS89"
 #: only ones outside :data:`DATUM_ETRS89`.
 DATUM_REGCAN95 = "REGCAN95"
 
-#: Every datum seen in the published exports. Older campaigns may add ED50 — the
-#: XML's ``iddatum`` enumeration has more values than the two observed here — in
-#: which case this tuple, the ``CHECK`` built from it and
-#: :data:`SOURCE_SRIDS` all grow together.
+#: Every datum the exports name. Checked against all seven XML exports covering
+#: 2004-2023: ED50 never appears, and no third label does either. What older
+#: campaigns do instead is publish no datum at all — see :data:`DATUM_CODES`.
 DATUMS = (DATUM_ETRS89, DATUM_REGCAN95)
+
+#: What the XML's ``iddatum`` means, for the two codes that can be resolved.
+#:
+#: The element is **absent before the 2014-2016 campaigns** — 2004-2013 publish
+#: coordinates with no datum whatsoever, and 2014-2016 carries it on 6,401 of its
+#: 30,365 fires — which is why
+#: :attr:`~src.providers.egif.ignition.EgifIgnition.datum` is nullable. From 2017
+#: on it is universal.
+#:
+#: Three values occur in the whole 2004-2023 archive: ``2`` on 67,462 fires, ``5``
+#: on 443 (tracking the Canarian huso-28 fires, hence REGCAN95), and ``3`` on three
+#: records, which nothing published maps to anything. Those three keep their raw
+#: code in :attr:`~src.providers.egif.ignition.EgifIgnition.datum_code` and a
+#: ``NULL`` datum, rather than being silently called ETRS89.
+DATUM_CODES = {
+    "2": DATUM_ETRS89,
+    "5": DATUM_REGCAN95,
+}
 
 #: UTM zones the published coordinates fall in. Spain spans 28N to 31N: 30 is
 #: most of the peninsula, 29 the west, 31 Catalonia and the east, 28 the Canaries.
+#:
+#: This is what the coordinates *should* be in, and what
+#: :data:`SOURCE_SRIDS` is keyed on — it is **not** a constraint on
+#: :attr:`~src.providers.egif.ignition.EgifIgnition.utm_zone`, which stores the
+#: published number whatever it is. See that attribute for why.
 UTM_ZONES = (28, 29, 30, 31)
 
 #: The CRS each ``(datum, zone)`` pair means, which is what the importer needs to

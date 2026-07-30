@@ -4,8 +4,8 @@
 
 Two things matter here. The published coordinate has to survive as the numbers
 EGIF printed — that is what is stored instead of a geometry in the source CRS —
-and the zone and datum have to be constrained, because a transcription error in
-either puts the reprojected point in the wrong country.
+and the CRS those numbers are in has to stay recoverable across twenty years of
+exports that do not agree on how, or whether, they say so.
 """
 
 import datetime
@@ -97,15 +97,21 @@ def test_every_zone_spain_spans_is_accepted(db_session, provider, zone):
     assert db_session.scalar(select(EgifIgnition)).utm_zone == zone
 
 
-def test_a_zone_outside_spain_is_rejected(db_session, provider):
-    """One 2022 fire is published with ``Huso 3``, a typo for 30.
+@pytest.mark.parametrize("zone", [3, 27, 32, 33, 39, 50, 63, 71])
+def test_a_zone_outside_spain_is_stored_as_published(db_session, provider, zone):
+    """These are not transcription errors — they are what EGIF publishes.
 
-    The CHECK is what turns that into a failed insert the importer has to resolve,
-    instead of a point six hundred kilometres into the Atlantic.
+    Seven fires across 2004-2023 carry a ``huso`` outside 28-31, and the service's
+    own ``latitud``/``longitud`` are computed *from* the bad zone: ``2011331154``
+    is published at longitude -117.24, in the Pacific. So the geographic
+    coordinate cannot be used to check the projected one, and a CHECK here would
+    only refuse genuine records. The column keeps the published number and the
+    importer derives the zone it reprojects from.
     """
-    db_session.add(an_ignition(provider, utm_zone=3))
-    with pytest.raises((IntegrityError, DBAPIError)):
-        db_session.commit()
+    db_session.add(an_ignition(provider, utm_zone=zone))
+    db_session.commit()
+
+    assert db_session.scalar(select(EgifIgnition)).utm_zone == zone
 
 
 @pytest.mark.parametrize("datum", egif.DATUMS)
@@ -117,10 +123,47 @@ def test_both_published_datums_are_accepted(db_session, provider, datum):
 
 
 def test_an_unknown_datum_is_rejected(db_session, provider):
-    """ED50 may well turn up in older campaigns; it has to be added deliberately."""
+    """An unknown *label* is still refused: ED50 would have to be added deliberately.
+
+    Only the absence of a datum is allowed — see the test below.
+    """
     db_session.add(an_ignition(provider, datum="ED50"))
     with pytest.raises((IntegrityError, DBAPIError)):
         db_session.commit()
+
+
+def test_the_pre_2014_archive_publishes_no_datum_at_all(db_session, provider):
+    """``iddatum`` does not exist in the XML before the 2014-2016 campaigns.
+
+    2004-2013 publish coordinates with no datum whatsoever, so the column has to
+    be nullable — and the CHECK has to keep working, which it does because a NULL
+    satisfies ``datum IN (...)`` in SQL rather than failing it.
+    """
+    db_session.add(an_ignition(provider, datum=None, datum_code=None))
+    db_session.commit()
+
+    stored = db_session.scalar(select(EgifIgnition))
+    assert stored.datum is None
+    assert stored.utm_x == 404147.0
+
+
+def test_an_unresolvable_datum_code_keeps_its_code(db_session, provider):
+    """``iddatum`` takes three values and only two resolve.
+
+    ``3`` occurs on three records in the whole archive and maps to no published
+    datum. Keeping the raw code beside a NULL label is what stops those three
+    being quietly called ETRS89 like everything around them.
+    """
+    db_session.add(an_ignition(provider, datum=None, datum_code="3"))
+    db_session.commit()
+
+    stored = db_session.scalar(select(EgifIgnition))
+    assert (stored.datum, stored.datum_code) == (None, "3")
+
+
+@pytest.mark.parametrize("code,datum", sorted(egif.DATUM_CODES.items()))
+def test_the_resolvable_datum_codes_map_to_a_published_label(code, datum):
+    assert datum in egif.DATUMS
 
 
 def test_the_datum_and_zone_name_a_real_crs(db_session, provider):
@@ -133,9 +176,15 @@ def test_the_datum_and_zone_name_a_real_crs(db_session, provider):
                 assert isinstance(egif.SOURCE_SRIDS[(datum, zone)], int)
 
 
-@pytest.mark.parametrize("column", ["utm_zone", "utm_x", "utm_y", "datum"])
-def test_the_coordinate_is_required(db_session, provider, column):
-    """Every fire in both exports has one; a row without is an importer bug."""
+@pytest.mark.parametrize("column", ["utm_zone", "utm_x", "utm_y"])
+def test_the_coordinate_itself_is_still_required(db_session, provider, column):
+    """An ``egif_ignition`` row means "this fire has a published point".
+
+    A fire with no coordinate gets no ignition row at all and a NULL
+    ``ignition_id`` on its wildfire — 22,855 fires of the archive do — rather than
+    an ignition with a hole where the point should be. ``utm_zone`` is in this list
+    because ``x`` never appears without ``huso`` in any of the seven exports.
+    """
     db_session.add(an_ignition(provider, **{column: None}))
     with pytest.raises(IntegrityError):
         db_session.commit()

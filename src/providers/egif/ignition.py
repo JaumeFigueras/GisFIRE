@@ -40,10 +40,36 @@ Which CRS the numbers are in
 
 :attr:`utm_zone` and :attr:`datum` together name it, through
 :data:`~src.providers.egif.SOURCE_SRIDS` — ``("ETRS89", 31)`` is EPSG:25831,
-``("REGCAN95", 28)`` is EPSG:4083. Both are constrained to the values the exports
-actually use, which is what turns a transcription error into a failed insert: one
-fire in the 2022 export (``2022470051``, Valladolid) is published with
-``Huso 3``, a typo for 30 that the coordinates themselves disambiguate.
+``("REGCAN95", 28)`` is EPSG:4083.
+
+Neither is guaranteed, and the importer, not a ``CHECK``, is what resolves them:
+
+* **The datum is missing for most of the archive.** ``iddatum`` does not appear in
+  the XML before the 2014-2016 campaigns; 2004-2013 publish coordinates with no
+  datum at all. So :attr:`datum` is nullable and the mainland default has to be
+  assumed for those years. See :data:`~src.providers.egif.DATUM_CODES`.
+* **The published zone is sometimes wrong, and so is the published lat/lon.**
+  Across 2004-2023 seven fires carry a ``huso`` outside 28-31 — ``3``, ``27``,
+  ``32``, ``33``, ``39``, ``50``, ``63``, ``71`` — and the service's own
+  ``latitud``/``longitud`` are computed *from* that bad zone, so they land in the
+  Pacific (``2011331154``: ``lon -117.24``) or central Asia (``2011260019``:
+  ``lon 117.27``). The published geographic coordinate is therefore **derived, not
+  independent**, and cannot be used to check the projected one.
+
+  :attr:`utm_zone` consequently has no ``CHECK``: it holds the published number
+  whatever it is, and the importer derives the zone to reproject from — from the
+  province, which is right in all seven cases — rather than trusting it. A
+  constraint here would only reject real published records.
+
+There is one fire per coordinate, or none
+-----------------------------------------
+
+:attr:`utm_x` and :attr:`utm_y` stay ``NOT NULL``: an ``egif_ignition`` row means
+"this fire has a published point". **22,855 of the 248,257 fires in the 2004-2023
+XML exports have no coordinate at all** — 8,872 in 2004-2005 alone, falling to
+zero by 2017 — and those fires get no ignition row and a ``NULL``
+:attr:`~src.providers.egif.wildfire.EgifWildfire.ignition_id`, rather than an
+ignition with a hole where the point should be.
 """
 
 from __future__ import annotations
@@ -58,7 +84,6 @@ from sqlalchemy.orm import mapped_column
 
 from src.data_model.ignition import Ignition
 from src.providers.egif import DATUMS
-from src.providers.egif import UTM_ZONES
 
 
 class EgifIgnition(Ignition):
@@ -86,16 +111,29 @@ class EgifIgnition(Ignition):
         Barcelona. Text, because the province field has a leading zero for the
         first nine provinces.
     utm_zone : int
-        The UTM zone the published coordinate is in (``huso``), constrained to
-        :data:`~src.providers.egif.UTM_ZONES`.
+        The UTM zone the published coordinate is in (``huso``), stored **as
+        published and unconstrained**. Normally one of
+        :data:`~src.providers.egif.UTM_ZONES`; seven fires in 2004-2023 carry
+        something else, and the module docstring explains why that is kept rather
+        than rejected.
     utm_x : float
         Published easting, in metres. Stored as published.
     utm_y : float
         Published northing, in metres. Stored as published.
-    datum : str
+    datum : str or None
         The geodetic datum the coordinate is on, constrained to
-        :data:`~src.providers.egif.DATUMS`. With :attr:`utm_zone` it names the
-        CRS: see :data:`~src.providers.egif.SOURCE_SRIDS`.
+        :data:`~src.providers.egif.DATUMS` where present. With :attr:`utm_zone` it
+        names the CRS: see :data:`~src.providers.egif.SOURCE_SRIDS`.
+
+        ``None`` for the whole 2004-2013 archive and most of 2014-2016, where the
+        XML publishes no ``iddatum``, and for the three records whose ``iddatum``
+        is the unmappable ``3``.
+    datum_code : str or None
+        The raw ``iddatum`` as published, kept so that resolving it stays lossless.
+        ``3`` occurs on three records in the whole 2004-2023 archive and maps to no
+        known datum, so those keep the code beside a ``NULL`` :attr:`datum` instead
+        of being rounded to the common case. ``None`` for a fire read from an Excel
+        export, which publishes the datum as a label and never as a code.
     start_point_count : int or None
         How many points the fire was started at (``puntosinicioincendio``).
 
@@ -125,10 +163,6 @@ class EgifIgnition(Ignition):
 
     __table_args__ = (
         CheckConstraint(
-            "utm_zone IN (" + ", ".join(str(zone) for zone in UTM_ZONES) + ")",
-            name="ck_egif_ignition_utm_zone",
-        ),
-        CheckConstraint(
             "datum IN (" + ", ".join(f"'{datum}'" for datum in DATUMS) + ")",
             name="ck_egif_ignition_datum",
         ),
@@ -139,7 +173,8 @@ class EgifIgnition(Ignition):
     utm_zone: Mapped[int] = mapped_column(Integer, nullable=False)
     utm_x: Mapped[float] = mapped_column(Float, nullable=False)
     utm_y: Mapped[float] = mapped_column(Float, nullable=False)
-    datum: Mapped[str] = mapped_column(String, nullable=False)
+    datum: Mapped[str | None] = mapped_column(String, nullable=True)
+    datum_code: Mapped[str | None] = mapped_column(String, nullable=True)
     start_point_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     mtn_sheet: Mapped[str | None] = mapped_column(String, nullable=True)
     mtn_grid: Mapped[str | None] = mapped_column(String, nullable=True)

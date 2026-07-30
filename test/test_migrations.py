@@ -256,6 +256,64 @@ def test_a_dataset_view_flattens_the_two_tables(alembic_config):
     assert row.st_srid == 4326
 
 
+def test_the_egif_wildfire_view_keeps_a_fire_that_has_no_coordinate(alembic_config):
+    """A *parte* with no published point must still be a row in the layer.
+
+    ``v_egif_wildfire`` inner-joined the ignition while ``ignition_id`` was
+    NOT NULL. Now that 22,855 fires of the 2004-2023 archive are known to publish
+    no coordinate, that join would drop 9% of the data from the view while leaving
+    it looking perfectly healthy — the failure mode a test has to exist for. The
+    fire arrives with a NULL geometry instead: a feature with no location rather
+    than no feature.
+    """
+    config, url = alembic_config
+    upgrade(config, "head")
+
+    engine = create_engine(url)
+    with engine.begin() as connection:
+        provider_id = connection.execute(
+            text(
+                "INSERT INTO data_provider (name, product, full_name) "
+                "VALUES ('EGIF', 'Estadistica General de Incendios Forestales', 'MITECO') "
+                "RETURNING id"
+            )
+        ).scalar()
+        wildfire_id = connection.execute(
+            text(
+                "INSERT INTO wildfire (type, data_provider_id, start_date_time, time_zone) "
+                "VALUES ('egif_wildfire', :provider_id, '2005-08-14T13:00:00Z', 'Europe/Madrid') "
+                "RETURNING id"
+            ),
+            {"provider_id": provider_id},
+        ).scalar()
+        connection.execute(
+            text(
+                "INSERT INTO egif_wildfire (id, report_number, campaign, province_ine_code, "
+                "ignition_id) VALUES (:id, '2005330001', 2005, '33', NULL)"
+            ),
+            {"id": wildfire_id},
+        )
+
+    with engine.connect() as connection:
+        row = connection.execute(
+            text(
+                "SELECT id, report_number, ignition_id, utm_zone, datum, datum_code, "
+                "geometry, has_full_report FROM v_egif_wildfire"
+            )
+        ).one()
+    engine.dispose()
+
+    assert row.id == wildfire_id
+    assert row.report_number == "2005330001"
+    assert row.ignition_id is None
+    assert row.utm_zone is None
+    # No datum either: the XML publishes none before the 2014-2016 campaigns.
+    assert (row.datum, row.datum_code) == (None, None)
+    assert row.geometry is None
+    # Excel-only provenance: no report row, so no XML has been read for this fire.
+    assert row.has_full_report is False
+
+
 def test_migrations_downgrade_to_base(alembic_config):
     """Every revision can be undone, leaving no GisFIRE table or view behind."""
     config, url = alembic_config

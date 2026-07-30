@@ -118,7 +118,7 @@ def test_an_egif_fire_has_no_perimeter(db_session, provider, ignition):
 
 
 def test_the_fire_is_located_by_its_ignition(db_session, provider, ignition):
-    """The link to the point is mandatory: it is the only geometry an EGIF fire has."""
+    """The point is the only geometry an EGIF fire has."""
     db_session.add(a_wildfire(provider, ignition))
     db_session.commit()
     db_session.expunge_all()
@@ -128,10 +128,21 @@ def test_the_fire_is_located_by_its_ignition(db_session, provider, ignition):
     assert stored.ignition.utm_zone == 30
 
 
-def test_a_fire_without_an_ignition_is_refused(db_session, provider):
+def test_a_fire_may_have_no_published_coordinate(db_session, provider):
+    """22,855 of the 248,257 fires in the 2004-2023 XML exports have none.
+
+    They are real *partes* of real fires that nobody located — 8,872 in 2004-2005,
+    987 in 2011-2013, none from 2017 on. Requiring the link would have made the
+    historical series unimportable, and would have cost 9% of the archive for a
+    tidier column.
+    """
     db_session.add(a_wildfire(provider, None))
-    with pytest.raises(IntegrityError):
-        db_session.commit()
+    db_session.commit()
+    db_session.expunge_all()
+
+    stored = db_session.scalar(select(EgifWildfire))
+    assert stored.ignition is None
+    assert stored.report_number == "2022010001"
 
 
 # --------------------------------------------------------------------------
