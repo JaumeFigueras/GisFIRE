@@ -49,7 +49,7 @@ Neither is guaranteed, and the importer, not a ``CHECK``, is what resolves them:
   datum at all. So :attr:`datum` is nullable and the mainland default has to be
   assumed for those years. See :data:`~src.providers.egif.DATUM_CODES`.
 * **The published zone is sometimes wrong, and so is the published lat/lon.**
-  Across 2004-2023 seven fires carry a ``huso`` outside 28-31 — ``3``, ``27``,
+  Sixteen fires in the archive carry a ``huso`` outside 28-31 — ``3``, ``27``,
   ``32``, ``33``, ``39``, ``50``, ``63``, ``71`` — and the service's own
   ``latitud``/``longitud`` are computed *from* that bad zone, so they land in the
   Pacific (``2011331154``: ``lon -117.24``) or central Asia (``2011260019``:
@@ -58,16 +58,18 @@ Neither is guaranteed, and the importer, not a ``CHECK``, is what resolves them:
 
   :attr:`utm_zone` consequently has no ``CHECK``: it holds the published number
   whatever it is, and the importer derives the zone to reproject from — from the
-  province, which is right in all seven cases — rather than trusting it. A
+  province, which is right in all sixteen cases — rather than trusting it. A
   constraint here would only reject real published records.
 
 There is one fire per coordinate, or none
 -----------------------------------------
 
 :attr:`utm_x` and :attr:`utm_y` stay ``NOT NULL``: an ``egif_ignition`` row means
-"this fire has a published point". **22,855 of the 248,257 fires in the 2004-2023
-XML exports have no coordinate at all** — 8,872 in 2004-2005 alone, falling to
-zero by 2017 — and those fires get no ignition row and a ``NULL``
+"this fire has a published point". **293,710 of the 586,157 fires in the 1982-2023
+archive have no coordinate at all** — every fire before 1998, and a diminishing
+share after it until 2017, when the last of them gets one.
+
+Those fires get no ignition row and a ``NULL``
 :attr:`~src.providers.egif.wildfire.EgifWildfire.ignition_id`, rather than an
 ignition with a hole where the point should be.
 """
@@ -113,7 +115,7 @@ class EgifIgnition(Ignition):
     utm_zone : int
         The UTM zone the published coordinate is in (``huso``), stored **as
         published and unconstrained**. Normally one of
-        :data:`~src.providers.egif.UTM_ZONES`; seven fires in 2004-2023 carry
+        :data:`~src.providers.egif.UTM_ZONES`; sixteen fires in the archive carry
         something else, and the module docstring explains why that is kept rather
         than rejected.
     utm_x : float
@@ -125,12 +127,12 @@ class EgifIgnition(Ignition):
         :data:`~src.providers.egif.DATUMS` where present. With :attr:`utm_zone` it
         names the CRS: see :data:`~src.providers.egif.SOURCE_SRIDS`.
 
-        ``None`` for the whole 2004-2013 archive and most of 2014-2016, where the
+        ``None`` for every campaign before 2014 and most of 2014-2016, where the
         XML publishes no ``iddatum``, and for the three records whose ``iddatum``
         is the unmappable ``3``.
     datum_code : str or None
         The raw ``iddatum`` as published, kept so that resolving it stays lossless.
-        ``3`` occurs on three records in the whole 2004-2023 archive and maps to no
+        ``3`` occurs on three records in the whole archive and maps to no
         known datum, so those keep the code beside a ``NULL`` :attr:`datum` instead
         of being rounded to the common case. ``None`` for a fire read from an Excel
         export, which publishes the datum as a label and never as a code.

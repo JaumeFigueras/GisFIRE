@@ -129,7 +129,7 @@ def test_the_fire_is_located_by_its_ignition(db_session, provider, ignition):
 
 
 def test_a_fire_may_have_no_published_coordinate(db_session, provider):
-    """22,855 of the 248,257 fires in the 2004-2023 XML exports have none.
+    """293,710 of the 586,157 fires in the 1982-2023 archive have none.
 
     They are real *partes* of real fires that nobody located — 8,872 in 2004-2005,
     987 in 2011-2013, none from 2017 on. Requiring the link would have made the

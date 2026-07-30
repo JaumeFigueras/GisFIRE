@@ -15,8 +15,8 @@ is a :class:`~src.data_model.ignition.Ignition` with a
 :class:`~src.data_model.wildfire.Wildfire` attached, and why that wildfire's
 :attr:`~src.data_model.wildfire.Wildfire.perimeter` stays ``NULL`` for good.
 
-Usually. 9% of the 2004-2023 archive is a *parte* with no coordinate at all,
-almost all of it before 2011, so
+Usually. **Half** the 1982-2023 archive is a *parte* with no coordinate at all —
+the exports before 1998 publish none — so
 :attr:`~src.providers.egif.wildfire.EgifWildfire.ignition_id` is nullable.
 
 Two exports, one record
@@ -198,17 +198,120 @@ SOURCE_SRIDS = {
     (DATUM_REGCAN95, 28): 4083,
 }
 
+#: The UTM zone to fall back on when a fire's published ``huso`` is not a zone
+#: Spain lies in, keyed by INE province code.
+#:
+#: **A fallback, never an override.** A published zone in :data:`UTM_ZONES` is
+#: always used as published; this is consulted only for the handful of records
+#: whose zone is unusable — 7 in the XML archive, a few more in the Excel, with
+#: values like ``3``, ``63`` and ``71``.
+#:
+#: The distinction matters because these are *modal* zones, not authoritative
+#: ones: eleven provinces genuinely straddle two, and Badajoz, Cáceres, Asturias,
+#: Zamora and Barcelona are close to evenly split. Taken across the whole archive
+#: the modal zone agrees with the published one on only 92.7% of fires, so using
+#: it in place of a good published value would move a quarter of a million points.
+#: Derived from the published ``Huso`` of 298,266 fires in the eight Excel
+#: exports; the comment on each line is the province and the modal zone's share.
+PROVINCE_UTM_ZONES = {
+    "01": 30,  # Álava 862/863
+    "02": 30,  # Albacete 1976/1976
+    "03": 30,  # Alicante 1737/1766
+    "04": 30,  # Almería 1877/1878
+    "05": 30,  # Ávila 3008/3008
+    "06": 29,  # Badajoz 4435/7583 — straddles 29/30
+    "07": 31,  # Illes Balears 2728/2730
+    "08": 31,  # Barcelona 4884/5816 — straddles 30/31
+    "09": 30,  # Burgos 3099/3099
+    "10": 30,  # Cáceres 7904/13761 — straddles 29/30
+    "11": 30,  # Cádiz 2033/2071
+    "12": 30,  # Castellón 1616/1739
+    "13": 30,  # Ciudad Real 1871/1871
+    "14": 30,  # Córdoba 2012/2012
+    "15": 29,  # A Coruña 28143/28143
+    "16": 30,  # Cuenca 3212/3212
+    "17": 31,  # Girona 3054/3054
+    "18": 30,  # Granada 2722/2723
+    "19": 30,  # Guadalajara 2913/2913
+    "20": 30,  # Guipúzcoa 614/614
+    "21": 30,  # Huelva 3181/3423
+    "22": 30,  # Huesca 2203/2663
+    "23": 30,  # Jaén 3020/3023
+    "24": 30,  # León 7300/7620
+    "25": 31,  # Lleida 2652/2652
+    "26": 30,  # La Rioja 1570/1571
+    "27": 29,  # Lugo 16576/16581
+    "28": 30,  # Madrid 5522/5522
+    "29": 30,  # Málaga 1941/1941
+    "30": 30,  # Murcia 2229/2229
+    "31": 30,  # Navarra 5254/5255
+    "32": 29,  # Ourense 46024/46026
+    "33": 30,  # Asturias 18946/26672 — straddles 29/30
+    "34": 30,  # Palencia 1770/1770
+    "35": 28,  # Las Palmas 662/662
+    "36": 29,  # Pontevedra 33674/33674
+    "37": 30,  # Salamanca 4247/4458
+    "38": 28,  # Santa Cruz de Tenerife 820/822
+    "39": 30,  # Cantabria 8400/8400
+    "40": 30,  # Segovia 1421/1421
+    "41": 30,  # Sevilla 2673/2788
+    "42": 30,  # Soria 1589/1589
+    "43": 31,  # Tarragona 2875/2875
+    "44": 30,  # Teruel 2441/2665
+    "45": 30,  # Toledo 4240/4240
+    "46": 30,  # Valencia 3975/3976
+    "47": 30,  # Valladolid 1589/1590
+    "48": 30,  # Vizcaya 607/607
+    "49": 30,  # Zamora 4070/6330 — straddles 29/30
+    "50": 30,  # Zaragoza 4371/4381
+    "51": 30,  # Ceuta 8/8
+    "52": 30,  # Melilla — no fire in the archive, included for completeness
+}
+
+#: The easting and northing a published coordinate has to fall between for the
+#: point to be worth placing, in metres.
+#:
+#: A UTM easting is meaningful over roughly 100-900 km from the zone's western
+#: edge, and Spain's northings run from about 3,060,000 (El Hierro, 27.6°N) to
+#: 4,850,000 (the Pyrenees, 43.8°N). The bounds are set wide of both.
+#:
+#: This is a **plausibility check, not a tidy-up**: 339 fires of the 292,447 that
+#: publish a coordinate — 0.12%, nearly all before 2011 — publish one that cannot
+#: be where the fire was. The failures are ordinary data entry, and they are
+#: obvious once reprojected: a northing with three digits missing
+#: (``2022320419``, Ourense, ``y = 4655``, which lands in the Gulf of Guinea), the
+#: easting typed into both fields (``2005230258``, Jaén, ``434047, 434047``), an
+#: extra digit (``2006490039``, Zamora, ``y = 46648500``).
+#:
+#: A fire that fails it is stored **without an ignition**, exactly like the 293,710
+#: that publish no coordinate at all, rather than with a point in the ocean that
+#: every spatial query would then have to exclude by hand. The published numbers
+#: are still kept, on the fire's own row, so nothing is lost.
+PLAUSIBLE_UTM_EASTING = (100_000.0, 900_000.0)
+PLAUSIBLE_UTM_NORTHING = (2_800_000.0, 4_900_000.0)
+
 #: Zone the published wall-clock readings are resolved against for the peninsula,
 #: the Balearics, Ceuta and Melilla.
 DEFAULT_TIME_ZONE = "Europe/Madrid"
 
 #: Zone for fires in the Canary Islands, an hour behind the mainland all year.
-#: Chosen from the *comunidad*, not from the coordinate: see the module docstring.
 CANARY_TIME_ZONE = "Atlantic/Canary"
 
 #: Name of the *comunidad autónoma* :data:`CANARY_TIME_ZONE` applies to, as both
 #: exports spell it.
 CANARY_COMUNIDAD = "CANARIAS"
+
+#: INE province codes of the Canary Islands — Las Palmas and Santa Cruz de
+#: Tenerife — which is how a Canarian fire is recognised for
+#: :data:`CANARY_TIME_ZONE`.
+#:
+#: The province rather than the *comunidad*, because the province code is the one
+#: identifier both exports agree on and neither can garble: it is characters 5-6
+#: of ``numeroparte`` and equals ``idprovincia`` on all 29,926 fires checked. The
+#: XML's ``idcomunidad`` is **not** the INE autonomous-community code — EGIF
+#: numbers them its own way, with Cataluña as ``2`` — so reading Canarias off it
+#: would need a second undocumented catalogue to be right.
+CANARY_PROVINCE_INE_CODES = ("35", "38")
 
 #: ``idcausa`` of a fire started by lightning. The one family in which
 #: :attr:`~src.providers.egif.wildfire_report.EgifWildfireReport.days_since_storm`

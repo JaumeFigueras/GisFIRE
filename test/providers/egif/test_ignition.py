@@ -101,7 +101,7 @@ def test_every_zone_spain_spans_is_accepted(db_session, provider, zone):
 def test_a_zone_outside_spain_is_stored_as_published(db_session, provider, zone):
     """These are not transcription errors — they are what EGIF publishes.
 
-    Seven fires across 2004-2023 carry a ``huso`` outside 28-31, and the service's
+    Sixteen fires across the archive carry a ``huso`` outside 28-31, and the service's
     own ``latitud``/``longitud`` are computed *from* the bad zone: ``2011331154``
     is published at longitude -117.24, in the Pacific. So the geographic
     coordinate cannot be used to check the projected one, and a CHECK here would
@@ -181,8 +181,8 @@ def test_the_coordinate_itself_is_still_required(db_session, provider, column):
     """An ``egif_ignition`` row means "this fire has a published point".
 
     A fire with no coordinate gets no ignition row at all and a NULL
-    ``ignition_id`` on its wildfire — 22,855 fires of the archive do — rather than
-    an ignition with a hole where the point should be. ``utm_zone`` is in this list
+    ``ignition_id`` on its wildfire — 293,710 fires of the archive do — rather
+    than an ignition with a hole where the point should be. ``utm_zone`` is in this list
     because ``x`` never appears without ``huso`` in any of the seven exports.
     """
     db_session.add(an_ignition(provider, **{column: None}))

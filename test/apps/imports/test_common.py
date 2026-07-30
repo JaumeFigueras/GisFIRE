@@ -8,6 +8,7 @@ streams are captured, and both are visible in the call.
 """
 
 import argparse
+import io
 import logging
 import subprocess
 import threading
@@ -133,3 +134,95 @@ def test_a_failure_still_reports_what_ogr2ogr_said(args, monkeypatch):
 
     with pytest.raises(RuntimeError, match="ERROR 1: no such table"):
         load(args, logging.INFO)
+
+
+# --------------------------------------------------------------------------
+# The progress reporter
+# --------------------------------------------------------------------------
+
+class FakeTerminal(io.StringIO):
+    """A stream that claims to be a terminal, to exercise the bar."""
+
+    def isatty(self) -> bool:
+        return True
+
+
+@pytest.fixture
+def progress_logger(caplog):
+    logger = logging.getLogger("test-progress")
+    logger.setLevel(logging.INFO)
+    return logger
+
+
+def test_a_terminal_gets_a_bar_rewritten_in_place(progress_logger):
+    """One line, redrawn with a carriage return — never a line per redraw."""
+    stream = FakeTerminal()
+    progress = common.ProgressReporter(100, "file.xml", progress_logger, stream=stream)
+    for _ in range(100):
+        progress.advance()
+    progress.finish()
+
+    written = stream.getvalue()
+    assert written.startswith("\r")
+    # Exactly one newline, written by finish(), so the bar occupied one line.
+    assert written.count("\n") == 1
+    assert "100%" in written
+    assert "100/100" in written
+    assert "file.xml" in written
+
+
+def test_a_redirected_stream_gets_log_lines_and_no_control_characters(
+        progress_logger, caplog):
+    """A bar in a log file is noise; a redirected run gets records instead."""
+    stream = io.StringIO()  # not a terminal
+    with caplog.at_level(logging.INFO):
+        progress = common.ProgressReporter(30, "file.xlsx", progress_logger,
+                                           stream=stream, log_every=10)
+        for _ in range(30):
+            progress.advance()
+        progress.finish()
+
+    assert stream.getvalue() == ""
+    assert "\r" not in caplog.text
+    assert "file.xlsx: 30/30 (100%)" in caplog.text
+
+
+def test_an_uncountable_source_gets_a_bar_with_no_percentage(progress_logger):
+    """An XML export cannot be counted without parsing it, so it has no total."""
+    stream = FakeTerminal()
+    progress = common.ProgressReporter(None, "big.xml", progress_logger, stream=stream)
+    progress.advance(1234)
+    progress.finish()
+
+    written = stream.getvalue()
+    assert "1,234" in written
+    assert "%" not in written
+    assert "eta" not in written
+
+
+def test_the_bar_is_rate_limited_but_the_final_state_is_never_missed(progress_logger):
+    """Drawing per item would cost more than parsing a 30,000-fire file."""
+    stream = FakeTerminal()
+    progress = common.ProgressReporter(5000, "file.xml", progress_logger, stream=stream)
+    for _ in range(5000):
+        progress.advance()
+    drawn_before_finish = stream.getvalue().count("\r")
+    progress.finish()
+
+    assert drawn_before_finish <= 2, "the rate limiter should have suppressed redraws"
+    assert "5,000/5,000" in stream.getvalue()
+    assert "100%" in stream.getvalue()
+
+
+def test_a_quiet_logger_draws_nothing_at_all(caplog):
+    """Below INFO the user has asked not to be told what is happening."""
+    logger = logging.getLogger("test-progress-quiet")
+    logger.setLevel(logging.WARNING)
+    stream = FakeTerminal()
+
+    progress = common.ProgressReporter(10, "file.xml", logger, stream=stream)
+    for _ in range(10):
+        progress.advance()
+    progress.finish()
+
+    assert stream.getvalue() == ""

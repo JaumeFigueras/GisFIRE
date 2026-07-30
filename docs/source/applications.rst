@@ -26,6 +26,7 @@ under ``src/apps/imports/``::
    src/apps/imports/wildfires/gwis/import_wildfires.py
    src/apps/imports/wildfires/gfa/import_wildfires.py
    src/apps/imports/wildfires/portugal_icnf/import_wildfires.py
+   src/apps/imports/wildfires/egif/import_wildfires.py
 
 so that a second source for the same kind of data — OSM for the administrative levels
 below the country, another agency's fire perimeters — sits beside the first rather than
@@ -89,6 +90,14 @@ Data import
     published EPSG:3763 geometry as well as the EPSG:4326 one, and records per row how
     much of its date the provider actually published.
 
+:doc:`applications/egif_import_wildfires`
+    Imports the Spanish national fire statistics (EGIF) in two steps — every Excel export
+    first, then every XML export — because the two formats each drop what the other keeps.
+    The Excel is the only public source of the cause and motivation labels; the XML has the
+    INE municipal code, the weather, the fuel and fire-type codes and ``diastormenta``, the
+    holdover interval that makes the lightning work possible. Each step writes only the
+    columns its own format publishes, so neither undoes the other. Needs no ``ogr2ogr``.
+
 :doc:`applications/icnf_resync_wildfires`
     Goes back to the ICNF's WFS for the times the shapefile export truncated — a
     shapefile's DBF has no datetime type, so every published instant arrived as a bare
@@ -132,4 +141,5 @@ as the importers::
    applications/gfa_import_wildfires
    applications/icnf_import_wildfires
    applications/icnf_resync_wildfires
+   applications/egif_import_wildfires
    applications/gwis_wildfire_statistics

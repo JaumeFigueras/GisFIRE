@@ -115,11 +115,15 @@ class EgifWildfire(Wildfire):
         holding the fire's point of origin.
 
         Nullable, because a *parte* really can be a report of a fire nobody
-        located: **22,855 of the 248,257 fires in the 2004-2023 XML exports carry
-        no coordinate at all.** It is an artefact of the archive rather than of the
-        form — 8,872 missing in 2004-2005, 987 in 2011-2013, 22 in 2014-2016, none
-        from 2017 on — so a recent-campaigns-only import will never see one, and
-        the historical series would be short by 9% if the column were required.
+        located: **293,710 of the 586,157 fires in the 1982-2023 archive carry no
+        coordinate at all** — half of it.
+
+        It is an artefact of the archive rather than of the form, and it improves
+        monotonically: the exports for 1982-1997 publish no coordinate whatsoever
+        (216,736 fires), 1998-1999 publishes one for 29% of fires, 2011-2013 for
+        98%, and from 2017 on every fire has one. So a recent-campaigns-only
+        import will never meet the case, and the historical series would be
+        unimportable if the column were required.
     ignition : EgifIgnition or None
         The fire's point of origin, where one was published.
     ccaa_name : str or None

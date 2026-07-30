@@ -20,9 +20,13 @@ not a Python package.
 from __future__ import annotations
 
 import argparse
+import datetime
 import logging
 import os
 import subprocess
+import sys
+import time
+import typing
 import zipfile
 
 from pathlib import Path
@@ -314,6 +318,132 @@ def create_staging_schema(engine: Engine, schema: str) -> None:
 def drop_staging_table(session: Session, staging_table: str, logger: logging.Logger) -> None:
     session.execute(text(f"DROP TABLE IF EXISTS {staging_table}"))
     logger.debug("Dropped staging table %s", staging_table)
+
+
+class ProgressReporter:
+    """A progress bar on a terminal, periodic log lines anywhere else.
+
+    ``ogr2ogr`` draws its own bar, so the importers built on it needed nothing
+    here. One that reads its source in Python — a 285 MB XML export takes minutes
+    — has to draw its own, and has the same problem ``ogr2ogr`` solves by writing
+    to stdout: a self-updating line is what you want while watching a run and the
+    worst thing you can put in a log file, where every redraw becomes another line
+    of ``\\r``-littered noise.
+
+    So the destination decides the format. Attached to a terminal it rewrites one
+    line in place on stderr; redirected, or below ``INFO``, it emits an ordinary
+    log record every :attr:`log_every` items and nothing else. Neither path is a
+    special case of the other and both are exercised by the tests.
+
+    Parameters
+    ----------
+    total : int or None
+        Expected number of items, when it is known before starting. ``None`` for a
+        source that can only be counted by reading it — an XML export, whose fires
+        are not countable without parsing them — in which case the bar shows the
+        count and rate but no percentage or estimate.
+    label : str
+        What is being processed, normally the file name.
+    logger : logging.Logger
+        Where the non-terminal form writes, and whose level decides whether
+        anything is drawn at all.
+    stream : typing.TextIO or None
+        Where the bar is drawn. Defaults to ``sys.stderr``; the tests pass a
+        buffer, and passing one that is not a TTY is also how a caller forces the
+        log-line form.
+    log_every : int
+        Items between log records in the non-terminal form.
+    width : int
+        Character width of the bar itself, brackets excluded.
+    """
+
+    def __init__(self, total: int | None, label: str, logger: logging.Logger,
+                 stream: typing.TextIO | None = None, log_every: int = 10000,
+                 width: int = 20) -> None:
+        self.total = total
+        self.label = label
+        self.logger = logger
+        self.stream = sys.stderr if stream is None else stream
+        self.log_every = log_every
+        self.width = width
+        self.count = 0
+        self._started = time.monotonic()
+        self._last_drawn = 0.0
+        self._last_logged = 0
+        self._enabled = logger.isEnabledFor(logging.INFO)
+        self._interactive = self._enabled and bool(
+            getattr(self.stream, "isatty", lambda: False)()
+        )
+
+    def advance(self, step: int = 1) -> None:
+        """Count ``step`` more items and redraw if it is time to.
+
+        The bar is rate-limited to four redraws a second rather than drawn per
+        item: at 30,000 fires a file the drawing would otherwise cost more than
+        the parsing. The final state is not left to the rate limiter —
+        :meth:`finish` always draws.
+        """
+        self.count += step
+        if not self._enabled:
+            return
+        if self._interactive:
+            now = time.monotonic()
+            if now - self._last_drawn >= 0.25:
+                self._last_drawn = now
+                self._draw()
+        elif self.count - self._last_logged >= self.log_every:
+            self._last_logged = self.count
+            self.logger.info("%s", self._line())
+
+    def finish(self) -> None:
+        """Draw the completed state and close the line.
+
+        Always emits, whatever the rate limiter would have said, so a run always
+        ends with the true total rather than whatever the last redraw caught.
+        """
+        if not self._enabled:
+            return
+        if self._interactive:
+            self._draw()
+            self.stream.write("\n")
+            self.stream.flush()
+        else:
+            self.logger.info("%s", self._line())
+
+    # -- internals ---------------------------------------------------------
+
+    def _elapsed(self) -> float:
+        return time.monotonic() - self._started
+
+    def _rate(self) -> float:
+        elapsed = self._elapsed()
+        return self.count / elapsed if elapsed > 0 else 0.0
+
+    def _line(self) -> str:
+        """The log-line form: no bar, no ETA, safe to redirect."""
+        elapsed = self._elapsed()
+        if self.total:
+            return (f"{self.label}: {self.count:,}/{self.total:,} "
+                    f"({100 * self.count // self.total}%) in {elapsed:.0f}s")
+        return f"{self.label}: {self.count:,} in {elapsed:.0f}s"
+
+    def _draw(self) -> None:
+        """The terminal form, rewritten in place."""
+        rate = self._rate()
+        if self.total:
+            done = min(self.count, self.total)
+            filled = self.width * done // self.total if self.total else 0
+            bar = "#" * filled + "-" * (self.width - filled)
+            remaining = (self.total - done) / rate if rate > 0 else 0
+            text = (f"{self.label}: [{bar}] {100 * done // self.total:3d}%  "
+                    f"{done:,}/{self.total:,}  {rate:,.0f}/s  "
+                    f"eta {datetime.timedelta(seconds=int(remaining))}")
+        else:
+            text = f"{self.label}: {self.count:,}  {rate:,.0f}/s  {self._elapsed():.0f}s"
+        # Pad to overwrite a longer previous line, then return to column 0 so the
+        # next redraw lands on top of this one.
+        self.stream.write("\r" + text.ljust(78)[:78])
+        self.stream.flush()
 
 
 class ArchiveLogger(logging.LoggerAdapter):
