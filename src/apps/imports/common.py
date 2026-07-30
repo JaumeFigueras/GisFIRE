@@ -25,6 +25,7 @@ import logging
 import os
 import subprocess
 import sys
+import threading
 import time
 import typing
 import zipfile
@@ -444,6 +445,103 @@ class ProgressReporter:
         # next redraw lands on top of this one.
         self.stream.write("\r" + text.ljust(78)[:78])
         self.stream.flush()
+
+
+class Spinner:
+    """Says a long single operation is still running, and for how long.
+
+    :class:`ProgressReporter` needs to be advanced, which suits reading a file a
+    record at a time. It does not suit the other shape of slow work in this
+    project: **one statement that the database either has finished or has not.**
+    A burnt-area report over 23 million perimeters is a single ``SELECT``; there
+    is no n-of-m to show, because PostgreSQL does not report partial progress on
+    an aggregate and inventing one would be a lie.
+
+    What can honestly be shown is that the process is alive and how long it has
+    been going, so that is what this does. Used as a context manager around the
+    slow call:
+
+    .. code-block:: python
+
+       with Spinner("Measuring perimeters", logger):
+           rows = session.execute(query).all()
+
+    The destination decides the form, as for :class:`ProgressReporter`. On a
+    terminal it rewrites one line on stderr with a turning bar and an elapsed
+    clock; redirected, or below ``INFO``, it emits one log record when the work
+    starts and one when it ends, and never a control character.
+
+    Parameters
+    ----------
+    message : str
+        What is being waited for, in words.
+    logger : logging.Logger
+        Where the non-terminal form writes, and whose level decides whether
+        anything is shown at all.
+    stream : typing.TextIO or None
+        Where the line is drawn. Defaults to ``sys.stderr``; the tests pass a
+        buffer, and passing one that is not a TTY forces the log-line form.
+    interval : float
+        Seconds between redraws.
+    """
+
+    #: The turning bar. Deliberately ASCII: this goes to whatever terminal the
+    #: user happens to have, and a mojibake spinner is worse than a plain one.
+    FRAMES = "|/-\\"
+
+    def __init__(self, message: str, logger: logging.Logger,
+                 stream: typing.TextIO | None = None, interval: float = 0.1) -> None:
+        self.message = message
+        self.logger = logger
+        self.stream = sys.stderr if stream is None else stream
+        self.interval = interval
+        self.elapsed = 0.0
+        self._started = 0.0
+        self._thread: threading.Thread | None = None
+        self._done = threading.Event()
+        self._enabled = logger.isEnabledFor(logging.INFO)
+        self._interactive = self._enabled and bool(
+            getattr(self.stream, "isatty", lambda: False)()
+        )
+
+    def __enter__(self) -> Spinner:
+        self._started = time.monotonic()
+        if not self._enabled:
+            return self
+        if self._interactive:
+            # A daemon thread so that a crash in the body can never leave the
+            # process hanging on a spinner nobody is watching.
+            self._thread = threading.Thread(target=self._spin, daemon=True)
+            self._thread.start()
+        else:
+            self.logger.info("%s...", self.message)
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback) -> None:
+        self.elapsed = time.monotonic() - self._started
+        if not self._enabled:
+            return
+        if self._thread is not None:
+            self._done.set()
+            self._thread.join(timeout=1.0)
+            # Wipe the line rather than leaving the last frame behind: whatever
+            # is printed next should not have to start after a stray bar.
+            self.stream.write("\r" + " " * (len(self.message) + 24) + "\r")
+            self.stream.flush()
+        # Reported either way, and only once the work is over, so the number is
+        # the real one. A failed body still gets a line: knowing it ran for four
+        # minutes before failing is worth as much as knowing it succeeded.
+        outcome = "failed after" if exc_type is not None else "done in"
+        self.logger.info("%s: %s %.0fs", self.message, outcome, self.elapsed)
+
+    def _spin(self) -> None:
+        frame = 0
+        while not self._done.wait(self.interval):
+            elapsed = datetime.timedelta(seconds=int(time.monotonic() - self._started))
+            self.stream.write(f"\r{self.FRAMES[frame % len(self.FRAMES)]} "
+                              f"{self.message}... {elapsed}")
+            self.stream.flush()
+            frame += 1
 
 
 class ArchiveLogger(logging.LoggerAdapter):

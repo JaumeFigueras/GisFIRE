@@ -39,22 +39,39 @@ Output
 Both formats carry the same table. Each country's years run newest first, closed by a
 ``Total`` row:
 
-=============  ======  =======  ============  ============  ============
-Country        Year      Fires  Minimum (ha)  Maximum (ha)  Total (ha)
-=============  ======  =======  ============  ============  ============
-Spain          2021       1204         21.47      21985.45      91721.90
-Spain          2020        876         21.47        193.30        622.93
-Spain          Total      2080         21.47      21985.45      92344.83
-France         2021        331         21.51       7978.39      11271.13
-France         Total       331         21.51       7978.39      11271.13
-=============  ======  =======  ============  ============  ============
+==============  ======  ========  ============  ============  =============
+Country         Year       Fires  Minimum (ha)  Maximum (ha)  Total (ha)
+==============  ======  ========  ============  ============  =============
+World           2021      482119         21.47     229104.55   38104772.10
+World           2020      461003         21.47     198441.02   33970118.44
+World           Total     943122         21.47     229104.55   72074890.54
+Spain           2021        1204         21.47      21985.45      91721.90
+Spain           2020         876         21.47        193.30        622.93
+Spain           Total       2080         21.47      21985.45      92344.83
+France          2021         331         21.51       7978.39      11271.13
+France          Total        331         21.51       7978.39      11271.13
+==============  ======  ========  ============  ============  =============
+
+The **World** block comes first: every country in scope, year by year and then over all
+of them. It is what the rest is read against — the dataset is not "the whole planet" in
+any tidy sense, and a country's figures mean little until you know the total they sit in.
 
 .. important::
 
-   A country's ``Total`` row is **not** a total of every column above it. ``Fires`` and
-   ``Total (ha)`` are sums; ``Minimum`` and ``Maximum`` are the smallest and largest fire
-   that country had in *any* year in scope. Summing a column of minima would produce a
-   number with no meaning.
+   Neither the ``World`` rows nor a country's ``Total`` row is a total of every column
+   above it. ``Fires`` and ``Total (ha)`` are sums; ``Minimum`` and ``Maximum`` are the
+   smallest and largest **single fire** in scope. Summing a column of minima would
+   produce a number with no meaning.
+
+.. note::
+
+   The World block is **omitted when** ``--country`` **is given**, where it could only
+   repeat that country's rows word for word.
+
+   It also excludes exactly what the countries exclude — a fire attributable to no
+   country is in no world total either — so the World row always equals the sum of the
+   country rows below it. A "world" that quietly meant "every fire in the database"
+   would not.
 
 The two formats differ deliberately in one respect: the ``.csv`` writes bare numbers
 (``21985.45``, ``1204``) because it is read by another program more often than by a
@@ -133,6 +150,17 @@ The result is cross-checked in the test suite against :mod:`pyproj`, which compu
 same geodesic area through PROJ rather than through PostGIS — two independent
 implementations rather than a number copied out of the first run. A further test asserts
 that the two methods agree with each other, and one asserts that Web Mercator would not.
+
+.. warning::
+
+   **``equal-area`` is wrong for a perimeter that crosses the antimeridian**, and
+   ``geodesic`` is not. ``ST_Transform`` is a planar operation, and a ring running from
+   +179.99 to -179.99 is planar nonsense: the 150 ha fire ``210709771`` comes out of
+   EPSG:6933 at 368,913 ha. ``ST_Area(::geography)`` reads the same ring correctly.
+
+   58 GFA fires and an unknown number of GWIS ones are affected. It is the reason
+   ``geodesic`` is the default, beyond the tidier one given above — so unless you have a
+   specific need for the projected figure, leave it alone.
 
 The Atlas's own size is not used
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -293,6 +321,31 @@ becoming "unset, or matching" disjunctions that are dead on every actual run.
 ``gfa_wildfire`` is joined by table rather than filtered on ``wildfire.type``, so this
 stays a GFA report even if another provider ever adopts the same discriminator — and
 joining the table directly keeps SQLAlchemy from adding the polymorphic join of its own.
+
+
+Progress
+--------
+
+The report is one ``SELECT``, so there is no n-of-m to show: PostgreSQL does not report
+partial progress on an aggregate, and inventing a percentage would be a fiction. What is
+shown instead is that the process is alive and how long it has been going.
+
+On a terminal, one line rewritten in place:
+
+.. code-block:: text
+
+   \ Measuring the burnt area of the GFA fires (every country)... 0:02:47
+
+Redirected to a file, or below ``INFO``, the same thing as two ordinary log records and
+no control characters at all:
+
+.. code-block:: text
+
+   14:22:01 INFO Measuring the burnt area of the GFA fires (every country)...
+   14:24:48 INFO Measuring the burnt area of the GFA fires (every country): done in 167s
+
+A run that fails says ``failed after 167s`` rather than ``done in``: knowing it worked
+for three minutes before falling over is worth as much as knowing it finished.
 
 API reference
 -------------

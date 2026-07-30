@@ -6,6 +6,10 @@ Reports, per country and year, how many fires there were and the smallest,
 largest and total area burnt, in hectares::
 
     Country          Year    Fires     Minimum      Maximum        Total
+    World            2021   482119       25.31    229104.55  38104772.10
+    World            2020   461003       25.31    198441.02  33970118.44
+    World            Total  943122       25.31    229104.55  72074890.54
+
     Spain            2021     1204       25.34     12904.11    481203.77
     Spain            2020      876       25.34      8110.02    377411.20
     Spain            Total    2080       25.34     12904.11    858614.97
@@ -13,10 +17,18 @@ largest and total area burnt, in hectares::
     France           2021      331       25.31      6002.45    120884.10
     ...
 
-The ``Total`` row of a country sums its fires and its burnt area over every year
-in scope, and takes the smallest and largest fire it had in *any* of them — not a
-total of the column above it, which for the minimum and maximum would mean
-nothing.
+The **World** block comes first and summarises every country in scope, year by
+year and then over all of them. It is not a total of the columns below it any
+more than a country's ``Total`` is a total of the years above it: only ``Fires``
+and ``Total (ha)`` are sums, while ``Minimum`` and ``Maximum`` are the smallest
+and largest single fire anywhere in scope.
+
+The ``Total`` row of a country works the same way over that country's years.
+
+.. note::
+
+   The World block is **omitted when ``--country`` is given**, where it could
+   only repeat that country's rows word for word.
 
 Run it over everything, or narrow it to one country, one year, or both::
 
@@ -173,8 +185,15 @@ from src.data_model.wildfire import Wildfire
 from src.providers.gfa.wildfire import GfaWildfire
 from src.providers.ocha.admin_boundary import OchaAdminBoundary
 
-#: Label used in the ``Year`` column for a country's summary row.
+#: Label used in the ``Year`` column for a summary row.
 TOTAL_LABEL = "Total"
+
+#: Label used in the ``Country`` column for the rows that summarise every country.
+#:
+#: The block those rows form is what a reader wants first — the dataset does not
+#: hold "the whole planet" in any tidy sense, and until you have seen the global
+#: figures you have nothing to read a single country's against.
+WORLD_LABEL = "World"
 
 #: The report's columns, in order, shared by both output formats so that a change
 #: to one cannot silently leave the other behind.
@@ -420,22 +439,43 @@ def statistics_query(country: str | None, year: int | None,
         fires = fires.where(LOCAL_YEAR == year)
 
     fire = fires.subquery("fire")
-    grouping = func.grouping(fire.c.year)
+    by_year = func.grouping(fire.c.year)
+    by_country = func.grouping(fire.c.country)
+
+    # Four grouping sets, from one pass over the fires:
+    #   (country, year)  a country in a year
+    #   (country)        that country over every year in scope
+    #   (year)           every country in that year      -- the World block
+    #   ()               everything                      -- the World total
+    #
+    # The last two are dropped when --country is given, because with one country
+    # in scope they can only repeat its rows word for word.
+    sets = [tuple_(fire.c.country, fire.c.year), tuple_(fire.c.country)]
+    if country is None:
+        sets += [tuple_(fire.c.year), tuple_()]
+
     return (
         select(
             fire.c.country,
             fire.c.year,
-            grouping.label("is_total"),
+            by_year.label("is_total"),
+            by_country.label("is_world"),
             func.min(fire.c.hectares).label("minimum"),
             func.max(fire.c.hectares).label("maximum"),
             func.sum(fire.c.hectares).label("total"),
             func.count().label("fires"),
         )
-        .group_by(func.grouping_sets(
-            tuple_(fire.c.country, fire.c.year),
-            tuple_(fire.c.country),
-        ))
-        .order_by(fire.c.country, grouping, fire.c.year.desc())
+        .group_by(func.grouping_sets(*sets))
+        # The empty grouping set produces a grand-total row even when nothing
+        # matched at all — one row of NULL aggregates over zero fires, which is
+        # arithmetically correct and useless. Without this, --year 1999 on a
+        # dataset that starts in 2002 returns a World row instead of nothing, and
+        # the caller's "no wildfires matched" message never fires.
+        .having(func.count() > 0)
+        # The World block first — descending, so its GROUPING() of 1 sorts before
+        # the countries' 0 — then each country, its years newest first and its
+        # summary last.
+        .order_by(by_country.desc(), fire.c.country, by_year, fire.c.year.desc())
     )
 
 
@@ -446,9 +486,10 @@ class Row:
     Attributes
     ----------
     country : str
-        Name of the country the fires burnt in.
+        Name of the country the fires burnt in, or :data:`WORLD_LABEL` for a row
+        that summarises every country.
     year : int or None
-        The year, or ``None`` for a country's summary row.
+        The year, or ``None`` for a summary row.
     minimum, maximum, total : float
         Smallest single fire, largest single fire and sum of every fire, in
         hectares.
@@ -468,11 +509,21 @@ class Row:
     maximum: float
     total: float
     fires: int
+    is_world: bool = False
 
     @property
     def is_total(self) -> bool:
-        """Whether this is a country's summary row rather than one of its years."""
+        """Whether this is a summary row rather than one of the years."""
         return self.year is None
+
+    @property
+    def is_summary(self) -> bool:
+        """Whether the row summarises rather than reports: emphasised in the Word table.
+
+        True for a country's ``Total`` and for every row of the World block, which
+        is a summary of the countries below it however it is grouped.
+        """
+        return self.is_total or self.is_world
 
     @property
     def year_label(self) -> str:
@@ -530,15 +581,19 @@ def compute(session: Session, country: str | None, year: int | None,
     """Run the statistics query, returning the report's rows in order."""
     result = session.execute(statistics_query(country, year, method, country_source))
     rows = [
-        Row(country=record.country,
+        Row(country=WORLD_LABEL if record.is_world else record.country,
             year=None if record.is_total else record.year,
+            is_world=bool(record.is_world),
             minimum=float(record.minimum),
             maximum=float(record.maximum),
             total=float(record.total),
             fires=record.fires)
         for record in result
     ]
-    countries = len({row.country for row in rows})
+    # Counted over the country rows alone: the World block is a summary of them,
+    # not a country, and reporting "3 countries" for two would be a small lie in
+    # the one line a user is most likely to read.
+    countries = len({row.country for row in rows if not row.is_world})
     logger.info("Computed %d rows over %d countries (%s areas, country from %s)",
                 len(rows), countries, method, country_source)
     return rows
@@ -609,7 +664,7 @@ def write_docx(rows: list[Row], path: Path, country: str | None, year: int | Non
             if index >= FIRST_NUMERIC_COLUMN:
                 paragraph.alignment = WD_ALIGN_PARAGRAPH.RIGHT
             for run in paragraph.runs:
-                run.bold = row.is_total
+                run.bold = row.is_summary
                 run.font.size = Pt(9)
 
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -619,7 +674,9 @@ def write_docx(rows: list[Row], path: Path, country: str | None, year: int | Non
 
 def report(args: argparse.Namespace, engine: Engine, logger: logging.Logger) -> list[Row]:
     """Compute the statistics and write whichever outputs were asked for."""
-    with Session(engine) as session:
+    scope = args.country or "every country"
+    with Session(engine) as session, common.Spinner(
+            f"Measuring the burnt area of the GFA fires ({scope})", logger):
         rows = compute(session, args.country, args.year, logger, args.area_method,
                        args.country_source)
 

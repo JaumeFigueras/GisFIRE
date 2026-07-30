@@ -91,6 +91,35 @@ This is the opposite of :doc:`gwis_import_wildfires`, whose identifier names gen
 different fires when it repeats and which consequently cannot skip anything and warns
 instead.
 
+The parts of a multipart fire overlap, and are unioned
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+**134,301 fires across 2002-2026** are published as several features sharing a
+``fire_ID``, and those features do not merely touch — they cover very nearly the same
+ground twice. Grouping them is therefore not enough: they have to be **unioned**, or the
+shared ground is counted once per part and the fire comes back at nearly double its
+published ``size``.
+
+.. code-block:: text
+
+   fire_ID 140400774, two parts     published size   686 ha
+     ST_MakeValid(ST_Collect(...))                  1368.37 ha     <- the overlap, twice
+     ST_UnaryUnion(...)                              684.18 ha     <- agrees with size
+
+.. warning::
+
+   ``ST_MakeValid`` looks as though it should be enough, and for overlapping *polygons*
+   it is. But the staging table is loaded with ``ogr2ogr -nlt MULTIPOLYGON``, so what
+   ``ST_Collect`` receives are **MultiPolygons**, and making a nested collection valid
+   does not dissolve overlaps *between* its members. ``ST_UnaryUnion`` does, and is a
+   no-op for the single-part fires that are the overwhelming majority.
+
+   This was wrong until it was caught by comparing the measured area against the Atlas's
+   own ``size``, which is exactly what
+   :attr:`~src.providers.gfa.wildfire.GfaWildfire.size_km2` is kept for. A database
+   imported before the fix has inflated perimeters for those 134,301 fires and needs them
+   re-imported.
+
 About one perimeter in six is invalid
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 

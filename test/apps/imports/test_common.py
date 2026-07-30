@@ -226,3 +226,81 @@ def test_a_quiet_logger_draws_nothing_at_all(caplog):
     progress.finish()
 
     assert stream.getvalue() == ""
+
+
+# --------------------------------------------------------------------------
+# The spinner
+# --------------------------------------------------------------------------
+
+def test_a_terminal_gets_a_turning_line_that_is_wiped_afterwards(progress_logger):
+    """One rewritten line while the work runs, and nothing left behind after it."""
+    stream = FakeTerminal()
+    with common.Spinner("Measuring", progress_logger, stream=stream, interval=0.01):
+        time.sleep(0.08)
+
+    written = stream.getvalue()
+    assert "\r" in written
+    assert any(frame in written for frame in common.Spinner.FRAMES)
+    # The last thing written returns to column 0 over blanks, so whatever prints
+    # next does not start after a stray bar.
+    assert written.rstrip(" ").endswith("\r")
+    assert "\n" not in written
+
+
+def test_a_redirected_stream_gets_two_log_lines_and_no_control_characters(
+        progress_logger, caplog):
+    stream = io.StringIO()  # not a terminal
+    with caplog.at_level(logging.INFO):
+        with common.Spinner("Measuring", progress_logger, stream=stream, interval=0.01):
+            time.sleep(0.02)
+
+    assert stream.getvalue() == ""
+    assert "\r" not in caplog.text
+    assert "Measuring..." in caplog.text
+    assert "done in" in caplog.text
+
+
+def test_the_elapsed_time_is_recorded_and_reported(progress_logger, caplog):
+    with caplog.at_level(logging.INFO):
+        with common.Spinner("Measuring", progress_logger,
+                            stream=io.StringIO(), interval=0.01) as spinner:
+            time.sleep(0.05)
+
+    assert spinner.elapsed >= 0.05
+    assert "done in" in caplog.text
+
+
+def test_a_failure_still_says_how_long_it_ran(progress_logger, caplog):
+    """Knowing it ran four minutes before failing is worth as much as success."""
+    with caplog.at_level(logging.INFO):
+        with pytest.raises(RuntimeError, match="boom"):
+            with common.Spinner("Measuring", progress_logger, stream=io.StringIO()):
+                raise RuntimeError("boom")
+
+    assert "failed after" in caplog.text
+    assert "done in" not in caplog.text
+
+
+def test_the_spinner_thread_does_not_outlive_the_block(progress_logger):
+    """A daemon thread that is also joined: neither hangs the process nor leaks."""
+    before = threading.active_count()
+    with common.Spinner("Measuring", progress_logger,
+                        stream=FakeTerminal(), interval=0.01):
+        time.sleep(0.03)
+
+    assert threading.active_count() == before
+
+
+def test_a_quiet_logger_spins_nothing_but_still_times_the_work(caplog):
+    """Below INFO the user has asked not to be told what is happening."""
+    logger = logging.getLogger("test-spinner-quiet")
+    logger.setLevel(logging.WARNING)
+    stream = FakeTerminal()
+
+    with caplog.at_level(logging.INFO):
+        with common.Spinner("Measuring", logger, stream=stream) as spinner:
+            time.sleep(0.02)
+
+    assert stream.getvalue() == ""
+    assert "Measuring" not in caplog.text
+    assert spinner.elapsed >= 0.02

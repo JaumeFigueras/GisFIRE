@@ -23,6 +23,7 @@ from pathlib import Path
 import pytest
 
 from sqlalchemy import create_engine
+from geoalchemy2 import Geography
 from sqlalchemy import func
 from sqlalchemy import select
 from sqlalchemy import text
@@ -76,7 +77,7 @@ def attributes(fire_id: int, lon: float, lat: float, start: str, end: str | None
     return values
 
 
-#: Ten features, nine fires. Every one is placed deliberately:
+#: Twelve features, ten fires. Every one is placed deliberately:
 #:
 #: * 20000001 Spain / Europe/Madrid, the ordinary case.
 #: * 20000002 and 20000003 both in California, one in July and one in January, so
@@ -89,6 +90,9 @@ def attributes(fire_id: int, lon: float, lat: float, start: str, end: str | None
 #: * 20000008 sits in the Canary hole inside the Spanish box, so its zone and its
 #:   country come from different polygons.
 #: * 20000009 has no end date.
+#: * 20000010 is *two overlapping* features sharing an id — the shape the real
+#:   Atlas publishes — which must come back as one part, not two, and must not
+#:   have the overlapping ground counted twice.
 FEATURES = [
     (attributes(20000001, -3.70, 40.40, "2002-06-25", "2002-06-26"), square(-3.70, 40.40)),
     (attributes(20000002, -122.00, 38.00, "2002-07-29", "2002-07-30"), square(-122.00, 38.00)),
@@ -103,6 +107,11 @@ FEATURES = [
                 landcover="Unclassified", landc_frac=1.0, GFED_regio=0), square(150.00, -33.00)),
     (attributes(20000008, 0.50, 43.50, "2002-12-01", "2002-12-02"), square(0.50, 43.50)),
     (attributes(20000009, -2.00, 41.00, "2002-05-05", None), square(-2.00, 41.00)),
+    # 20000010: two parts covering nearly the same ground, the shape the Atlas
+    # publishes for 134,301 of its fires. Collected without being unioned, the
+    # overlap is counted twice and the fire comes out at almost double its size.
+    (attributes(20000010, 8.00, 44.00, "2002-06-01", "2002-06-02"), square(8.00, 44.00)),
+    (attributes(20000010, 8.00, 44.00, "2002-06-01", "2002-06-02"), square(8.001, 44.001)),
 ]
 
 FIRE_IDS = {values["fire_ID"] for values, _ in FEATURES}
@@ -266,9 +275,9 @@ def test_main_reports_a_missing_directory(caplog):
 
 @needs_ogr2ogr
 def test_every_fire_is_imported_once(imported):
-    """Ten features, nine fires: the multipart pair must not become two rows."""
+    """Twelve features, ten fires: the multipart pairs must not become four rows."""
     engine, count = imported
-    assert count == len(FIRE_IDS) == 9
+    assert count == len(FIRE_IDS) == 10
 
     with Session(engine) as session:
         assert {row.gfa_id for row in session.scalars(select(GfaWildfire))} == FIRE_IDS
@@ -288,11 +297,99 @@ def test_the_parts_of_a_multipart_fire_become_one_perimeter(imported):
 
 
 @needs_ogr2ogr
+def test_overlapping_parts_are_not_counted_twice(imported):
+    """The Atlas publishes 134,301 fires as parts covering nearly the same ground.
+
+    Collected without being unioned they stay two overlapping polygons, and
+    ``ST_Area`` counts the shared ground once per part — a fire of 686 ha comes
+    back as 1,368. It is not enough to ``ST_MakeValid`` the collection: that
+    dissolves overlapping *polygons*, but the staging table holds MULTIPOLYGONs
+    (``ogr2ogr -nlt MULTIPOLYGON``) and validity does not dissolve across nested
+    multipolygons. ``ST_UnaryUnion`` does.
+    """
+    engine, _ = imported
+    with Session(engine) as session:
+        overlapping = fire(session, 20000010)
+        parts, area = session.execute(
+            select(func.ST_NumGeometries(Wildfire.perimeter),
+                   func.ST_Area(func.cast(Wildfire.perimeter, Geography(
+                       geometry_type="MULTIPOLYGON", srid=4326))))
+            .where(Wildfire.id == overlapping.id)
+        ).one()
+
+        # The two squares overlap almost entirely, so their union is one part.
+        assert parts == 1
+
+        # And its area is their union, computed independently from the same two
+        # literals — not their sum, which is what counting the overlap twice gives.
+        squares = [f"POLYGON(({x} {y}, {x + 0.02} {y}, {x + 0.02} {y + 0.02}, "
+                   f"{x} {y + 0.02}, {x} {y}))" for x, y in ((8.0, 44.0), (8.001, 44.001))]
+        as_geography = Geography(geometry_type="GEOMETRY", srid=4326)
+        union, summed = session.execute(select(
+            func.ST_Area(func.cast(func.ST_Union(
+                func.ST_GeomFromText(squares[0], 4326),
+                func.ST_GeomFromText(squares[1], 4326)), as_geography)),
+            func.ST_Area(func.cast(func.ST_GeomFromText(squares[0], 4326), as_geography))
+            + func.ST_Area(func.cast(func.ST_GeomFromText(squares[1], 4326), as_geography)),
+        )).one()
+
+        assert area == pytest.approx(union, rel=1e-6)
+        # The failure this guards against, stated as a number: without the union
+        # the fire comes back at the sum, nearly twice over.
+        assert summed > union * 1.8
+        assert area < union * 1.01
+
+
+@needs_ogr2ogr
+def test_a_perimeter_crossing_the_antimeridian_keeps_its_area(
+        database, boundaries, time_zones, tmp_path, connection_arguments):
+    """58 Atlas fires cross 180 degrees, and the planar repair used to shrink them.
+
+    A ring that crosses the antimeridian runs from +179.99 to -179.99, so in the
+    plane it is a sliver stretched the wrong way round the world rather than the
+    small square it is on the ground. ``ST_MakeValid`` then repairs a shape that
+    was never broken: fire 210709771 is published at 150 ha and used to store
+    129.65.
+
+    ``ST_Area(::geography)`` reads the ring correctly either way — the damage is
+    done before it, at import — which is why this test measures what was *stored*
+    rather than what a query computes.
+    """
+    engine, _ = database
+    directory = tmp_path / "dateline"
+    directory.mkdir()
+    # A square straddling 180, written the way the Atlas writes one: vertices on
+    # both sides, no wrapping applied.
+    crossing = [(attributes(20009999, 179.99, 66.72, "2002-07-01", "2002-07-02"),
+                 [[[179.98, 66.71], [-179.98, 66.71], [-179.98, 66.73],
+                   [179.98, 66.73], [179.98, 66.71]]])]
+    write_shapefile(directory, 2002, crossing)
+
+    args = app.parse_arguments(["--directory", str(directory), *connection_arguments])
+    assert app.import_wildfires(args, engine, logger) == 1
+
+    with Session(engine) as session:
+        stored, xmin, xmax = session.execute(
+            select(func.ST_Area(func.cast(Wildfire.perimeter, Geography(
+                       geometry_type="MULTIPOLYGON", srid=4326))),
+                   func.ST_XMin(Wildfire.perimeter),
+                   func.ST_XMax(Wildfire.perimeter))
+        ).one()
+
+    # 0.04 degrees of longitude at 66.72 N is about 1.76 km; 0.02 of latitude is
+    # 2.22 km. So a little under 4 km2 — and emphatically not the sliver a planar
+    # repair leaves behind, nor the whole-world band the raw ring describes.
+    assert stored == pytest.approx(3.9e6, rel=0.05)
+    # Stored back in the -180..180 frame it came from, not left shifted to 0..360.
+    assert xmin < -179.0 and xmax > 179.0
+
+
+@needs_ogr2ogr
 def test_the_joined_inheritance_rows_are_written_in_pairs(imported):
     engine, _ = imported
     with Session(engine) as session:
-        assert session.scalar(select(func.count()).select_from(Wildfire)) == 9
-        assert session.scalar(select(func.count()).select_from(GfaWildfire)) == 9
+        assert session.scalar(select(func.count()).select_from(Wildfire)) == 10
+        assert session.scalar(select(func.count()).select_from(GfaWildfire)) == 10
 
 
 # --------------------------------------------------------------------------
@@ -304,9 +401,9 @@ def test_every_fire_writes_one_ignition(imported):
     """Nine fires, nine ignitions and nine gfa_ignitions — one apiece."""
     engine, count = imported
     with Session(engine) as session:
-        assert count == 9
-        assert session.scalar(select(func.count()).select_from(Ignition)) == 9
-        assert session.scalar(select(func.count()).select_from(GfaIgnition)) == 9
+        assert count == 10
+        assert session.scalar(select(func.count()).select_from(Ignition)) == 10
+        assert session.scalar(select(func.count()).select_from(GfaIgnition)) == 10
         # The ignition ids match the fires by gfa_id.
         assert {row.gfa_id for row in session.scalars(select(GfaIgnition))} == FIRE_IDS
 
@@ -484,7 +581,7 @@ def test_a_fire_outside_every_country_gets_none(imported):
 def test_fires_import_without_any_boundaries(database, time_zones, args, caplog):
     """The perimeters and the dates are worth having before the boundaries exist."""
     engine, _ = database
-    assert app.import_wildfires(args, engine, logger) == 9
+    assert app.import_wildfires(args, engine, logger) == 10
     assert "no country" in caplog.text
 
     with Session(engine) as session:
@@ -545,18 +642,18 @@ def test_the_data_provider_is_created_on_first_import(imported):
 def test_re_importing_is_a_no_op(database, boundaries, time_zones, args, caplog):
     """fire_ID is a real key here, so a second run must add nothing at all."""
     engine, _ = database
-    assert app.import_wildfires(args, engine, logger) == 9
+    assert app.import_wildfires(args, engine, logger) == 10
     # Reported at INFO, not as a warning: re-running is a normal thing to do here.
     with caplog.at_level(logging.INFO):
         assert app.import_wildfires(args, engine, logger) == 0
 
     with Session(engine) as session:
-        assert session.scalar(select(func.count()).select_from(GfaWildfire)) == 9
-        assert session.scalar(select(func.count()).select_from(Wildfire)) == 9
+        assert session.scalar(select(func.count()).select_from(GfaWildfire)) == 10
+        assert session.scalar(select(func.count()).select_from(Wildfire)) == 10
         # No orphan ignitions from the skipped second run either.
-        assert session.scalar(select(func.count()).select_from(Ignition)) == 9
-        assert session.scalar(select(func.count()).select_from(GfaIgnition)) == 9
-    assert "9 GFA fires already stored" in caplog.text
+        assert session.scalar(select(func.count()).select_from(Ignition)) == 10
+        assert session.scalar(select(func.count()).select_from(GfaIgnition)) == 10
+    assert "10 GFA fires already stored" in caplog.text
 
 
 @needs_ogr2ogr
@@ -565,7 +662,7 @@ def test_a_second_year_adds_to_the_first(database, boundaries, time_zones,
     """The normal way to use it: a newly published year on top of the ones held."""
     engine, _ = database
     args = app.parse_arguments(["--directory", str(perimeters), *connection_arguments])
-    assert app.import_wildfires(args, engine, logger) == 9
+    assert app.import_wildfires(args, engine, logger) == 10
 
     next_year = [(attributes(30000001 + offset, -3.70, 40.40, "2003-06-25", "2003-06-26"),
                   square(-3.70 + offset, 40.40)) for offset in range(3)]
@@ -573,8 +670,8 @@ def test_a_second_year_adds_to_the_first(database, boundaries, time_zones,
 
     assert app.import_wildfires(args, engine, logger) == 3
     with Session(engine) as session:
-        assert session.scalar(select(func.count()).select_from(GfaWildfire)) == 12
-        assert session.scalar(select(func.count()).select_from(GfaIgnition)) == 12
+        assert session.scalar(select(func.count()).select_from(GfaWildfire)) == 13
+        assert session.scalar(select(func.count()).select_from(GfaIgnition)) == 13
 
 
 @needs_ogr2ogr
@@ -695,7 +792,7 @@ def test_more_jobs_than_shapefiles_does_not_spawn_idle_workers(database, boundar
                         lambda *a, **k: pytest.fail("a single shapefile went through the pool"))
 
     engine, _ = database
-    assert app.import_wildfires(args, engine, logger) == 9
+    assert app.import_wildfires(args, engine, logger) == 10
 
 
 @needs_ogr2ogr
@@ -706,7 +803,7 @@ def test_main_runs_the_whole_import(database, boundaries, time_zones,
     assert app.main(["-d", str(perimeters), *connection_arguments]) == 0
 
     with Session(engine) as session:
-        assert session.scalar(select(func.count()).select_from(GfaWildfire)) == 9
+        assert session.scalar(select(func.count()).select_from(GfaWildfire)) == 10
 
 
 @needs_ogr2ogr

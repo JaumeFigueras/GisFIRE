@@ -57,6 +57,17 @@ repaired with ``ST_MakeValid`` on the way in, so that everything downstream — 
 country join here, area computations later — is safe. The repair can turn a
 bowtie into two polygons, hence the ``ST_CollectionExtract``.
 
+**58 fires cross the antimeridian**, and the repair above is what makes them a
+problem. Everything in the mapping except ``ST_Area(::geography)`` is planar, and
+a ring crossing 180 degrees runs from +179.99 to -179.99 — in the plane a sliver
+stretched the wrong way round the world rather than the square it is on the
+ground. ``ST_MakeValid`` then repairs a shape that was never broken: fire
+210709771 is published at 150 ha and stored 129.65. Those rings are moved into a
+contiguous 0..360 frame with ``ST_ShiftLongitude`` before the repair and moved
+back after, which is exact — the function is its own inverse — and is applied only
+where it is needed, since on a geometry spanning the *prime* meridian it would
+cause the problem it exists to solve.
+
 Dates and country
 -----------------
 
@@ -157,15 +168,35 @@ LOG_FORMAT = "%(asctime)s %(levelname)s %(message)s"
 #: index-backed probe per staging row against the unique ``gfa_id``, and it sits
 #: in ``WHERE`` rather than in an ``ON CONFLICT`` because the identifier lives on
 #: the child tables while the inserts that would conflict are on the parents.
+#:
+#: **The perimeter is unioned, not merely collected**, and the ``ST_UnaryUnion``
+#: is load-bearing. The Atlas publishes a multipart fire as several features
+#: sharing a ``fire_ID``, and those features **overlap**: for 134,301 fires across
+#: 2002-2026 the parts cover very nearly the same ground twice.
+#:
+#: ``ST_MakeValid(ST_Collect(...))`` dissolves overlapping *polygons*, so it looks
+#: like it is enough — but the staging table is loaded with
+#: ``ogr2ogr -nlt MULTIPOLYGON``, so what ``ST_Collect`` receives are
+#: *MultiPolygons*, and ``ST_MakeValid`` does not dissolve across nested
+#: multipolygons. The overlap survives, ``ST_Area`` counts it twice, and the fire
+#: comes out at almost exactly double its published ``size``:
+#:
+#: .. code-block:: text
+#:
+#:    two parts of one fire     current      with UnaryUnion   published
+#:    fire_ID 140400774        1368.37 ha        684.18 ha     686 ha
+#:
+#: ``ST_UnaryUnion`` dissolves regardless of nesting, and is a no-op for the
+#: single-part fires that are the overwhelming majority.
 TRANSFORM_SQL = """
-WITH source AS MATERIALIZED (
+WITH collected AS MATERIALIZED (
     SELECT nextval(pg_get_serial_sequence('wildfire', 'id')) AS wildfire_id,
            nextval(pg_get_serial_sequence('ignition', 'id')) AS ignition_id,
            staging.{id_field}                                   AS gfa_id,
            NULLIF(min(staging.{start_field}), '')               AS start_date,
            NULLIF(min(staging.{end_field}), '')                 AS end_date,
            ST_SetSRID(ST_MakePoint(min(staging.lon), min(staging.lat)), 4326) AS ignition_point,
-           ST_CollectionExtract(ST_MakeValid(ST_Collect(staging.geom)), 3)    AS perimeter,
+           ST_Collect(staging.geom)                             AS parts,
            min(staging.size)        AS size_km2,
            min(staging.perimeter)   AS perimeter_km,
            min(staging.duration)    AS duration_days,
@@ -189,12 +220,45 @@ WITH source AS MATERIALIZED (
       )
     GROUP BY staging.{id_field}
 ),
+-- Repair the collected parts into one perimeter, taking the antimeridian into
+-- account. Everything here except ST_Area(::geography) is planar, and a ring that
+-- crosses 180 degrees is planar nonsense: its vertices run from +179.99 to
+-- -179.99, so in the plane it is a sliver stretched the wrong way round the
+-- world. ST_MakeValid then "repairs" a shape that was never broken and the fire
+-- loses area -- 150 ha published, 129.65 ha stored.
+--
+-- ST_ShiftLongitude moves such a ring into a contiguous 0..360 frame where the
+-- planar repair means what it says, and moves it back afterwards; it is its own
+-- inverse, so the second call undoes the first exactly. It is applied only to the
+-- rings that need it, because on a geometry spanning the *prime* meridian it
+-- would create the very problem it exists to solve.
+shaped AS MATERIALIZED (
+    SELECT collected.*,
+           CASE WHEN collected.crosses_antimeridian
+                THEN ST_ShiftLongitude(collected.repaired)
+                ELSE collected.repaired
+           END AS perimeter
+    FROM (
+        SELECT grouped.*,
+               ST_Multi(ST_CollectionExtract(ST_UnaryUnion(ST_MakeValid(
+                   CASE WHEN grouped.crosses_antimeridian
+                        THEN ST_ShiftLongitude(grouped.parts)
+                        ELSE grouped.parts
+                   END)), 3)) AS repaired
+        FROM (
+            SELECT collected.*,
+                   ST_XMax(collected.parts) - ST_XMin(collected.parts) > 180
+                       AS crosses_antimeridian
+            FROM collected
+        ) AS grouped
+    ) AS collected
+),
 -- The zone and the country of the ignition point, in one pass over the fires.
 -- Both are LEFT JOINs: a fire at sea or outside every imported boundary keeps
 -- its point and its dates and simply has no country.
 located AS MATERIALIZED (
     SELECT source.*, zone.name AS time_zone, country.id AS admin_boundary_id
-    FROM source
+    FROM shaped AS source
     LEFT JOIN LATERAL (
         SELECT time_zone.name
         FROM time_zone

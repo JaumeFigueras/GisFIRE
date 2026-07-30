@@ -19,6 +19,7 @@ A GFA fire needs one thing a GWIS fire does not — a
 
 import csv
 import datetime
+import itertools
 import logging
 
 import pytest
@@ -211,8 +212,10 @@ def test_the_areas_are_in_hectares(populated):
 
 
 def test_each_country_and_year_gets_a_row(populated):
+    """The World block first, then the countries alphabetically."""
     rows = rows_for(populated)
     assert [(row.country, row.year_label) for row in rows] == [
+        ("World", "2021"), ("World", "2020"), ("World", "2019"), ("World", "Total"),
         ("France", "2021"), ("France", "Total"),
         ("Spain", "2021"), ("Spain", "2020"), ("Spain", "2019"), ("Spain", "Total"),
     ]
@@ -252,7 +255,8 @@ def test_a_single_fire_is_its_own_minimum_maximum_and_total(populated):
 def test_a_fire_with_no_country_is_excluded(populated):
     """The orphan mid-Atlantic fire must appear in no row and no total."""
     rows = rows_for(populated)
-    assert sum(row.fires for row in rows if row.is_total) == len(FIRES)
+    assert sum(row.fires for row in rows
+               if row.is_total and not row.is_world) == len(FIRES)
 
     orphan_area = expected(21000007)
     assert all(row.maximum != pytest.approx(orphan_area, rel=1e-9) for row in rows)
@@ -334,7 +338,7 @@ def test_the_country_is_matched_case_insensitively(populated):
 def test_a_single_year_can_be_selected(populated):
     rows = rows_for(populated, year=2021)
     assert {row.year for row in rows} == {2021, None}
-    assert {row.country for row in rows} == {"Spain", "France"}
+    assert {row.country for row in rows} == {"World", "Spain", "France"}
 
 
 def test_a_country_and_a_year_can_be_combined(populated):
@@ -371,7 +375,7 @@ def test_the_csv_has_the_asked_for_columns(populated, tmp_path):
 
     assert table[0] == ["Country", "Year", "Fires",
                         "Minimum (ha)", "Maximum (ha)", "Total (ha)"]
-    assert table[1][:2] == ["France", "2021"]
+    assert table[1][:2] == ["World", "2021"]
     assert [line[1] for line in table if line[0] == "Spain"] == ["2021", "2020", "2019", "Total"]
 
 
@@ -412,11 +416,15 @@ def test_the_docx_is_a_word_table_with_every_row(populated, tmp_path):
     table = document.tables[0]
     assert len(table.rows) == len(computed) + 1  # + the header
     assert [cell.text for cell in table.rows[0].cells] == list(app.COLUMNS)
-    assert [cell.text for cell in table.rows[1].cells][:2] == ["France", "2021"]
+    assert [cell.text for cell in table.rows[1].cells][:2] == ["World", "2021"]
 
 
-def test_the_docx_total_rows_are_bold(populated, tmp_path):
-    """What separates the country blocks visually, in place of the ASCII rule."""
+def test_the_docx_summary_rows_are_bold(populated, tmp_path):
+    """What separates the blocks visually, in place of the ASCII rule.
+
+    Bold marks a row that summarises: a country's ``Total``, and every row of the
+    World block, which summarises the countries however it is grouped.
+    """
     docx = pytest.importorskip("docx")
     target = tmp_path / "burnt.docx"
     computed = rows_for(populated)
@@ -425,7 +433,8 @@ def test_the_docx_total_rows_are_bold(populated, tmp_path):
     table = docx.Document(str(target)).tables[0]
     for row, written in zip(computed, table.rows[1:]):
         bold = [run.bold for cell in written.cells for run in cell.paragraphs[0].runs]
-        assert all(value is row.is_total for value in bold), f"{row.country}/{row.year_label}"
+        assert all(value is row.is_summary for value in bold), \
+            f"{row.country}/{row.year_label}"
 
 
 def test_the_docx_records_the_scope_it_was_run_with(populated, tmp_path):
@@ -503,8 +512,13 @@ def test_a_total_row_counts_every_year_of_its_country(populated):
 def test_the_counts_add_up_to_the_fires_in_scope(populated):
     """Every attributable fire is counted once and only once."""
     rows = rows_for(populated)
-    assert sum(row.fires for row in rows if not row.is_total) == len(FIRES)
-    assert sum(row.fires for row in rows if row.is_total) == len(FIRES)
+    countries = [row for row in rows if not row.is_world]
+    assert sum(row.fires for row in countries if not row.is_total) == len(FIRES)
+    assert sum(row.fires for row in countries if row.is_total) == len(FIRES)
+    # And the World block counts every fire once, twice over: by year and in total.
+    world = [row for row in rows if row.is_world]
+    assert sum(row.fires for row in world if not row.is_total) == len(FIRES)
+    assert [row.fires for row in world if row.is_total] == [len(FIRES)]
 
 
 def test_a_narrowed_run_counts_only_what_is_in_scope(populated):
@@ -622,13 +636,15 @@ def test_a_fire_filed_in_a_country_it_is_not_in_is_moved(misattributed):
     Spain. Trusting the row puts both in Spain; testing the geometry puts the
     first in France and drops the second.
     """
-    reported = rows_for(misattributed, year=2018,
-                        country_source=app.COUNTRY_SOURCE_REPORTED)
+    reported = [r for r in rows_for(misattributed, year=2018,
+                                    country_source=app.COUNTRY_SOURCE_REPORTED)
+                if not r.is_world]
     assert [(r.country, r.year_label, r.fires) for r in reported] == [
         ("Spain", "2018", 2), ("Spain", "Total", 2)]
 
-    geometry = rows_for(misattributed, year=2018,
-                        country_source=app.COUNTRY_SOURCE_GEOMETRY)
+    geometry = [r for r in rows_for(misattributed, year=2018,
+                                    country_source=app.COUNTRY_SOURCE_GEOMETRY)
+                if not r.is_world]
     assert [(r.country, r.year_label, r.fires) for r in geometry] == [
         ("France", "2018", 1), ("France", "Total", 1)]
 
@@ -661,3 +677,104 @@ def test_the_geometry_source_does_not_disturb_the_consistent_years(misattributed
     assert find(rows, "Spain", 2021).fires == 3
     assert find(rows, "Spain", None).fires == 5      # unchanged: none of them is 2018
     assert find(rows, "France", None).fires == 2     # its own fire, plus the moved one
+
+
+# --------------------------------------------------------------------------
+# The World block
+# --------------------------------------------------------------------------
+
+def test_the_world_block_comes_first(populated):
+    """It is what a reader wants before any single country means anything."""
+    rows = rows_for(populated)
+    leading = list(itertools.takewhile(lambda row: row.is_world, rows))
+
+    assert [row.year_label for row in leading] == ["2021", "2020", "2019", "Total"]
+    assert all(row.country == app.WORLD_LABEL for row in leading)
+    assert not any(row.is_world for row in rows[len(leading):])
+
+
+def test_the_world_years_sum_every_country_of_that_year(populated):
+    """``Fires`` and ``Total (ha)`` are sums across the countries; the ends are not."""
+    rows = rows_for(populated)
+    world_2021 = find(rows, app.WORLD_LABEL, 2021)
+    countries_2021 = [find(rows, "Spain", 2021), find(rows, "France", 2021)]
+
+    assert world_2021.fires == sum(row.fires for row in countries_2021) == 4
+    assert world_2021.total == pytest.approx(sum(row.total for row in countries_2021))
+    assert world_2021.minimum == pytest.approx(min(row.minimum for row in countries_2021))
+    assert world_2021.maximum == pytest.approx(max(row.maximum for row in countries_2021))
+
+
+def test_the_world_total_covers_every_country_and_every_year(populated):
+    rows = rows_for(populated)
+    world_total = find(rows, app.WORLD_LABEL, None)
+    country_totals = [find(rows, "Spain", None), find(rows, "France", None)]
+
+    assert world_total.fires == len(FIRES)
+    assert world_total.total == pytest.approx(sum(row.total for row in country_totals))
+    assert world_total.minimum == pytest.approx(min(row.minimum for row in country_totals))
+    assert world_total.maximum == pytest.approx(max(row.maximum for row in country_totals))
+
+
+def test_the_world_extremes_come_from_whichever_country_holds_them(populated):
+    """A minimum over the world is a single fire, not a sum or an average."""
+    world_total = find(rows_for(populated), app.WORLD_LABEL, None)
+    every_area = [expected(identifier) for identifier, *_ in FIRES]
+
+    assert world_total.minimum == pytest.approx(min(every_area), rel=1e-6)
+    assert world_total.maximum == pytest.approx(max(every_area), rel=1e-6)
+    assert world_total.total == pytest.approx(sum(every_area), rel=1e-6)
+
+
+def test_the_world_block_excludes_what_the_countries_exclude(populated):
+    """The orphan fire is in no country, so it is in no world total either.
+
+    A "world" that quietly meant "every fire in the database" would disagree with
+    the sum of the countries below it, which is the one thing this block must not
+    do.
+    """
+    world_total = find(rows_for(populated), app.WORLD_LABEL, None)
+    assert world_total.fires == len(FIRES)
+    assert world_total.maximum != pytest.approx(expected(21000007), rel=1e-9)
+
+
+def test_a_single_country_gets_no_world_block(populated):
+    """With one country in scope it could only repeat that country's rows."""
+    rows = rows_for(populated, country="Spain")
+
+    assert not any(row.is_world for row in rows)
+    assert [row.year_label for row in rows] == ["2021", "2020", "2019", "Total"]
+
+
+def test_an_empty_scope_yields_nothing_rather_than_an_empty_world_row(populated):
+    """The grand-total grouping set produces a row over zero fires unless stopped.
+
+    Without the ``HAVING count(*) > 0``, asking for a year the dataset does not
+    cover returns one World row of NULLs instead of nothing at all — and the
+    caller's "no wildfires matched" message never fires.
+    """
+    assert rows_for(populated, year=1999) == []
+
+
+def test_the_world_block_follows_the_country_source(misattributed):
+    """It summarises what the report counted, whichever way the country was decided."""
+    reported = find(rows_for(misattributed, year=2018,
+                             country_source=app.COUNTRY_SOURCE_REPORTED),
+                    app.WORLD_LABEL, 2018)
+    assert reported.fires == 2      # both mis-filed fires, trusted into Spain
+
+    geometry = find(rows_for(misattributed, year=2018,
+                             country_source=app.COUNTRY_SOURCE_GEOMETRY),
+                    app.WORLD_LABEL, 2018)
+    assert geometry.fires == 1      # the one at sea is in no country, so in no world
+
+
+def test_the_csv_opens_with_the_world_block(populated, tmp_path):
+    target = tmp_path / "burnt.csv"
+    app.write_csv(rows_for(populated), target, logger)
+
+    with target.open(encoding="utf-8") as handle:
+        table = list(csv.reader(handle))
+
+    assert [line[1] for line in table[1:5]] == ["2021", "2020", "2019", "Total"]
+    assert {line[0] for line in table[1:5]} == {app.WORLD_LABEL}

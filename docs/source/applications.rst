@@ -119,6 +119,7 @@ as the importers::
 
    src/apps/statistics/wildfires/gwis/wildfire_statistics.py
    src/apps/statistics/wildfires/gfa/wildfire_statistics.py
+   src/apps/statistics/wildfires/portugal_icnf/wildfire_statistics.py
 
 :doc:`applications/gwis_wildfire_statistics`
     Burnt area of the GWIS GlobFire wildfires, per country and year — smallest fire,
@@ -131,6 +132,13 @@ as the importers::
     a difference between the datasets rather than between two ways of counting. Adds
     ``--area-method`` to measure either geodesically or in an equal-area projection; the
     two agree to within 0.003%.
+
+:doc:`applications/icnf_wildfire_statistics`
+    The same report over the Portuguese ICNF burnt area cartography. No ``--country``:
+    the ICNF publishes one country. Groups on the published ``Ano`` rather than on the
+    start date, because 71% of these fires publish no date and carry a 1 January
+    placeholder — and declines to measure in Portugal's own EPSG:3763 grid, which is
+    conformal rather than equal-area and 7.6% out in the Azores.
 
 .. note::
 
@@ -152,3 +160,4 @@ as the importers::
    applications/egif_import_wildfires
    applications/gwis_wildfire_statistics
    applications/gfa_wildfire_statistics
+   applications/icnf_wildfire_statistics
