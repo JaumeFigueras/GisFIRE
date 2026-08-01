@@ -182,29 +182,56 @@ totals of *attributable* burnt area.
    fires, not of every fire in the database.
 
 
+One year at a time
+------------------
+
+The report is one statement **per year**, not one statement overall, preceded by a cheap
+``SELECT DISTINCT`` that finds the years. Each year's statement computes the areas once in
+a subquery and groups them by country;
+:func:`~src.apps.statistics.wildfires.portugal_icnf.wildfire_statistics.summarise`
+combines those results into the ``Total`` row.
+
+This dataset does not need it: 68,435 perimeters are a minute's work however they are
+grouped, and the single ``GROUPING SETS`` statement this replaced would do. It is built
+this way because its :doc:`GWIS <gwis_wildfire_statistics>` and
+:doc:`GFA <gfa_wildfire_statistics>` counterparts have to be — at twenty million
+perimeters the single statement took a 30 GB machine to 29.2 GB in four and a half hours
+before the OOM killer stopped it, because the memory a point-in-polygon test against a
+country polygon needs is only released when the statement ends. Three reports meant to be
+read side by side are worth keeping as one program over three datasets, and here the
+difference costs one extra pass over an indexed column.
+
+The figures do not change: ``count``, ``sum``, ``min`` and ``max`` all decompose over a
+partition of the fires, so the ``Total`` row is exactly the number ``GROUPING SETS``
+returned, from the same rows. Every statement runs in one transaction, and so against one
+snapshot.
+
 Progress
 --------
 
-The report is one ``SELECT``, so there is no n-of-m to show: PostgreSQL does not report
-partial progress on an aggregate, and inventing a percentage would be a fiction. What is
-shown instead is that the process is alive and how long it has been going.
+There is an n-of-m, because the report is a statement per year: the line names the year
+being measured and its place in the list. Inside one year there is nothing finer to show —
+PostgreSQL does not report partial progress on an aggregate, and inventing a percentage
+would be a fiction — so what is shown there is that the process is alive and how long it
+has been going.
 
 On a terminal, one line rewritten in place:
 
 .. code-block:: text
 
-   \ Measuring the burnt area of the ICNF fires (every year)... 0:02:47
+   \ Measuring the burnt area of the ICNF fires (2024: 6 of 45)... 0:00:07
 
-Redirected to a file, or below ``INFO``, the same thing as two ordinary log records and
-no control characters at all:
+Redirected to a file, or below ``INFO``, the same thing as two ordinary log records per
+year and no control characters at all:
 
 .. code-block:: text
 
-   14:22:01 INFO Measuring the burnt area of the ICNF fires (every year)...
-   14:24:48 INFO Measuring the burnt area of the ICNF fires (every year): done in 167s
+   14:22:01 INFO Measuring the burnt area of the ICNF fires (2024: 6 of 45)...
+   14:22:08 INFO Measuring the burnt area of the ICNF fires (2024: 6 of 45): done in 7s
 
-A run that fails says ``failed after 167s`` rather than ``done in``: knowing it worked
-for three minutes before falling over is worth as much as knowing it finished.
+A run that fails says ``failed after 7s`` rather than ``done in``: knowing it worked
+before falling over is worth as much as knowing it finished — and the years already
+reported say how far it got.
 
 API reference
 -------------

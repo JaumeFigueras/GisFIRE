@@ -303,11 +303,38 @@ area column to :class:`~src.data_model.wildfire.Wildfire`, fill it at import and
 the existing rows with a single ``UPDATE`` — no re-import needed. It would serve both
 reports at once.
 
-.. note::
+One year at a time
+------------------
 
-   The statistics are produced by one statement. The areas are computed once in a subquery
-   rather than three times in the outer aggregate, and ``GROUPING SETS`` yields the
-   per-year rows and the per-country summary from that same single pass.
+The report is one statement **per year**, not one statement overall, preceded by a cheap
+``SELECT DISTINCT`` that finds the years. Each year's statement computes the areas once in
+a subquery — rather than three times in the outer aggregate — and groups them by country;
+:func:`~src.apps.statistics.wildfires.gfa.wildfire_statistics.summarise` combines those
+results into each country's ``Total`` row and the World block.
+
+It was one statement, with ``GROUPING SETS`` producing every level from a single pass.
+That is the better shape and it does not survive this dataset. Under ``--country-source
+geometry`` the Atlas's 21.5 million perimeters mean 21.5 million point-in-polygon tests
+against country polygons of millions of vertices, and the memory that goes into them is
+only released when the statement ends: on a 30 GB machine the backend reached **29.2 GB
+after four and a half hours** and was killed by the OOM killer, taking the whole cluster
+with it and leaving nothing to show for the run.
+
+Per year it is a gigabyte or so at a time, released between statements, and there is a
+year count to watch. It is not free: the years cost a pass of their own, and each year's
+statement scans the fires where one statement scanned them once — the local year cannot be
+indexed, since ``AT TIME ZONE`` on a column is not immutable. Both are cheap beside the
+point-in-polygon tests, whose number does not change. The figures do not change. ``count``, ``sum``, ``min`` and ``max``
+all decompose over a partition of the fires, so a country's ``Total`` and the whole World
+block are exactly the numbers ``GROUPING SETS`` returned, from the same rows. Every
+statement runs in one transaction, and so against one snapshot, which is what keeps a
+report built from twenty-five queries as consistent as one built from a single query.
+
+.. tip::
+
+   ``--country-source reported`` skips the point-in-polygon test altogether — an index
+   lookup on ``admin_boundary_id`` — and is the fast path when the whole dataset is in
+   scope. For GFA it is the same answer for every fire that did not cross a border.
 
 Built from the models, not from SQL text
 ----------------------------------------
@@ -326,26 +353,29 @@ joining the table directly keeps SQLAlchemy from adding the polymorphic join of 
 Progress
 --------
 
-The report is one ``SELECT``, so there is no n-of-m to show: PostgreSQL does not report
-partial progress on an aggregate, and inventing a percentage would be a fiction. What is
-shown instead is that the process is alive and how long it has been going.
+There is an n-of-m, because the report is a statement per year: the line names the year
+being measured and its place in the list. Inside one year there is nothing finer to show —
+PostgreSQL does not report partial progress on an aggregate, and inventing a percentage
+would be a fiction — so what is shown there is that the process is alive and how long it
+has been going.
 
 On a terminal, one line rewritten in place:
 
 .. code-block:: text
 
-   \ Measuring the burnt area of the GFA fires (every country)... 0:02:47
+   \ Measuring the burnt area of the GFA fires (every country, 2021: 6 of 25)... 0:02:47
 
-Redirected to a file, or below ``INFO``, the same thing as two ordinary log records and
-no control characters at all:
+Redirected to a file, or below ``INFO``, the same thing as two ordinary log records per
+year and no control characters at all:
 
 .. code-block:: text
 
-   14:22:01 INFO Measuring the burnt area of the GFA fires (every country)...
-   14:24:48 INFO Measuring the burnt area of the GFA fires (every country): done in 167s
+   14:22:01 INFO Measuring the burnt area of the GFA fires (every country, 2021: 6 of 25)...
+   14:24:48 INFO Measuring the burnt area of the GFA fires (every country, 2021: 6 of 25): done in 167s
 
 A run that fails says ``failed after 167s`` rather than ``done in``: knowing it worked
-for three minutes before falling over is worth as much as knowing it finished.
+for three minutes before falling over is worth as much as knowing it finished — and the
+years already reported say how far it got.
 
 API reference
 -------------

@@ -59,6 +59,31 @@ answer, is ``NOT NULL``, and needs no timezone applied to it.
    would all fall on the 1st of January. Anything finer than a year has to filter
    on ``date_time_precision`` first.
 
+One year at a time
+------------------
+
+The report is not one statement. The years are found first, then each is
+measured by a statement of its own and the summary rows are computed from their
+results.
+
+This dataset does not need it. Sixty-eight thousand perimeters are a minute's
+work however they are grouped, and ``GROUPING SETS`` over a single pass — which
+is what each year's statement still does internally — would do here. It is built
+this way because its
+:mod:`GWIS <src.apps.statistics.wildfires.gwis.wildfire_statistics>` and
+:mod:`GFA <src.apps.statistics.wildfires.gfa.wildfire_statistics>` counterparts
+have to be: at twenty million perimeters the single statement took a 30 GB
+machine to 29.2 GB in four and a half hours and was killed by the OOM killer,
+because the memory a point-in-polygon test against a country polygon needs is
+only released when the statement ends. Three reports meant to be read side by
+side are worth keeping as one program over three datasets, and the difference
+here costs one extra pass over an indexed column.
+
+Nothing about the figures changes. ``count``, ``sum``, ``min`` and ``max`` all
+decompose over a partition of the fires, so the ``Total`` row is exactly the
+number ``GROUPING SETS`` returned, from the same rows. Every statement runs in
+one transaction and so against one snapshot.
+
 How the area is measured
 ------------------------
 
@@ -123,6 +148,7 @@ from __future__ import annotations
 import argparse
 import csv
 import logging
+import math
 import os
 import sys
 
@@ -138,7 +164,6 @@ from sqlalchemy import create_engine
 from sqlalchemy import func
 from sqlalchemy import select
 from sqlalchemy import true
-from sqlalchemy import tuple_
 from sqlalchemy.orm import Session
 
 import src.settings  # noqa: F401  (imported for the side effect of loading .env)
@@ -301,32 +326,61 @@ def country_columns(source: str) -> tuple[ColumnElement, list]:
     return containing.c.name, [(containing, true(), False)]
 
 
-def statistics_query(year: int | None,
-                     method: str = AREA_METHOD_GEODESIC,
-                     country_source: str = COUNTRY_SOURCE_GEOMETRY) -> Select:
-    """Build the statistics query.
+def years_query() -> Select:
+    """The years the dataset holds fires in, newest first.
 
     Returns
     -------
     Select
-        A query yielding ``country, year, is_total, minimum, maximum, total,
-        fires``, with the years newest first and the summary row last.
+        A query yielding one ``int`` per year.
+
+    Notes
+    -----
+    Run before anything else, because each of those years is then measured by a
+    statement of its own — see the module docstring for why the report is built
+    that way.
+
+    ``DISTINCT`` over the whole table rather than ``min(year)`` to ``max(year)``:
+    a gap in the record is a gap in the report, and a range would fill it with
+    statements that can only return nothing.
+    """
+    icnf = IcnfWildfire.__table__
+    year = PUBLISHED_YEAR.label("year")
+    return (
+        select(year)
+        .select_from(Wildfire)
+        .join(icnf, icnf.c.id == Wildfire.id)
+        .where(Wildfire.perimeter.is_not(None))
+        .distinct()
+        .order_by(year.desc())
+    )
+
+
+def statistics_query(year: int,
+                     method: str = AREA_METHOD_GEODESIC,
+                     country_source: str = COUNTRY_SOURCE_GEOMETRY) -> Select:
+    """Build the statistics query for one year.
+
+    Returns
+    -------
+    Select
+        A query yielding ``country, minimum, maximum, total, fires``: one row per
+        country the year's fires turn out to be in, unordered. The summary rows
+        and the report's order are :func:`summarise`'s work.
 
     Notes
     -----
     Built against the mapped classes rather than written as SQL text, so a column
-    renamed on a model breaks this at import time rather than in front of a user,
-    and so the ``--year`` filter can stay a plain conditional.
+    renamed on a model breaks this at import time rather than in front of a user.
 
     The inner query computes each area exactly once. Folded into the outer
     aggregate instead, the area expression would be evaluated three times per row
     — for the minimum, the maximum and the sum — and it is by far the most
     expensive thing here.
 
-    ``GROUPING SETS`` then produces the per-year rows and the summary row from
-    that one pass. It groups on the country as well, even though there is normally
-    only one: under ``geometry`` there may not be, and a fire that turns out to be
-    in Spain should not be silently folded into Portugal's total.
+    It groups on the country as well, even though there is normally only one:
+    under ``geometry`` there may not be, and a fire that turns out to be in Spain
+    should not be silently folded into Portugal's total.
 
     ``icnf_wildfire`` is joined — by table, to keep SQLAlchemy from adding the
     polymorphic join of its own — rather than filtering on ``wildfire.type``, and
@@ -338,37 +392,27 @@ def statistics_query(year: int | None,
     fires = (
         select(
             country_name.label("country"),
-            PUBLISHED_YEAR.label("year"),
             burnt_area(method).label("hectares"),
         )
         .select_from(Wildfire)
         .join(icnf, icnf.c.id == Wildfire.id)
         .where(Wildfire.perimeter.is_not(None))
+        .where(PUBLISHED_YEAR == year)
     )
     for target, condition, is_outer in joins:
         fires = fires.outerjoin(target, condition) if is_outer \
             else fires.join(target, condition)
 
-    if year is not None:
-        fires = fires.where(PUBLISHED_YEAR == year)
-
     fire = fires.subquery("fire")
-    grouping = func.grouping(fire.c.year)
     return (
         select(
             fire.c.country,
-            fire.c.year,
-            grouping.label("is_total"),
             func.min(fire.c.hectares).label("minimum"),
             func.max(fire.c.hectares).label("maximum"),
             func.sum(fire.c.hectares).label("total"),
             func.count().label("fires"),
         )
-        .group_by(func.grouping_sets(
-            tuple_(fire.c.country, fire.c.year),
-            tuple_(fire.c.country),
-        ))
-        .order_by(fire.c.country, grouping, fire.c.year.desc())
+        .group_by(fire.c.country)
     )
 
 
@@ -406,6 +450,82 @@ class Row:
     @property
     def year_label(self) -> str:
         return TOTAL_LABEL if self.is_total else str(self.year)
+
+
+def combine(rows: list[Row], country: str, year: int | None) -> Row:
+    """One row summarising several: the four figures taken over all of them.
+
+    Notes
+    -----
+    This is what makes measuring a year at a time cost nothing. All four figures
+    decompose over a partition of the fires — a minimum of minima is a minimum, a
+    sum of sums is a sum — so the ``Total`` row is the same number ``GROUPING
+    SETS`` produced from a single pass, and no fire is counted twice or left out.
+
+    ``fsum`` rather than ``sum``: an exact accumulation over a handful of partial
+    totals costs nothing and cannot drift from what one pass would have returned.
+    """
+    return Row(
+        country=country,
+        year=year,
+        minimum=min(row.minimum for row in rows),
+        maximum=max(row.maximum for row in rows),
+        total=math.fsum(row.total for row in rows),
+        fires=sum(row.fires for row in rows),
+    )
+
+
+def ordered_countries(session: Session, names: set[str]) -> list[str]:
+    """The countries of the report, in the order the database would have sorted them.
+
+    Notes
+    -----
+    Normally one name, ``Portugal``; under ``--country-source geometry`` there can
+    be a second, which is the whole point of that mode.
+
+    Sorted by PostgreSQL and not by Python because the two do not agree: Python
+    compares code points, which puts every accented name after every unaccented
+    one, while the database sorts by its collation, which is what this report has
+    always been ordered by.
+
+    A name the query does not return could only come of ``admin_boundary``
+    changing underneath the run, but it is appended rather than dropped: losing a
+    country from a report over an ordering detail would be a poor trade.
+    """
+    if not names:
+        return []
+    ordered = list(session.scalars(
+        select(AdminBoundary.name)
+        .distinct()
+        .where(AdminBoundary.level == COUNTRY_LEVEL)
+        .where(AdminBoundary.name.in_(names))
+        .order_by(AdminBoundary.name)
+    ))
+    return ordered + sorted(names - set(ordered))
+
+
+def summarise(measured: list[Row], countries: list[str]) -> list[Row]:
+    """Build the report from the years measured: the summary rows, in order.
+
+    Parameters
+    ----------
+    measured : list of Row
+        One row per country and year, as the per-year statements returned them.
+    countries : list of str
+        The countries in scope, in the order they are to be reported.
+
+    Returns
+    -------
+    list of Row
+        Each country, its years newest first and its summary row last.
+    """
+    report: list[Row] = []
+    for name in countries:
+        rows = [row for row in measured if row.country == name]
+        report += sorted(rows, key=lambda row: row.year, reverse=True)
+        report.append(combine(rows, name, None))
+    return report
+
 
 
 def parse_arguments(argv: list[str] | None = None) -> argparse.Namespace:
@@ -469,17 +589,38 @@ def parse_arguments(argv: list[str] | None = None) -> argparse.Namespace:
 def compute(session: Session, year: int | None, logger: logging.Logger,
             method: str = AREA_METHOD_GEODESIC,
             country_source: str = COUNTRY_SOURCE_GEOMETRY) -> list[Row]:
-    """Run the statistics query, returning the report's rows in order."""
-    result = session.execute(statistics_query(year, method, country_source))
-    rows = [
-        Row(country=record.country,
-            year=None if record.is_total else record.year,
-            minimum=float(record.minimum),
-            maximum=float(record.maximum),
-            total=float(record.total),
-            fires=record.fires)
-        for record in result
-    ]
+    """Measure the fires a year at a time, returning the report's rows in order.
+
+    Notes
+    -----
+    One statement per year, for the reason given in the module docstring, each
+    under a spinner of its own.
+
+    Every one of them runs in ``session``'s transaction, and so against a single
+    snapshot: a report assembled from many queries is then exactly as consistent
+    as one assembled from a single query.
+    """
+    if year is not None:
+        years = [year]
+    else:
+        with common.Spinner("Finding the years the ICNF fires cover", logger):
+            years = list(session.scalars(years_query()))
+
+    measured: list[Row] = []
+    for index, measuring in enumerate(years, start=1):
+        with common.Spinner(f"Measuring the burnt area of the ICNF fires "
+                            f"({measuring}: {index} of {len(years)})", logger):
+            measured += [
+                Row(country=record.country, year=measuring,
+                    minimum=float(record.minimum),
+                    maximum=float(record.maximum),
+                    total=float(record.total),
+                    fires=record.fires)
+                for record in session.execute(
+                    statistics_query(measuring, method, country_source))
+            ]
+
+    rows = summarise(measured, ordered_countries(session, {row.country for row in measured}))
     logger.info("Computed %d rows over %d year(s) (%s areas, country from %s)",
                 len(rows), len({row.year for row in rows if not row.is_total}),
                 method, country_source)
@@ -556,9 +697,9 @@ def write_docx(rows: list[Row], path: Path, year: int | None,
 
 def report(args: argparse.Namespace, engine: Engine, logger: logging.Logger) -> list[Row]:
     """Compute the statistics and write whichever outputs were asked for."""
-    scope = f"year {args.year}" if args.year is not None else "every year"
-    with Session(engine) as session, common.Spinner(
-            f"Measuring the burnt area of the ICNF fires ({scope})", logger):
+    # No spinner here: compute runs one statement per year and turns one of its
+    # own for each, which is the only honest place to say how far along it is.
+    with Session(engine) as session:
         rows = compute(session, args.year, logger, args.area_method, args.country_source)
 
     if not rows:

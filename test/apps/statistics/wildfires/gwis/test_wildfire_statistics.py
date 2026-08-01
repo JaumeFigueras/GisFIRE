@@ -673,3 +673,61 @@ def test_the_csv_opens_with_the_world_block(populated, tmp_path):
 
     assert [line[1] for line in table[1:5]] == ["2021", "2020", "2019", "Total"]
     assert {line[0] for line in table[1:5]} == {app.WORLD_LABEL}
+
+
+# --------------------------------------------------------------------------
+# One year at a time
+# --------------------------------------------------------------------------
+
+def measured_years(monkeypatch) -> list[int]:
+    """Record the year each statistics statement is issued for."""
+    years: list[int] = []
+    original = app.statistics_query
+
+    def spy(country, year, *arguments, **keywords):
+        years.append(year)
+        return original(country, year, *arguments, **keywords)
+
+    monkeypatch.setattr(app, "statistics_query", spy)
+    return years
+
+
+def test_the_fires_are_measured_one_year_at_a_time(populated, monkeypatch):
+    """The whole point of the shape: one statement per year, newest first.
+
+    A single statement over every year is what took a 30 GB machine to 29.2 GB
+    and an OOM kill on a dataset of this size, so that it is really one per year
+    is worth asserting rather than assuming.
+    """
+    years = measured_years(monkeypatch)
+    rows_for(populated)
+
+    assert years == sorted(years, reverse=True)
+    assert len(years) == len({row.year for row in rows_for(populated) if row.year})
+
+
+def test_a_narrowed_year_is_measured_by_one_statement(populated, monkeypatch):
+    """And the years are not looked up at all: --year already named the only one."""
+    years = measured_years(monkeypatch)
+    monkeypatch.setattr(app, "years_query",
+                        lambda: pytest.fail("the years were listed for a run of one"))
+    rows_for(populated, year=2020)
+
+    assert years == [2020]
+
+
+def test_the_summary_rows_are_combined_from_the_years_measured(populated):
+    """No summary row comes from a statement of its own: they are all arithmetic."""
+    rows = rows_for(populated)
+    world_total = find(rows, app.WORLD_LABEL, None)
+    years = [row for row in rows if row.is_world and not row.is_total]
+
+    assert world_total == app.combine(years, app.WORLD_LABEL, None, is_world=True)
+
+
+def test_the_countries_are_ordered_by_the_database(populated):
+    """Not by Python: the two disagree on any name that is not plain ASCII."""
+    assert app.ordered_countries(populated, {"Spain", "France"}) == ["France", "Spain"]
+    # A name that is not a country in the database is kept rather than dropped.
+    assert app.ordered_countries(populated, {"Spain", "Atlantis"}) == ["Spain", "Atlantis"]
+    assert app.ordered_countries(populated, set()) == []

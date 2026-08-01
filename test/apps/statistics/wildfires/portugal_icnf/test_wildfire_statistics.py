@@ -505,3 +505,47 @@ def test_a_missing_output_directory_is_created(populated, tmp_path):
     app.write_csv(rows_for(populated), target, logger)
 
     assert target.exists()
+
+
+# --------------------------------------------------------------------------
+# One year at a time
+# --------------------------------------------------------------------------
+
+def measured_years(monkeypatch) -> list[int]:
+    """Record the year each statistics statement is issued for."""
+    years: list[int] = []
+    original = app.statistics_query
+
+    def spy(year, *arguments, **keywords):
+        years.append(year)
+        return original(year, *arguments, **keywords)
+
+    monkeypatch.setattr(app, "statistics_query", spy)
+    return years
+
+
+def test_the_fires_are_measured_one_year_at_a_time(populated, monkeypatch):
+    """One statement per year, newest first — the shape the other two reports need."""
+    years = measured_years(monkeypatch)
+    rows = rows_for(populated)
+
+    assert years == sorted(years, reverse=True)
+    assert years == [row.year for row in rows if row.country == "Portugal" and not row.is_total]
+
+
+def test_a_narrowed_year_is_measured_by_one_statement(populated, monkeypatch):
+    """And the years are not looked up at all: --year already named the only one."""
+    years = measured_years(monkeypatch)
+    monkeypatch.setattr(app, "years_query",
+                        lambda: pytest.fail("the years were listed for a run of one"))
+    rows_for(populated, year=2024)
+
+    assert years == [2024]
+
+
+def test_the_total_row_is_combined_from_the_years_measured(populated):
+    """The summary row comes from no statement of its own: it is arithmetic."""
+    rows = rows_for(populated)
+    portugal = [row for row in rows if row.country == "Portugal" and not row.is_total]
+
+    assert find(rows, None) == app.combine(portugal, "Portugal", None)
