@@ -18,6 +18,7 @@ date disagree in kind** — 71% of the real dataset has a placeholder date — a
 fire digitised into the **sea** while still carrying a Portuguese boundary.
 """
 
+import argparse
 import csv
 import datetime
 import logging
@@ -153,8 +154,25 @@ def misattributed(populated):
 
 
 def rows_for(session, year=None, method=app.AREA_METHOD_GEODESIC,
-             country_source=app.COUNTRY_SOURCE_GEOMETRY) -> list[app.Row]:
-    return app.compute(session, year, logger, method, country_source)
+             country_source=app.COUNTRY_SOURCE_GEOMETRY,
+             min_area=None) -> list[app.Row]:
+    return app.compute(session, year, logger, method, country_source, min_area)
+
+
+def halfway(smaller: str, larger: str) -> float:
+    """A ``--min-area`` that keeps fire ``larger`` and drops fire ``smaller``.
+
+    Midway between the two rather than equal to either, so that no test turns on
+    whether PostGIS and PROJ agree to the last bit on a boundary case. Derived from
+    the fixture rather than written as a number of hectares, so that resizing a
+    fixture fire cannot quietly turn a threshold into a no-op.
+
+    The fixture's fires sorted by area::
+
+        2023-1  2,403   2024-1  9,475   1985-2   9,743
+        2024-3 37,872   2024-2 151,268  1985-1 927,319   ha
+    """
+    return (expected(smaller) + expected(larger)) / 2
 
 
 def find(rows: list[app.Row], year: int | None, country: str = "Portugal") -> app.Row:
@@ -199,6 +217,50 @@ def test_the_defaults_match_the_other_reports():
     parsed = app.parse_arguments(["--csv", "out.csv"])
     assert parsed.area_method == app.AREA_METHOD_GEODESIC
     assert parsed.country_source == app.COUNTRY_SOURCE_GEOMETRY
+
+
+def test_there_is_no_minimum_area_unless_one_is_asked_for():
+    assert app.parse_arguments(["--csv", "out.csv"]).min_area is None
+
+
+def test_a_minimum_area_is_read_as_hectares():
+    assert app.parse_arguments(["--csv", "out.csv", "--min-area", "5"]).min_area == 5.0
+    assert app.parse_arguments(["--csv", "out.csv", "--min-area", "0.5"]).min_area == 0.5
+
+
+@pytest.mark.parametrize("value", ["five", "", "5ha"])
+def test_a_minimum_area_that_is_not_a_number_is_refused(value):
+    with pytest.raises(SystemExit):
+        app.parse_arguments(["--csv", "out.csv", "--min-area", value])
+    with pytest.raises(argparse.ArgumentTypeError, match="not a number"):
+        app.hectares(value)
+
+
+def test_a_negative_minimum_area_is_refused():
+    """A typo that would otherwise pass silently: no area is below zero."""
+    with pytest.raises(SystemExit):
+        app.parse_arguments(["--csv", "out.csv", "--min-area", "-5"])
+    with pytest.raises(argparse.ArgumentTypeError, match="cannot be negative"):
+        app.hectares("-5")
+
+
+@pytest.mark.parametrize("value", ["nan", "inf", "-inf"])
+def test_a_minimum_area_that_is_not_finite_is_refused(value):
+    """``float`` accepts all three; none of them is a size a fire can have.
+
+    ``nan`` is the one worth refusing loudest: it compares false against every
+    area, so it would not fail — it would produce an empty report and blame the
+    data.
+    """
+    with pytest.raises(SystemExit):
+        app.parse_arguments(["--csv", "out.csv", "--min-area", value])
+    with pytest.raises(argparse.ArgumentTypeError, match="finite"):
+        app.hectares(value)
+
+
+def test_zero_is_a_threshold_and_not_a_missing_one():
+    """Falsy, and so exactly what a truthiness test would get wrong."""
+    assert app.parse_arguments(["--csv", "out.csv", "--min-area", "0"]).min_area == 0.0
 
 
 def test_the_columns_match_the_other_reports():
@@ -367,6 +429,130 @@ def test_the_published_national_grid_is_not_offered():
 
 
 # --------------------------------------------------------------------------
+# The minimum burnt area
+# --------------------------------------------------------------------------
+
+def test_no_minimum_area_counts_every_fire(populated):
+    """The default has to leave the report exactly as it was."""
+    assert rows_for(populated, min_area=None) == rows_for(populated)
+
+
+def test_a_threshold_below_every_fire_counts_every_fire(populated):
+    small = rows_for(populated, min_area=1.0)
+
+    for asked, every in zip(small, rows_for(populated)):
+        assert (asked.country, asked.year, asked.fires) == \
+               (every.country, every.year, every.fires)
+        assert asked.total == pytest.approx(every.total)
+
+
+def test_the_smaller_fires_stop_being_counted(populated):
+    """2024 has fires of 9,475, 37,872 and 151,268 ha; keep the largest two."""
+    rows = rows_for(populated, min_area=halfway("2024-1", "2024-3"))
+    year_2024 = find(rows, 2024)
+
+    assert year_2024.fires == 2
+    assert year_2024.minimum == pytest.approx(expected("2024-3"), rel=1e-6)
+    assert year_2024.maximum == pytest.approx(expected("2024-2"), rel=1e-6)
+    assert year_2024.total == pytest.approx(expected("2024-2") + expected("2024-3"), rel=1e-6)
+
+
+def test_a_year_whose_fires_are_all_too_small_drops_out(populated):
+    """2023 holds one fire of 2,403 ha and nothing else, so the year goes with it.
+
+    Not a zero row: a year the threshold emptied has no minimum and no maximum to
+    report, and printing 0.00 for them would be a claim about a fire that was not
+    counted.
+    """
+    rows = rows_for(populated, min_area=halfway("2023-1", "2024-1"))
+
+    assert 2023 not in {row.year for row in rows}
+    assert [row.year_label for row in rows] == ["2024", "1985", "Total"]
+    # And the years above the threshold are untouched.
+    assert find(rows, 2024).fires == 3
+    assert find(rows, 1985).fires == 2
+
+
+def test_the_total_row_summarises_only_the_fires_counted(populated):
+    """The summary is arithmetic over what was measured, so it follows the threshold."""
+    threshold = halfway("2023-1", "2024-1")
+    rows = rows_for(populated, min_area=threshold)
+    total = find(rows, None)
+
+    assert total.fires == len(FIRES) - 1
+    assert total.minimum > threshold
+    # The smallest fire of the whole dataset no longer sets the minimum: 2024-1 does.
+    assert total.minimum == pytest.approx(expected("2024-1"), rel=1e-6)
+    assert total.maximum == pytest.approx(expected("1985-1"), rel=1e-6)
+    assert total.total == pytest.approx(
+        sum(expected(code) for code, *_ in FIRES) - expected("2023-1"), rel=1e-6)
+
+
+def test_a_threshold_above_every_fire_reports_nothing(populated):
+    assert rows_for(populated, min_area=expected("1985-1") * 2) == []
+
+
+def test_an_empty_report_names_the_threshold(populated, tmp_path):
+    """Because then the threshold is at least as likely to be the reason as the data."""
+    args = app.parse_arguments(["--min-area", "10000000", "--csv", str(tmp_path / "out.csv")])
+
+    with pytest.raises(RuntimeError, match="--min-area"):
+        app.report(args, populated.get_bind(), logger)
+    assert not (tmp_path / "out.csv").exists()
+
+
+def test_the_threshold_is_on_the_measured_area(populated):
+    """Whichever area the report measures is the one the threshold is compared to.
+
+    The two methods agree to within 0.003%, so a threshold nowhere near a fire's
+    size selects the same fires either way — which is the property that makes the
+    counted fires and the figures beside them the same set of fires.
+    """
+    threshold = halfway("2024-1", "2024-3")
+    geodesic = rows_for(populated, method=app.AREA_METHOD_GEODESIC, min_area=threshold)
+    projected = rows_for(populated, method=app.AREA_METHOD_EQUAL_AREA, min_area=threshold)
+
+    assert [(row.country, row.year, row.fires) for row in geodesic] == \
+           [(row.country, row.year, row.fires) for row in projected]
+
+
+def test_the_threshold_is_not_a_filter_on_the_totals(populated):
+    """A HAVING would have dropped countries, not fires.
+
+    1985 holds a 9,743 ha fire and a 927,319 ha one. A threshold between them must
+    leave the year with one fire, not remove the year for having had a small one —
+    nor keep both for having a large total.
+    """
+    year_1985 = find(rows_for(populated, min_area=halfway("1985-2", "1985-1")), 1985)
+
+    assert year_1985.fires == 1
+    assert year_1985.total == pytest.approx(expected("1985-1"), rel=1e-6)
+    assert year_1985.minimum == pytest.approx(year_1985.maximum)
+
+
+def test_the_threshold_is_carried_into_every_year_statement(populated, monkeypatch):
+    """One statement per year, and each one of them has to know about it."""
+    seen: list[float | None] = []
+    original = app.statistics_query
+
+    def spy(year, method, country_source, min_area=None):
+        seen.append(min_area)
+        return original(year, method, country_source, min_area)
+
+    monkeypatch.setattr(app, "statistics_query", spy)
+    rows_for(populated, min_area=5.0)
+
+    assert seen == [5.0, 5.0, 5.0]
+
+
+def test_the_threshold_and_a_single_year_combine(populated):
+    rows = rows_for(populated, year=2024, min_area=halfway("2024-1", "2024-3"))
+
+    assert [row.year_label for row in rows] == ["2024", "Total"]
+    assert rows[0].fires == 2
+
+
+# --------------------------------------------------------------------------
 # Where the country comes from
 # --------------------------------------------------------------------------
 
@@ -488,6 +674,26 @@ def test_the_docx_names_the_dataset_and_the_scope(populated, tmp_path):
     assert "2024" in prose and "hectares" in prose
     # The year rule is stated in the document, not only in the manual.
     assert "Ano" in prose
+
+
+def test_the_docx_names_the_minimum_area(populated, tmp_path):
+    """A table of the fires over 5 ha and a table of every fire look exactly alike."""
+    docx = pytest.importorskip("docx")
+    target = tmp_path / "burnt.docx"
+    app.write_docx(rows_for(populated, min_area=5.0), target, None, logger, min_area=5.0)
+
+    prose = "\n".join(p.text for p in docx.Document(str(target)).paragraphs)
+    assert "5 ha or more" in prose
+
+
+def test_the_docx_claims_no_threshold_when_there_is_none(populated, tmp_path):
+    docx = pytest.importorskip("docx")
+    target = tmp_path / "burnt.docx"
+    app.write_docx(rows_for(populated), target, None, logger)
+
+    prose = "\n".join(p.text for p in docx.Document(str(target)).paragraphs)
+    assert "or more" not in prose
+    assert "all years" in prose
 
 
 def test_both_outputs_are_written_together(populated, tmp_path):

@@ -10,11 +10,13 @@ area burnt, in hectares::
     Portugal         2023      7541        0.50      8802.11      88214.06
     Portugal         Total   68435        0.50     97462.10    4218774.51
 
-Run it over everything, or narrow it to one year::
+Run it over everything, or narrow it to one year, or to the fires above a size::
 
     python3 -m src.apps.statistics.wildfires.portugal_icnf.wildfire_statistics --csv burnt.csv
     python3 -m src.apps.statistics.wildfires.portugal_icnf.wildfire_statistics \\
         --year 2024 --csv 2024.csv --docx 2024.docx
+    python3 -m src.apps.statistics.wildfires.portugal_icnf.wildfire_statistics \\
+        --min-area 5 --csv over-5-ha.csv
 
 At least one of ``--csv`` and ``--docx`` is required: an application that
 computed a report and then printed nothing would be a strange thing.
@@ -135,12 +137,22 @@ matched no OCHA boundary. So is any fire with no perimeter. A run therefore does
 not necessarily account for every hectare in the database, and the totals here are
 totals *of attributable burnt area*.
 
+``--min-area`` narrows it further, to the fires of at least that many hectares.
+By default there is no threshold and every attributable fire counts.
+
 .. note::
 
    The 1975-1999 layers only map fires of 5 ha or more; from 2000 on the small
    ones are mapped too. A count of fires per year is therefore **not comparable
    across 1999**, and neither is a minimum. The totals are much less affected,
    small fires being small.
+
+   This is what ``--min-area 5`` is for: applying the old layers' mapping rule to
+   the new ones puts every year on the same footing and makes the counts
+   comparable again. It is a threshold on the area *this report measures* — the
+   one ``--area-method`` selects — and not on the published ``AreaHaSIG``, so that
+   the fires counted are exactly the fires the figures beside them are computed
+   from.
 """
 
 from __future__ import annotations
@@ -358,8 +370,21 @@ def years_query() -> Select:
 
 def statistics_query(year: int,
                      method: str = AREA_METHOD_GEODESIC,
-                     country_source: str = COUNTRY_SOURCE_GEOMETRY) -> Select:
+                     country_source: str = COUNTRY_SOURCE_GEOMETRY,
+                     min_area: float | None = None) -> Select:
     """Build the statistics query for one year.
+
+    Parameters
+    ----------
+    year : int
+        The published ``Ano`` to measure.
+    method : str
+        One of :data:`AREA_METHODS`.
+    country_source : str
+        One of :data:`COUNTRY_SOURCES`.
+    min_area : float, optional
+        Count only fires of at least this many hectares. ``None``, the default,
+        counts every fire.
 
     Returns
     -------
@@ -385,6 +410,12 @@ def statistics_query(year: int,
     ``icnf_wildfire`` is joined — by table, to keep SQLAlchemy from adding the
     polymorphic join of its own — rather than filtering on ``wildfire.type``, and
     it has to be joined in any case: :data:`PUBLISHED_YEAR` lives on it.
+
+    ``min_area`` filters the subquery's column rather than repeating the area
+    expression in a ``WHERE`` of its own, for the same reason the subquery exists
+    at all, and it is applied before the aggregates rather than as a ``HAVING``:
+    the threshold selects the fires the figures are computed from, it does not
+    discard countries whose total came out small.
     """
     icnf = IcnfWildfire.__table__
     country_name, joins = country_columns(country_source)
@@ -404,7 +435,7 @@ def statistics_query(year: int,
             else fires.join(target, condition)
 
     fire = fires.subquery("fire")
-    return (
+    statistics = (
         select(
             fire.c.country,
             func.min(fire.c.hectares).label("minimum"),
@@ -414,6 +445,9 @@ def statistics_query(year: int,
         )
         .group_by(fire.c.country)
     )
+    if min_area is not None:
+        statistics = statistics.where(fire.c.hectares >= min_area)
+    return statistics
 
 
 @dataclass(frozen=True)
@@ -528,6 +562,35 @@ def summarise(measured: list[Row], countries: list[str]) -> list[Row]:
 
 
 
+def hectares(text: str) -> float:
+    """Argparse type for ``--min-area``: a finite, non-negative number of hectares.
+
+    Raises
+    ------
+    argparse.ArgumentTypeError
+        If the text is not a number, or is negative, or is a non-finite float.
+
+    Notes
+    -----
+    A bare ``type=float`` would accept ``-5``, ``nan`` and ``inf``. The first two
+    are almost certainly a typo and would silently produce the unfiltered report —
+    ``nan`` compares false against every area, so it would produce an empty one —
+    and none of the three is a size a fire can have.
+    """
+    try:
+        area = float(text)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"{text!r} is not a number of hectares")
+    if not math.isfinite(area):
+        raise argparse.ArgumentTypeError(f"{text!r} is not a finite number of hectares")
+    if area < 0:
+        raise argparse.ArgumentTypeError(
+            f"a burnt area cannot be negative, and {area:g} ha is: pass 0 or more, or "
+            f"leave --min-area out to count every fire"
+        )
+    return area
+
+
 def parse_arguments(argv: list[str] | None = None) -> argparse.Namespace:
     """Parse the command line."""
     parser = argparse.ArgumentParser(
@@ -539,6 +602,13 @@ def parse_arguments(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("-y", "--year", type=int,
                         help="restrict to one year, e.g. 2024; this is the published Ano, "
                              "not the year of the start date")
+    parser.add_argument("--min-area", type=hectares, default=None, metavar="HECTARES",
+                        help="count only fires that burnt at least this many hectares, "
+                             "e.g. 5; by default every fire counts. The threshold is "
+                             "applied to the area this report measures (see "
+                             "--area-method), not to the published AreaHaSIG. Useful "
+                             "against the 1975-1999 layers, which only mapped fires of "
+                             "5 ha or more")
 
     parser.add_argument("--area-method", default=AREA_METHOD_GEODESIC, choices=AREA_METHODS,
                         help="how to turn the EPSG:4326 perimeter into hectares: "
@@ -588,7 +658,8 @@ def parse_arguments(argv: list[str] | None = None) -> argparse.Namespace:
 
 def compute(session: Session, year: int | None, logger: logging.Logger,
             method: str = AREA_METHOD_GEODESIC,
-            country_source: str = COUNTRY_SOURCE_GEOMETRY) -> list[Row]:
+            country_source: str = COUNTRY_SOURCE_GEOMETRY,
+            min_area: float | None = None) -> list[Row]:
     """Measure the fires a year at a time, returning the report's rows in order.
 
     Notes
@@ -599,6 +670,12 @@ def compute(session: Session, year: int | None, logger: logging.Logger,
     Every one of them runs in ``session``'s transaction, and so against a single
     snapshot: a report assembled from many queries is then exactly as consistent
     as one assembled from a single query.
+
+    ``min_area`` does not narrow the list of years: which years the dataset holds
+    fires in is a fact about the dataset, and a year whose fires are all below the
+    threshold simply returns no rows and is absent from the report. Measuring it is
+    one statement that finds nothing, which is cheaper than a second pass computing
+    every area to decide in advance.
     """
     if year is not None:
         years = [year]
@@ -617,13 +694,14 @@ def compute(session: Session, year: int | None, logger: logging.Logger,
                     total=float(record.total),
                     fires=record.fires)
                 for record in session.execute(
-                    statistics_query(measuring, method, country_source))
+                    statistics_query(measuring, method, country_source, min_area))
             ]
 
     rows = summarise(measured, ordered_countries(session, {row.country for row in measured}))
-    logger.info("Computed %d rows over %d year(s) (%s areas, country from %s)",
+    logger.info("Computed %d rows over %d year(s) (%s areas, country from %s, %s)",
                 len(rows), len({row.year for row in rows if not row.is_total}),
-                method, country_source)
+                method, country_source,
+                "every fire" if min_area is None else f"fires of {min_area:g} ha or more")
     return rows
 
 
@@ -646,7 +724,8 @@ def write_csv(rows: list[Row], path: Path, logger: logging.Logger) -> None:
 
 def write_docx(rows: list[Row], path: Path, year: int | None,
                logger: logging.Logger,
-               method: str = AREA_METHOD_GEODESIC) -> None:
+               method: str = AREA_METHOD_GEODESIC,
+               min_area: float | None = None) -> None:
     """Write the report as a Word document.
 
     One table, with the summary row in bold. Numbers get thousands separators here
@@ -665,10 +744,15 @@ def write_docx(rows: list[Row], path: Path, year: int | None,
 
     measured = ("geodesically on the WGS84 ellipsoid" if method == AREA_METHOD_GEODESIC
                 else f"in the equal-area projection EPSG:{EQUAL_AREA_SRID}")
-    scope = f"year: {year}" if year is not None else "all years"
+    # The threshold belongs in the document and not only in the command line that
+    # produced it: a table of the fires over 5 ha and a table of every fire look
+    # exactly alike, and the difference is the whole meaning of the figures.
+    scope = [f"year: {year}" if year is not None else "all years"]
+    if min_area is not None:
+        scope.append(f"only fires of {min_area:g} ha or more")
     document.add_paragraph(
         f"Areas in hectares, computed {measured}. Fires not attributable to a country "
-        f"are excluded. Years are the published Ano. Scope: {scope}."
+        f"are excluded. Years are the published Ano. Scope: {'; '.join(scope)}."
     )
 
     table = document.add_table(rows=1, cols=len(COLUMNS))
@@ -700,20 +784,25 @@ def report(args: argparse.Namespace, engine: Engine, logger: logging.Logger) -> 
     # No spinner here: compute runs one statement per year and turns one of its
     # own for each, which is the only honest place to say how far along it is.
     with Session(engine) as session:
-        rows = compute(session, args.year, logger, args.area_method, args.country_source)
+        rows = compute(session, args.year, logger, args.area_method, args.country_source,
+                       args.min_area)
 
     if not rows:
         # An empty report is almost always a year with no data, and writing an
-        # empty file would hide that.
+        # empty file would hide that. A threshold is named when there is one,
+        # because then it is at least as likely to be the reason as the year is.
+        threshold = "" if args.min_area is None else \
+            f" No fire reached the --min-area of {args.min_area:g} ha."
         raise RuntimeError(
             "No wildfires matched. Check --year, and that the ICNF fires and the OCHA "
             "boundaries are both imported — fires with no country are not counted."
+            + threshold
         )
 
     if args.csv is not None:
         write_csv(rows, args.csv, logger)
     if args.docx is not None:
-        write_docx(rows, args.docx, args.year, logger, args.area_method)
+        write_docx(rows, args.docx, args.year, logger, args.area_method, args.min_area)
     return rows
 
 

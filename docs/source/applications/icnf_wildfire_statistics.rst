@@ -12,7 +12,7 @@ grouping, same two output formats, so the three CSVs can be concatenated and com
 Usage
 -----
 
-Over everything, or narrowed to one year:
+Over everything, or narrowed to one year, or to the fires above a given size:
 
 .. code-block:: bash
 
@@ -20,6 +20,9 @@ Over everything, or narrowed to one year:
 
    python3 -m src.apps.statistics.wildfires.portugal_icnf.wildfire_statistics \
        --year 2024 --csv 2024.csv --docx 2024.docx
+
+   python3 -m src.apps.statistics.wildfires.portugal_icnf.wildfire_statistics \
+       --min-area 5 --csv over-5-ha.csv
 
 At least one of ``--csv`` and ``--docx`` is required.
 
@@ -91,6 +94,8 @@ provider filed that year.
    5 ha or more; from 2000 on the small ones are mapped too. So is the minimum: a 0.50 ha
    minimum in 2024 and a 5.0 ha minimum in 1995 describe the mapping rule, not the fires.
    The totals are much less affected, small fires being small.
+
+   ``--min-area 5`` is the way round it — see :ref:`icnf-min-area` below.
 
 How the area is measured
 ------------------------
@@ -180,6 +185,50 @@ totals of *attributable* burnt area.
    The ``Fires`` column counts exactly the fires that survived these rules, so it never
    disagrees with the areas beside it — but it is therefore a count of *attributable*
    fires, not of every fire in the database.
+
+.. _icnf-min-area:
+
+Counting only the larger fires
+------------------------------
+
+``--min-area HECTARES`` counts only the fires that burnt at least that much. There is no
+threshold by default and every attributable fire counts, so a run without it is the report
+exactly as it was.
+
+.. code-block:: bash
+
+   # every year on the mapping rule the 1975-1999 layers were drawn to
+   python3 -m src.apps.statistics.wildfires.portugal_icnf.wildfire_statistics \
+       --min-area 5 --csv over-5-ha.csv --docx over-5-ha.docx
+
+That is what the option is for. The old layers only mapped fires of 5 ha or more, so a
+count of fires in 1995 and a count in 2024 are counts of different things; applying the
+old rule to every year puts them back on the same footing. It is equally a way to ask what
+the large fires alone did, without the tens of thousands of small ones in the total.
+
+Three things to know about it:
+
+* The threshold is compared against **the area this report measures** — the one
+  ``--area-method`` selects — and not against the published ``AreaHaSIG``. The fires
+  counted are then exactly the fires the figures beside them are computed from. The two
+  methods agree to 0.003%, so which one is in force does not change the selection except
+  for a fire sitting on the threshold itself.
+* It selects **fires, not rows of the report**. A year keeps its large fires however small
+  its small ones were.
+* A year whose fires are **all** below the threshold disappears from the report rather
+  than appearing as a row of zeros — it has no minimum and no maximum to report, and
+  printing ``0.00`` would be a claim about a fire that was not counted. The ``Total`` row
+  likewise summarises only what was counted.
+
+The threshold reaches the ``.docx`` as part of the scope line, because a table of the fires
+over 5 ha and a table of every fire otherwise look exactly alike. The ``.csv`` keeps its
+columns unchanged, so it can still be concatenated with the other two reports' — record
+the threshold in the filename.
+
+.. warning::
+
+   Comparing a thresholded run against an unthresholded one across 1999 is comparing two
+   different questions. Pick one threshold and apply it to every year in the comparison.
 
 
 One year at a time
