@@ -16,18 +16,18 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
 from src.data_model.data_provider import DataProvider
-from src.providers import egif
-from src.providers.egif.ignition import EgifIgnition
-from src.providers.egif.wildfire import EgifWildfire
-from src.providers.egif.wildfire_report import EgifWildfireReport
+from src.providers import spain_egif
+from src.providers.spain_egif.ignition import EgifIgnition
+from src.providers.spain_egif.wildfire import EgifWildfire
+from src.providers.spain_egif.wildfire_report import EgifWildfireReport
 
 UTC = datetime.timezone.utc
 
 
 @pytest.fixture
 def provider(db_session):
-    provider = DataProvider(name=egif.PROVIDER_NAME, product=egif.PROVIDER_PRODUCT,
-                            full_name=egif.PROVIDER_FULL_NAME)
+    provider = DataProvider(name=spain_egif.PROVIDER_NAME, product=spain_egif.PROVIDER_PRODUCT,
+                            full_name=spain_egif.PROVIDER_FULL_NAME)
     db_session.add(provider)
     db_session.commit()
     return provider
@@ -40,14 +40,14 @@ def wildfire(db_session, provider):
         data_provider=provider, report_number="2020080001",
         geometry="SRID=4326;POINT(1.85254312549163 41.4441304358167)",
         date_time=datetime.datetime(2020, 1, 1, 15, 30, tzinfo=UTC),
-        time_zone=egif.DEFAULT_TIME_ZONE,
-        utm_zone=31, utm_x=404147.0, utm_y=4588697.0, datum=egif.DATUM_ETRS89)
+        time_zone=spain_egif.DEFAULT_TIME_ZONE,
+        utm_zone=31, utm_x=404147.0, utm_y=4588697.0, datum=spain_egif.DATUM_ETRS89)
     wildfire = EgifWildfire(
         data_provider=provider, report_number="2020080001", campaign=2020,
         ignition=ignition, province_ine_code="08",
         start_date_time=datetime.datetime(2020, 1, 1, 15, 30, tzinfo=UTC),
         end_date_time=datetime.datetime(2020, 1, 1, 16, 30, tzinfo=UTC),
-        time_zone=egif.DEFAULT_TIME_ZONE)
+        time_zone=spain_egif.DEFAULT_TIME_ZONE)
     db_session.add(ignition)
     db_session.add(wildfire)
     db_session.commit()
@@ -120,7 +120,7 @@ def test_finding_the_fires_still_waiting_for_their_xml(db_session, provider, wil
         data_provider=provider, report_number="2020080002",
         geometry="SRID=4326;POINT(1.9 41.5)",
         date_time=datetime.datetime(2020, 2, 1, 12, 0, tzinfo=UTC),
-        utm_zone=31, utm_x=404000.0, utm_y=4588000.0, datum=egif.DATUM_ETRS89)
+        utm_zone=31, utm_x=404000.0, utm_y=4588000.0, datum=spain_egif.DATUM_ETRS89)
     second = EgifWildfire(
         data_provider=provider, report_number="2020080002", campaign=2020,
         ignition=ignition, province_ine_code="08",

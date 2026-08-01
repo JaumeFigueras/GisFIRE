@@ -8,6 +8,6 @@ See :doc:`ign_provider` for the dataset itself, :doc:`../providers` for how prov
 models relate to the generic ones, and :doc:`../data_model/geography_admin_boundary`
 for the columns it inherits.
 
-.. automodule:: src.providers.ign.admin_boundary
+.. automodule:: src.providers.spain_ign.admin_boundary
    :members:
    :show-inheritance:

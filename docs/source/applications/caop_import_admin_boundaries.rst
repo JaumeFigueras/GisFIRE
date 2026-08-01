@@ -70,7 +70,7 @@ Level                  Code field  Length  ``level``  Count in CAOP 2025
 =====================  ==========  ======  =========  ==================
 
 The code becomes ``source_id``, which is what a fire's
-:attr:`~src.providers.icnf.wildfire.IcnfWildfire.dicofre_code` joins to.
+:attr:`~src.providers.portugal_icnf.wildfire.IcnfWildfire.dicofre_code` joins to.
 
 How it works
 ------------
@@ -133,7 +133,7 @@ file's name (``Continente_CAOP2025.gpkg``) names an edition other than the one g
    Which edition a fire should be attributed to is not decided here. This application
    imports boundaries; matching a fire to the boundaries in force when it burnt is the
    business of whatever resolves
-   :attr:`~src.providers.icnf.wildfire.IcnfWildfire.dicofre_code`, and it has the
+   :attr:`~src.providers.portugal_icnf.wildfire.IcnfWildfire.dicofre_code`, and it has the
    ``edition`` column to do it with.
 
 Turning a code into a coordinate

@@ -8,6 +8,6 @@ that hangs off it.
 This is the model that explains why EGIF is worth importing despite publishing no
 perimeter: it is the only Iberian dataset here with an ignition coordinate.
 
-.. automodule:: src.providers.egif.ignition
+.. automodule:: src.providers.spain_egif.ignition
    :members:
    :show-inheritance:

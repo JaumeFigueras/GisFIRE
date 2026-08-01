@@ -19,9 +19,9 @@ from sqlalchemy.exc import IntegrityError
 
 from src.data_model.data_provider import DataProvider
 from src.data_model.wildfire import Wildfire
-from src.providers import icnf
-from src.providers.icnf.fire_cause import IcnfFireCause
-from src.providers.icnf.wildfire import IcnfWildfire
+from src.providers import portugal_icnf
+from src.providers.portugal_icnf.fire_cause import IcnfFireCause
+from src.providers.portugal_icnf.wildfire import IcnfWildfire
 
 UTC = datetime.timezone.utc
 
@@ -32,8 +32,8 @@ PERIMETER_3763 = "SRID=3763;MULTIPOLYGON(((0 0, 1000 0, 1000 1000, 0 1000, 0 0))
 
 @pytest.fixture
 def provider(db_session):
-    provider = DataProvider(name=icnf.PROVIDER_NAME, product=icnf.PROVIDER_PRODUCT,
-                            full_name=icnf.PROVIDER_FULL_NAME)
+    provider = DataProvider(name=portugal_icnf.PROVIDER_NAME, product=portugal_icnf.PROVIDER_PRODUCT,
+                            full_name=portugal_icnf.PROVIDER_FULL_NAME)
     db_session.add(provider)
     db_session.commit()
     return provider
@@ -57,7 +57,7 @@ def a_wildfire(provider, **overrides) -> IcnfWildfire:
         "sgif_code": "20240125102",
         "anepc_code": "20240125102",
         "year": 2024,
-        "date_time_precision": icnf.PRECISION_DAY,
+        "date_time_precision": portugal_icnf.PRECISION_DAY,
         "start_date_time": datetime.datetime(2024, 1, 29, tzinfo=UTC),
         "duration_minutes": 144,
         "dicofre_code": "181620",
@@ -75,7 +75,7 @@ def an_old_wildfire(provider, **overrides) -> IcnfWildfire:
         "data_provider": provider,
         "source_layer": "ardida_1975_1989",
         "year": 1975,
-        "date_time_precision": icnf.PRECISION_YEAR,
+        "date_time_precision": portugal_icnf.PRECISION_YEAR,
         "start_date_time": datetime.datetime(1975, 1, 1, tzinfo=UTC),
         "area_ha_gis": 65.91566807,
         "perimeter_etrs89_tm06": PERIMETER_3763,
@@ -171,7 +171,7 @@ def test_the_anepc_code_is_not_unique(db_session, provider):
 # Date precision
 # --------------------------------------------------------------------------
 
-@pytest.mark.parametrize("precision", icnf.DATE_TIME_PRECISIONS)
+@pytest.mark.parametrize("precision", portugal_icnf.DATE_TIME_PRECISIONS)
 def test_every_declared_precision_is_accepted(db_session, provider, precision):
     db_session.add(a_wildfire(provider, date_time_precision=precision))
     db_session.commit()
@@ -202,7 +202,7 @@ def test_the_published_perimeter_keeps_the_national_grid(db_session, provider):
     db_session.commit()
 
     srid = db_session.scalar(select(func.ST_SRID(IcnfWildfire.perimeter_etrs89_tm06)))
-    assert srid == icnf.SOURCE_SRID == 3763
+    assert srid == portugal_icnf.SOURCE_SRID == 3763
 
 
 def test_the_national_grid_measures_area_in_metres(db_session, provider):

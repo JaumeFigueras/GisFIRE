@@ -64,7 +64,7 @@ summary row in bold, because it is not.
 Which year a fire counts towards
 --------------------------------
 
-:attr:`~src.providers.icnf.wildfire.IcnfWildfire.year` — the ``Ano`` the ICNF published,
+:attr:`~src.providers.portugal_icnf.wildfire.IcnfWildfire.year` — the ``Ano`` the ICNF published,
 which is also the layer the fire came from — and **not** the year of ``start_date_time``
 as in the other two reports.
 
@@ -81,7 +81,7 @@ be null. ``Ano`` is the published answer, is ``NOT NULL``, and needs no timezone
    The consequence is worth stating plainly: **this report is sound, but a report grouped
    by month or day over the same data would not be.** 71% of these fires would all land
    on the 1st of January. Anything finer than a year has to filter on
-   :attr:`~src.providers.icnf.wildfire.IcnfWildfire.date_time_precision` first — see
+   :attr:`~src.providers.portugal_icnf.wildfire.IcnfWildfire.date_time_precision` first — see
    :doc:`icnf_resync_wildfires` for the application that puts the real times back.
 
 Where the two disagree — a fire filed under 2022 whose start date falls in 2023 — the
@@ -111,7 +111,7 @@ Tempting, and wrong — which is worth recording, because this is the one datase
 three that *has* a published projected geometry to reach for.
 
 The perimeters are stored as published in EPSG:3763 (ETRS89 / Portugal TM06) on
-:attr:`~src.providers.icnf.wildfire.IcnfWildfire.perimeter_etrs89_tm06`, a projected
+:attr:`~src.providers.portugal_icnf.wildfire.IcnfWildfire.perimeter_etrs89_tm06`, a projected
 national grid in metres whose ``ST_Area`` reproduces the ICNF's own ``AreaHaSIG``. It is
 **not** offered as an area method, because PT-TM06 is a *transverse Mercator* — conformal,
 not equal-area — and its distortion away from the central meridian is not negligible for
@@ -144,8 +144,8 @@ To reproduce the ICNF's published figures, read them rather than recompute them:
 The published areas are not used
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-:attr:`~src.providers.icnf.wildfire.IcnfWildfire.area_ha_gis` (``AreaHaSIG``, measured
-from the polygon) and :attr:`~src.providers.icnf.wildfire.IcnfWildfire.area_ha_sgif`
+:attr:`~src.providers.portugal_icnf.wildfire.IcnfWildfire.area_ha_gis` (``AreaHaSIG``, measured
+from the polygon) and :attr:`~src.providers.portugal_icnf.wildfire.IcnfWildfire.area_ha_sgif`
 (``AreaHaSGIF``, what the fire database recorded) are kept as published and are **not**
 what this reports. They are two independent measurements of the same fire and are worth
 having as a check on this one, but a report that mixed them with a measured area would be

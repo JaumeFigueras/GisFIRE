@@ -56,7 +56,7 @@ class CaopAdminBoundary(AdminBoundary):
         the full name for 635 of the 3 259; ``None`` at the other two levels.
 
         Useful when matching against the ICNF's
-        :attr:`~src.providers.icnf.wildfire.IcnfWildfire.parish_name`, which does
+        :attr:`~src.providers.portugal_icnf.wildfire.IcnfWildfire.parish_name`, which does
         not consistently use either form.
     nuts1_code : str or None
         INE code of the NUTS 1 region — ``"1"`` mainland, ``"2"`` Azores, ``"3"``
@@ -75,7 +75,7 @@ class CaopAdminBoundary(AdminBoundary):
         ``"111"`` here is Eurostat's ``PT111``. ``None`` on *distritos*.
     nuts3_name : str or None
         NUTS 3 region, e.g. *Região de Aveiro*. ``None`` on *distritos*. This is
-        what :attr:`~src.providers.icnf.wildfire.IcnfWildfire.nuts3_name` can be
+        what :attr:`~src.providers.portugal_icnf.wildfire.IcnfWildfire.nuts3_name` can be
         matched against.
     area_ha : float
         Area in hectares, as the DGT computed it on the national grid. Kept as

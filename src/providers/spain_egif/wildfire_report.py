@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """EGIF wildfire report detail — the part of the *parte* only the XML publishes.
 
-A one-to-one optional child of :class:`~src.providers.egif.wildfire.EgifWildfire`,
+A one-to-one optional child of :class:`~src.providers.spain_egif.wildfire.EgifWildfire`,
 holding the fields of the full report that the Excel "resumen" export throws away:
 when the fire was brought under control and when each kind of resource reached it,
 how it was detected, how sure anyone is of the cause, the weather at the time, and
@@ -34,7 +34,7 @@ block with its species breakdown and timber valuations.
 
 Those are a great deal of schema for questions that have not been asked yet, and
 they can be added later without touching anything here. See
-:mod:`src.providers.egif` for the scope decision and what it rests on.
+:mod:`src.providers.spain_egif` for the scope decision and what it rests on.
 
 The four code lists are arrays, not four child tables
 -----------------------------------------------------
@@ -64,7 +64,7 @@ The one field this table exists for
 and the fire — the **holdover** — and it is published nowhere else: not in the
 Excel, not in the ICNF data, not in GWIS or GFA. In the Barcelona 2020 sample it
 is non-zero on three fires, all three in cause family
-:data:`~src.providers.egif.CAUSE_LIGHTNING`, and zero on all ninety other fires,
+:data:`~src.providers.spain_egif.CAUSE_LIGHTNING`, and zero on all ninety other fires,
 which is what confirmed that family is *Rayo* in the first place.
 
 The codes here are stored bare
@@ -76,7 +76,7 @@ login, and the Excel export — the way the cause and motivation catalogues were
 recovered — does not carry these fields at all. So they are kept as text, exactly
 as published, and labelled by whoever eventually gets the lists. Text rather than
 integers for the reason given in
-:class:`~src.providers.egif.fire_cause.EgifFireCause`: they are identifiers, not
+:class:`~src.providers.spain_egif.fire_cause.EgifFireCause`: they are identifiers, not
 quantities, and one of them (``idataque``, not stored here) is even 0-based while
 its neighbours are 1-based.
 
@@ -103,7 +103,7 @@ from sqlalchemy.orm import mapped_column
 from sqlalchemy.orm import relationship
 
 from src.data_model import Base
-from src.providers.egif.wildfire import EgifWildfire
+from src.providers.spain_egif.wildfire import EgifWildfire
 
 
 class EgifWildfireReport(Base):
@@ -113,7 +113,7 @@ class EgifWildfireReport(Base):
     ----------
     id : int
         Primary key, and a foreign key to
-        :attr:`~src.providers.egif.wildfire.EgifWildfire.id`. One row per fire at
+        :attr:`~src.providers.spain_egif.wildfire.EgifWildfire.id`. One row per fire at
         most, which is what makes this a detail table rather than a second
         wildfire.
     wildfire : EgifWildfire

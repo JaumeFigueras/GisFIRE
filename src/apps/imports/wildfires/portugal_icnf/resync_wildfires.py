@@ -7,7 +7,7 @@ datetime type: ``DH_Inicio``, ``DH_1Interv``, ``DH_Fim`` and ``Edicao`` are
 ``xsd:dateTime`` at the source and arrive **truncated to dates**. A fire the WFS
 reports as starting at ``2024-01-31T20:03:00Z`` is in the archive as
 ``2024-01-31``, which the import stores as local midnight and marks
-:data:`~src.providers.icnf.PRECISION_DAY` — twenty hours out, and honestly
+:data:`~src.providers.portugal_icnf.PRECISION_DAY` — twenty hours out, and honestly
 labelled as such.
 
 This application goes back to the WFS and replaces what the export lost. While it
@@ -106,15 +106,15 @@ import src.settings  # noqa: F401  (imported for the side effect of loading .env
 
 from src.apps.imports import common
 from src.apps.imports.wildfires.portugal_icnf.import_wildfires import upsert_causes
-from src.providers import icnf
+from src.providers import portugal_icnf
 
 # The plumbing every importer shares, re-exported so this module reads as one
 # application: see :mod:`src.apps.imports.common`.
 from src.apps.imports.common import database_url  # noqa: F401
 from src.apps.imports.common import resolve_database_settings  # noqa: F401
 
-#: The WFS the archives are an export of, from :mod:`src.providers.icnf`.
-DEFAULT_URL = icnf.PROVIDER_URL
+#: The WFS the archives are an export of, from :mod:`src.providers.portugal_icnf`.
+DEFAULT_URL = portugal_icnf.PROVIDER_URL
 
 #: WFS version. 2.0.0 is what brings ``count``/``startIndex`` paging; the 1.0.0
 #: the archives' ``wfsrequest.txt`` uses has only ``maxFeatures``.
@@ -244,7 +244,7 @@ WHERE fire.source_layer = :source_layer
 #: Starts that land exactly on local midnight once corrected.
 #:
 #: The WFS publishes a ``dateTime``, so the row is marked
-#: :data:`~src.providers.icnf.PRECISION_MINUTE` — but midnight is also what a
+#: :data:`~src.providers.portugal_icnf.PRECISION_MINUTE` — but midnight is also what a
 #: record with no time of day looks like, and the two cannot be told apart. The
 #: count is reported so the claim is visible rather than implied.
 MIDNIGHT_SQL = """
@@ -282,7 +282,7 @@ RETURNING parent.id
 
 #: Everything else, onto the provider table.
 #:
-#: ``date_time_precision`` becomes :data:`~src.providers.icnf.PRECISION_MINUTE`
+#: ``date_time_precision`` becomes :data:`~src.providers.portugal_icnf.PRECISION_MINUTE`
 #: only where a start actually arrived; a fire the WFS still has no date for keeps
 #: whatever it had, which for these layers means ``year``.
 #:
@@ -653,7 +653,7 @@ def resync_layer(session: Session, wfs: Wfs, layer: str, args: argparse.Namespac
     dates = len(session.execute(text(UPDATE_PARENT_SQL), parameters).all())
     attributes = len(session.execute(
         text(UPDATE_FIRE_SQL),
-        {**parameters, "precision_minute": icnf.PRECISION_MINUTE},
+        {**parameters, "precision_minute": portugal_icnf.PRECISION_MINUTE},
     ).all())
 
     missing = session.scalar(text(MISSING_SQL), parameters)

@@ -3,7 +3,7 @@ Import IGN administrative boundaries
 
 Imports the Spanish administrative divisions — *comunidades autónomas*,
 *provincias* and *municipios* — from the IGN's ``recintos`` shapefiles into
-:class:`~src.providers.ign.admin_boundary.IgnAdminBoundary` rows, as administrative
+:class:`~src.providers.spain_ign.admin_boundary.IgnAdminBoundary` rows, as administrative
 levels 1, 2 and 3 below the country. See :doc:`../providers/ign_provider` for the
 dataset.
 
@@ -166,7 +166,7 @@ rows and nothing else. To keep them:
        -d /path/to/bddae --include-territories
 
 They then arrive with
-:attr:`~src.providers.ign.admin_boundary.IgnAdminBoundary.kind` set to
+:attr:`~src.providers.spain_ign.admin_boundary.IgnAdminBoundary.kind` set to
 ``territorio``, at the same ``level`` as a *municipio* but distinguishable from one.
 
 Editions live side by side

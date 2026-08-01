@@ -12,8 +12,8 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
-from src.providers.egif.fire_cause import EgifFireCause
-from src.providers.egif.fire_motivation import EgifFireMotivation
+from src.providers.spain_egif.fire_cause import EgifFireCause
+from src.providers.spain_egif.fire_motivation import EgifFireMotivation
 
 
 def a_motivation(**overrides) -> EgifFireMotivation:

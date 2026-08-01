@@ -8,6 +8,6 @@ point it is mapped at, :doc:`egif_fire_cause` and :doc:`egif_fire_motivation` fo
 its two code foreign keys point at, and :doc:`egif_wildfire_report` for the detail only
 the XML export publishes.
 
-.. automodule:: src.providers.egif.wildfire
+.. automodule:: src.providers.spain_egif.wildfire
    :members:
    :show-inheritance:

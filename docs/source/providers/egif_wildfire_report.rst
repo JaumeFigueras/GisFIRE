@@ -6,6 +6,6 @@ how the fire was detected, how certain its cause is, the weather at the time, an
 severity index. A one-to-one optional child of :doc:`egif_wildfire`, whose presence is
 how the schema records which export a fire was read from.
 
-.. automodule:: src.providers.egif.wildfire_report
+.. automodule:: src.providers.spain_egif.wildfire_report
    :members:
    :show-inheritance:

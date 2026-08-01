@@ -41,7 +41,7 @@ where the answer shows up.
 Which year a fire counts towards
 --------------------------------
 
-:attr:`~src.providers.icnf.wildfire.IcnfWildfire.year` — the ``Ano`` the ICNF
+:attr:`~src.providers.portugal_icnf.wildfire.IcnfWildfire.year` — the ``Ano`` the ICNF
 published, which is also the layer the fire came from — and **not** the year of
 ``start_date_time`` as in the other two reports.
 
@@ -98,7 +98,7 @@ Why not the CRS the ICNF publishes in
 
 Tempting, and wrong. The perimeters are also stored as published, in EPSG:3763
 (ETRS89 / Portugal TM06), on
-:attr:`~src.providers.icnf.wildfire.IcnfWildfire.perimeter_etrs89_tm06` — a
+:attr:`~src.providers.portugal_icnf.wildfire.IcnfWildfire.perimeter_etrs89_tm06` — a
 projected national grid in metres, whose ``ST_Area`` reproduces the ICNF's own
 ``AreaHaSIG``. It is not offered as an area method because **PT-TM06 is a
 transverse Mercator, not an equal-area projection**, and its distortion away from
@@ -115,15 +115,15 @@ the central meridian is not negligible for this dataset:
 
 On the mainland it is fine. On the islands it is not, and a report cannot know in
 advance that no island fire will ever appear in it. See
-:attr:`~src.providers.icnf.wildfire.IcnfWildfire.area_ha_gis` below for the right
+:attr:`~src.providers.portugal_icnf.wildfire.IcnfWildfire.area_ha_gis` below for the right
 way to reproduce the published figures.
 
 The published areas are not used
 --------------------------------
 
-:attr:`~src.providers.icnf.wildfire.IcnfWildfire.area_ha_gis` (``AreaHaSIG``,
+:attr:`~src.providers.portugal_icnf.wildfire.IcnfWildfire.area_ha_gis` (``AreaHaSIG``,
 measured from the polygon) and
-:attr:`~src.providers.icnf.wildfire.IcnfWildfire.area_ha_sgif` (``AreaHaSGIF``,
+:attr:`~src.providers.portugal_icnf.wildfire.IcnfWildfire.area_ha_sgif` (``AreaHaSGIF``,
 what the fire database recorded) are kept as published and are **not** what this
 reports. They are two independent measurements of the same fire and are worth
 having as a check on this one, but a report that mixed them with a measured area
@@ -183,8 +183,8 @@ import src.settings  # noqa: F401  (imported for the side effect of loading .env
 from src.apps.imports import common
 from src.data_model.geography.admin_boundary import AdminBoundary
 from src.data_model.wildfire import Wildfire
-from src.providers.icnf.wildfire import IcnfWildfire
 from src.providers.ocha.admin_boundary import OchaAdminBoundary
+from src.providers.portugal_icnf.wildfire import IcnfWildfire
 
 #: Label used in the ``Year`` column for the summary row.
 TOTAL_LABEL = "Total"

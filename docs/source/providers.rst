@@ -153,7 +153,7 @@ The attributes change half way through, and so do the rows
     1975-2013 publishes two attributes — the year and the burnt area. 2014-2025 publishes
     twenty-two. But 901 features *within* those later years are unmatched polygons
     carrying the old two, so the layer a row came from does not tell you what it has.
-    :attr:`~src.providers.icnf.wildfire.IcnfWildfire.date_time_precision` does.
+    :attr:`~src.providers.portugal_icnf.wildfire.IcnfWildfire.date_time_precision` does.
 
 71% of the fires have no date, only a year
     48,860 of 68,435. Their ``start_date_time`` is the 1st of January of their year

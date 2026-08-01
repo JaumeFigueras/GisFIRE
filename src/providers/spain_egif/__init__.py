@@ -17,7 +17,7 @@ is a :class:`~src.data_model.ignition.Ignition` with a
 
 Usually. **Half** the 1982-2023 archive is a *parte* with no coordinate at all —
 the exports before 1998 publish none — so
-:attr:`~src.providers.egif.wildfire.EgifWildfire.ignition_id` is nullable.
+:attr:`~src.providers.spain_egif.wildfire.EgifWildfire.ignition_id` is nullable.
 
 Two exports, one record
 -----------------------
@@ -39,13 +39,13 @@ outside the fire-level summary.
 code is bare: ``<idcausa>231</idcausa>`` and nothing else.
 
 So the import order is fixed: **an Excel export seeds
-:class:`~src.providers.egif.fire_cause.EgifFireCause` and
-:class:`~src.providers.egif.fire_motivation.EgifFireMotivation`, and the XML
+:class:`~src.providers.spain_egif.fire_cause.EgifFireCause` and
+:class:`~src.providers.spain_egif.fire_motivation.EgifFireMotivation`, and the XML
 import looks its codes up in them.** An XML-only database has fires whose cause
 is an integer nobody can read.
 
 What the XML adds beyond the Excel lands on
-:class:`~src.providers.egif.wildfire_report.EgifWildfireReport`, a 1:1 optional
+:class:`~src.providers.spain_egif.wildfire_report.EgifWildfireReport`, a 1:1 optional
 child of the wildfire. Its presence *is* the provenance: a fire with a report row
 was seen in the XML, one without was only ever in the Excel. Nothing needs a flag
 column to say so.
@@ -162,13 +162,13 @@ DATUMS = (DATUM_ETRS89, DATUM_REGCAN95)
 #: The element is **absent before the 2014-2016 campaigns** — 2004-2013 publish
 #: coordinates with no datum whatsoever, and 2014-2016 carries it on 6,401 of its
 #: 30,365 fires — which is why
-#: :attr:`~src.providers.egif.ignition.EgifIgnition.datum` is nullable. From 2017
+#: :attr:`~src.providers.spain_egif.ignition.EgifIgnition.datum` is nullable. From 2017
 #: on it is universal.
 #:
 #: Three values occur in the whole 2004-2023 archive: ``2`` on 67,462 fires, ``5``
 #: on 443 (tracking the Canarian huso-28 fires, hence REGCAN95), and ``3`` on three
 #: records, which nothing published maps to anything. Those three keep their raw
-#: code in :attr:`~src.providers.egif.ignition.EgifIgnition.datum_code` and a
+#: code in :attr:`~src.providers.spain_egif.ignition.EgifIgnition.datum_code` and a
 #: ``NULL`` datum, rather than being silently called ETRS89.
 DATUM_CODES = {
     "2": DATUM_ETRS89,
@@ -180,7 +180,7 @@ DATUM_CODES = {
 #:
 #: This is what the coordinates *should* be in, and what
 #: :data:`SOURCE_SRIDS` is keyed on — it is **not** a constraint on
-#: :attr:`~src.providers.egif.ignition.EgifIgnition.utm_zone`, which stores the
+#: :attr:`~src.providers.spain_egif.ignition.EgifIgnition.utm_zone`, which stores the
 #: published number whatever it is. See that attribute for why.
 UTM_ZONES = (28, 29, 30, 31)
 
@@ -314,12 +314,12 @@ CANARY_COMUNIDAD = "CANARIAS"
 CANARY_PROVINCE_INE_CODES = ("35", "38")
 
 #: ``idcausa`` of a fire started by lightning. The one family in which
-#: :attr:`~src.providers.egif.wildfire_report.EgifWildfireReport.days_since_storm`
+#: :attr:`~src.providers.spain_egif.wildfire_report.EgifWildfireReport.days_since_storm`
 #: is ever non-zero, which is what makes EGIF a source of holdover intervals.
 CAUSE_LIGHTNING = "100"
 
 #: ``idcausa`` of an intentional fire. The only cause that carries an
-#: :class:`~src.providers.egif.fire_motivation.EgifFireMotivation`.
+#: :class:`~src.providers.spain_egif.fire_motivation.EgifFireMotivation`.
 CAUSE_INTENTIONAL = "400"
 
 #: ``idcausa`` of a fire whose cause was never established.

@@ -12,11 +12,11 @@ from sqlalchemy import func
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
-from src.providers.egif import CAUSE_INTENTIONAL
-from src.providers.egif import CAUSE_LIGHTNING
-from src.providers.egif import CAUSE_REKINDLE
-from src.providers.egif import CAUSE_UNKNOWN
-from src.providers.egif.fire_cause import EgifFireCause
+from src.providers.spain_egif import CAUSE_INTENTIONAL
+from src.providers.spain_egif import CAUSE_LIGHTNING
+from src.providers.spain_egif import CAUSE_REKINDLE
+from src.providers.spain_egif import CAUSE_UNKNOWN
+from src.providers.spain_egif.fire_cause import EgifFireCause
 
 
 def a_cause(**overrides) -> EgifFireCause:

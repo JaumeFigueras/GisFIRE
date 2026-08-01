@@ -39,11 +39,11 @@ from src.data_model import Base
 from src.data_model.data_provider import DataProvider
 from src.data_model.geography.time_zone import TimeZone
 from src.data_model.wildfire import Wildfire
-from src.providers import icnf
 from src.providers import ocha
-from src.providers.icnf.fire_cause import IcnfFireCause
-from src.providers.icnf.wildfire import IcnfWildfire
+from src.providers import portugal_icnf
 from src.providers.ocha.admin_boundary import OchaAdminBoundary
+from src.providers.portugal_icnf.fire_cause import IcnfFireCause
+from src.providers.portugal_icnf.wildfire import IcnfWildfire
 
 UTC = datetime.timezone.utc
 
@@ -402,7 +402,7 @@ def test_a_date_field_ogr2ogr_could_not_recognise_is_converted(database, boundar
         assert types["ano"] == "integer"
 
         undated = fire(session, "undated")
-        assert undated.date_time_precision == icnf.PRECISION_YEAR
+        assert undated.date_time_precision == portugal_icnf.PRECISION_YEAR
         assert undated.start_date_time == instant("2024-01-01T00:00:00+00:00")
 
 
@@ -430,7 +430,7 @@ def test_a_published_date_becomes_local_midnight_and_is_marked_day(imported):
         winter = fire(session, "20240125102")
         assert winter.start_date_time == instant("2024-01-29T00:00:00+00:00")
         assert winter.time_zone == "Europe/Lisbon"
-        assert winter.date_time_precision == icnf.PRECISION_DAY
+        assert winter.date_time_precision == portugal_icnf.PRECISION_DAY
 
 
 @needs_ogr2ogr
@@ -450,7 +450,7 @@ def test_a_layer_with_no_dates_falls_back_to_the_first_of_january(imported):
     with Session(engine) as session:
         old = session.scalar(
             select(IcnfWildfire).where(IcnfWildfire.year == 1975))
-        assert old.date_time_precision == icnf.PRECISION_YEAR
+        assert old.date_time_precision == portugal_icnf.PRECISION_YEAR
         assert old.start_date_time == instant("1975-01-01T00:00:00+01:00")
         assert old.end_date_time is None
 
@@ -464,7 +464,7 @@ def test_an_unmatched_perimeter_in_a_modern_layer_is_also_year_only(imported):
             select(IcnfWildfire).where(IcnfWildfire.source_layer == "ardida_2024",
                                        IcnfWildfire.sgif_code.is_(None)))
         assert unmatched.year == 2024
-        assert unmatched.date_time_precision == icnf.PRECISION_YEAR
+        assert unmatched.date_time_precision == portugal_icnf.PRECISION_YEAR
         assert unmatched.start_date_time == instant("2024-01-01T00:00:00+00:00")
         assert unmatched.area_ha_gis == pytest.approx(0.05212912)
 
@@ -515,7 +515,7 @@ def test_no_row_claims_more_precision_than_the_archives_have(imported):
     engine, _ = imported
     with Session(engine) as session:
         precisions = set(session.scalars(select(IcnfWildfire.date_time_precision)))
-    assert precisions == {icnf.PRECISION_YEAR, icnf.PRECISION_DAY}
+    assert precisions == {portugal_icnf.PRECISION_YEAR, portugal_icnf.PRECISION_DAY}
 
 
 # --------------------------------------------------------------------------
@@ -930,9 +930,9 @@ def test_the_data_provider_is_created_on_first_import(imported):
     engine, _ = imported
     with Session(engine) as session:
         provider = session.scalar(
-            select(DataProvider).where(DataProvider.name == icnf.PROVIDER_NAME))
-        assert provider.product == icnf.PROVIDER_PRODUCT
-        assert provider.full_name == icnf.PROVIDER_FULL_NAME
+            select(DataProvider).where(DataProvider.name == portugal_icnf.PROVIDER_NAME))
+        assert provider.product == portugal_icnf.PROVIDER_PRODUCT
+        assert provider.full_name == portugal_icnf.PROVIDER_FULL_NAME
         assert all(row.data_provider_id == provider.id
                    for row in session.scalars(select(Wildfire)))
 

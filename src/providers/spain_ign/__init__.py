@@ -5,7 +5,7 @@
 Data model for the *Base de Datos de Divisiones Administrativas de España*
 (BDDAE), the national administrative map, published by the IGN through the CNIG
 download centre. GisFIRE imports its three polygon levels — the ``recintos``
-layers — as :class:`~src.providers.ign.admin_boundary.IgnAdminBoundary` rows:
+layers — as :class:`~src.providers.spain_ign.admin_boundary.IgnAdminBoundary` rows:
 
 =====================  ======================  ===============================
 Level                  ``NATLEVNAME``          Count (2026, territories out)
@@ -41,7 +41,7 @@ dataset: no unit at any level fails to find its parent that way.
    The last five digits are the **INE** municipal code, a different numbering
    system that happens to be embedded in ``NATCODE``. It is what Spanish
    statistical sources join on, so it is stored in its own column
-   (:attr:`~src.providers.ign.admin_boundary.IgnAdminBoundary.ine_code`) rather
+   (:attr:`~src.providers.spain_ign.admin_boundary.IgnAdminBoundary.ine_code`) rather
    than left to be sliced out of the code.
 
 NUTS nests inside the administrative hierarchy
@@ -129,7 +129,7 @@ KIND_MUNICIPIO = "municipio"
 #: module docstring. Only reachable with ``--include-territories``.
 KIND_TERRITORIO = "territorio"
 
-#: Every value :attr:`~src.providers.ign.admin_boundary.IgnAdminBoundary.kind`
+#: Every value :attr:`~src.providers.spain_ign.admin_boundary.IgnAdminBoundary.kind`
 #: may take.
 KINDS = (KIND_COMUNIDAD_AUTONOMA, KIND_PROVINCIA, KIND_MUNICIPIO, KIND_TERRITORIO)
 

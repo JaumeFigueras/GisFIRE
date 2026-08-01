@@ -22,9 +22,9 @@ datetime type. ``DH_Inicio``, ``DH_1Interv``, ``DH_Fim`` and ``Edicao`` are
    archive   2024-01-31              -> stored as local midnight, marked "day"
 
 Twenty hours out, and honestly labelled as such — which is what
-:attr:`~src.providers.icnf.wildfire.IcnfWildfire.date_time_precision` is for. This
+:attr:`~src.providers.portugal_icnf.wildfire.IcnfWildfire.date_time_precision` is for. This
 application replaces those dates with the instants the source actually holds and
-marks the rows :data:`~src.providers.icnf.PRECISION_MINUTE`.
+marks the rows :data:`~src.providers.portugal_icnf.PRECISION_MINUTE`.
 
 Usage
 -----

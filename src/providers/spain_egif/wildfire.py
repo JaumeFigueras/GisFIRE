@@ -30,7 +30,7 @@ The location is administrative, and it is not the point
 
 EGIF states where a fire is filed — *comunidad*, province, municipality, comarca,
 *entidad menor* — and separately gives a coordinate, which lives on
-:class:`~src.providers.egif.ignition.EgifIgnition`. The two can disagree, and when
+:class:`~src.providers.spain_egif.ignition.EgifIgnition`. The two can disagree, and when
 they do the administrative answer is the one the statistic is compiled on. So
 :attr:`~src.data_model.wildfire.Wildfire.admin_boundary_id` is resolved from
 :attr:`EgifWildfire.municipality_ine_code` rather than by point-in-polygon, and a
@@ -41,7 +41,7 @@ Which of the two identifiers you get depends on the export.
 number, verified one-to-one against all fifty province names — but the municipal
 code is published only in the XML. From the Excel there is a name, in INE's own
 uppercase inverted form (``"MOLAR, EL"``, ``"KANPEZU/CAMPEZO"``), which has to be
-matched against :attr:`~src.providers.ign.admin_boundary.IgnAdminBoundary.ine_code`
+matched against :attr:`~src.providers.spain_ign.admin_boundary.IgnAdminBoundary.ine_code`
 on ``(province, name)`` — six names in the sample occur in two provinces each, and
 one is the sentinel ``"OTRA PROVINCIA"``.
 
@@ -51,8 +51,8 @@ The two exports fill different columns
 Everything on this table is published by the Excel export except
 :attr:`egif_id`, :attr:`municipality_ine_code` and the ``paraje`` on the ignition.
 Everything the XML adds *beyond* this table is on
-:class:`~src.providers.egif.wildfire_report.EgifWildfireReport`, whose presence is
-how you tell which exports a fire has been seen in. See :mod:`src.providers.egif`.
+:class:`~src.providers.spain_egif.wildfire_report.EgifWildfireReport`, whose presence is
+how you tell which exports a fire has been seen in. See :mod:`src.providers.spain_egif`.
 """
 
 from __future__ import annotations
@@ -68,9 +68,9 @@ from sqlalchemy.orm import mapped_column
 from sqlalchemy.orm import relationship
 
 from src.data_model.wildfire import Wildfire
-from src.providers.egif.fire_cause import EgifFireCause
-from src.providers.egif.fire_motivation import EgifFireMotivation
-from src.providers.egif.ignition import EgifIgnition
+from src.providers.spain_egif.fire_cause import EgifFireCause
+from src.providers.spain_egif.fire_motivation import EgifFireMotivation
+from src.providers.spain_egif.ignition import EgifIgnition
 
 
 class EgifWildfire(Wildfire):
@@ -91,7 +91,7 @@ class EgifWildfire(Wildfire):
         share — which is what lets an Excel import and an XML import of the same
         fire land on one row. Ten characters, year plus INE province plus
         sequence; see
-        :attr:`~src.providers.egif.ignition.EgifIgnition.report_number`.
+        :attr:`~src.providers.spain_egif.ignition.EgifIgnition.report_number`.
     egif_id : int or None
         EGIF's own internal primary key for the report (``idpif``). Published in
         the XML only, and ``None`` for a fire that has only ever been read from an
@@ -105,13 +105,13 @@ class EgifWildfire(Wildfire):
         first four characters of :attr:`report_number` and not necessarily the
         year of :attr:`~src.data_model.wildfire.Wildfire.start_date_time`.
         Indexed: it is how a year is re-imported and how the incompleteness
-        described in :mod:`src.providers.egif` is reasoned about.
+        described in :mod:`src.providers.spain_egif` is reasoned about.
     status : str or None
         The report's state (``Estado``). Every fire the public service exports is
         ``"Cerrado Revisión"`` — closed and reviewed — which is precisely why the
         published data is never a complete year.
     ignition_id : int or None
-        Foreign key to the :class:`~src.providers.egif.ignition.EgifIgnition`
+        Foreign key to the :class:`~src.providers.spain_egif.ignition.EgifIgnition`
         holding the fire's point of origin.
 
         Nullable, because a *parte* really can be a report of a fire nobody
@@ -142,7 +142,7 @@ class EgifWildfire(Wildfire):
         from elsewhere.
     municipality_ine_code : str or None
         The five-digit INE municipal code, what
-        :attr:`~src.providers.ign.admin_boundary.IgnAdminBoundary.ine_code` joins
+        :attr:`~src.providers.spain_ign.admin_boundary.IgnAdminBoundary.ine_code` joins
         on. Published in the XML only; ``None`` for a fire read from an Excel
         export until a name match fills it in.
     comarca_name : str or None
@@ -157,7 +157,7 @@ class EgifWildfire(Wildfire):
         :attr:`municipality_name` is where the fire is *filed*, not the whole of
         where it burnt.
     cause_id : int or None
-        Foreign key to the :class:`~src.providers.egif.fire_cause.EgifFireCause`
+        Foreign key to the :class:`~src.providers.spain_egif.fire_cause.EgifFireCause`
         the fire was classified as. Nullable because an XML import into a
         database whose catalogue has not been seeded cannot resolve one — the
         Excel export classifies every fire.
@@ -165,8 +165,8 @@ class EgifWildfire(Wildfire):
         The fire's cause.
     motivation_id : int or None
         Foreign key to the
-        :class:`~src.providers.egif.fire_motivation.EgifFireMotivation`.
-        ``None`` unless the cause is :data:`~src.providers.egif.CAUSE_INTENTIONAL`
+        :class:`~src.providers.spain_egif.fire_motivation.EgifFireMotivation`.
+        ``None`` unless the cause is :data:`~src.providers.spain_egif.CAUSE_INTENTIONAL`
         — the motivation is published on intentional fires and on no others.
     motivation : EgifFireMotivation or None
         Why the fire was lit, for an intentional fire.

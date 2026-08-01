@@ -17,19 +17,19 @@ from sqlalchemy.exc import IntegrityError
 
 from src.data_model.data_provider import DataProvider
 from src.data_model.wildfire import Wildfire
-from src.providers import egif
-from src.providers.egif.fire_cause import EgifFireCause
-from src.providers.egif.fire_motivation import EgifFireMotivation
-from src.providers.egif.ignition import EgifIgnition
-from src.providers.egif.wildfire import EgifWildfire
+from src.providers import spain_egif
+from src.providers.spain_egif.fire_cause import EgifFireCause
+from src.providers.spain_egif.fire_motivation import EgifFireMotivation
+from src.providers.spain_egif.ignition import EgifIgnition
+from src.providers.spain_egif.wildfire import EgifWildfire
 
 UTC = datetime.timezone.utc
 
 
 @pytest.fixture
 def provider(db_session):
-    provider = DataProvider(name=egif.PROVIDER_NAME, product=egif.PROVIDER_PRODUCT,
-                            full_name=egif.PROVIDER_FULL_NAME)
+    provider = DataProvider(name=spain_egif.PROVIDER_NAME, product=spain_egif.PROVIDER_PRODUCT,
+                            full_name=spain_egif.PROVIDER_FULL_NAME)
     db_session.add(provider)
     db_session.commit()
     return provider
@@ -41,8 +41,8 @@ def ignition(db_session, provider):
         data_provider=provider, report_number="2022010001",
         geometry="SRID=4326;POINT(-2.35 42.66)",
         date_time=datetime.datetime(2022, 1, 29, 14, 22, tzinfo=UTC),
-        time_zone=egif.DEFAULT_TIME_ZONE,
-        utm_zone=30, utm_x=549122.0, utm_y=4727399.0, datum=egif.DATUM_ETRS89,
+        time_zone=spain_egif.DEFAULT_TIME_ZONE,
+        utm_zone=30, utm_x=549122.0, utm_y=4727399.0, datum=spain_egif.DATUM_ETRS89,
         start_point_count=1)
     db_session.add(ignition)
     db_session.commit()
@@ -77,7 +77,7 @@ def a_wildfire(provider, ignition, **overrides) -> EgifWildfire:
         "ignition": ignition,
         "start_date_time": datetime.datetime(2022, 1, 29, 14, 22, tzinfo=UTC),
         "end_date_time": datetime.datetime(2022, 1, 29, 15, 44, tzinfo=UTC),
-        "time_zone": egif.DEFAULT_TIME_ZONE,
+        "time_zone": spain_egif.DEFAULT_TIME_ZONE,
         "ccaa_name": "EUSKADI",
         "province_name": "ALAVA",
         "province_ine_code": "01",
@@ -173,7 +173,7 @@ def test_the_internal_identifier_is_unique_where_present(db_session, provider, i
         data_provider=provider, report_number="2022010002",
         geometry="SRID=4326;POINT(-2.5 42.5)",
         date_time=datetime.datetime(2022, 2, 11, 16, 0, tzinfo=UTC),
-        utm_zone=30, utm_x=540789.0, utm_y=4711612.0, datum=egif.DATUM_ETRS89)
+        utm_zone=30, utm_x=540789.0, utm_y=4711612.0, datum=spain_egif.DATUM_ETRS89)
     db_session.add(second)
     db_session.add(a_wildfire(provider, ignition, egif_id=1205341))
     db_session.add(a_wildfire(provider, second, report_number="2022010002",
@@ -188,7 +188,7 @@ def test_many_fires_may_have_no_internal_identifier(db_session, provider, igniti
         data_provider=provider, report_number="2022010002",
         geometry="SRID=4326;POINT(-2.5 42.5)",
         date_time=datetime.datetime(2022, 2, 11, 16, 0, tzinfo=UTC),
-        utm_zone=30, utm_x=540789.0, utm_y=4711612.0, datum=egif.DATUM_ETRS89)
+        utm_zone=30, utm_x=540789.0, utm_y=4711612.0, datum=spain_egif.DATUM_ETRS89)
     db_session.add(second)
     db_session.add(a_wildfire(provider, ignition))
     db_session.add(a_wildfire(provider, second, report_number="2022010002"))
@@ -260,7 +260,7 @@ def test_an_intentional_fire_carries_a_motivation_as_well(
     fire's cause code and motivation code are both in the 400s and mean unrelated
     things.
     """
-    intentional = EgifFireCause(code=egif.CAUSE_INTENTIONAL, label="Intencionado")
+    intentional = EgifFireCause(code=spain_egif.CAUSE_INTENTIONAL, label="Intencionado")
     db_session.add(intentional)
     db_session.add(a_wildfire(provider, ignition, cause=intentional, motivation=motivation))
     db_session.commit()

@@ -8,8 +8,8 @@ One application, two steps, in that order::
 
 **Step 1 reads every ``.xlsx``.** The Excel "resumen" is the only public source
 that prints a code *with its label* — ``[213]  Quema de restos agrícolas`` — so it
-is what seeds :class:`~src.providers.egif.fire_cause.EgifFireCause` and
-:class:`~src.providers.egif.fire_motivation.EgifFireMotivation`. It also carries
+is what seeds :class:`~src.providers.spain_egif.fire_cause.EgifFireCause` and
+:class:`~src.providers.spain_egif.fire_motivation.EgifFireMotivation`. It also carries
 the administrative names, which the XML publishes only as numbers.
 
 **Step 2 reads every ``.xml``.** The XML carries what the Excel drops: the INE
@@ -85,8 +85,8 @@ from src.apps.imports.common import ArchiveLogger
 from src.apps.imports.common import ProgressReporter
 from src.apps.imports.wildfires.spain_egif import readers
 from src.apps.imports.wildfires.spain_egif.readers import PifRecord
-from src.providers import egif
-from src.providers import ign
+from src.providers import spain_egif
+from src.providers import spain_ign
 
 LOG_FORMAT = "%(asctime)s %(levelname)s %(message)s"
 
@@ -287,12 +287,12 @@ def time_zone_for(record: PifRecord) -> str:
     """The zone a fire's published wall-clock readings are in.
 
     Chosen from the **province**, which both exports agree on and neither can
-    garble; see :data:`~src.providers.egif.CANARY_PROVINCE_INE_CODES` for why not
+    garble; see :data:`~src.providers.spain_egif.CANARY_PROVINCE_INE_CODES` for why not
     from the *comunidad*.
     """
-    if record.province_ine_code in egif.CANARY_PROVINCE_INE_CODES:
-        return egif.CANARY_TIME_ZONE
-    return egif.DEFAULT_TIME_ZONE
+    if record.province_ine_code in spain_egif.CANARY_PROVINCE_INE_CODES:
+        return spain_egif.CANARY_TIME_ZONE
+    return spain_egif.DEFAULT_TIME_ZONE
 
 
 def resolve_srid(record: PifRecord) -> int | None:
@@ -309,11 +309,11 @@ def resolve_srid(record: PifRecord) -> int | None:
 
     **A zone outside 28-31 is replaced from the province.** Only then — a
     published zone Spain lies in is always used as published, because
-    :data:`~src.providers.egif.PROVINCE_UTM_ZONES` is modal and would move a
+    :data:`~src.providers.spain_egif.PROVINCE_UTM_ZONES` is modal and would move a
     quarter of a million points if it were allowed to override a good value.
 
     A coordinate that is not where a Spanish fire can be is refused outright — see
-    :data:`~src.providers.egif.PLAUSIBLE_UTM_EASTING`. That is a third repair, and
+    :data:`~src.providers.spain_egif.PLAUSIBLE_UTM_EASTING`. That is a third repair, and
     the only one that declines to place the point rather than guessing at it.
 
     Returns ``None`` when there is no coordinate to place, which is not an error:
@@ -322,8 +322,8 @@ def resolve_srid(record: PifRecord) -> int | None:
     if record.utm_x is None or record.utm_y is None:
         return None
 
-    low_x, high_x = egif.PLAUSIBLE_UTM_EASTING
-    low_y, high_y = egif.PLAUSIBLE_UTM_NORTHING
+    low_x, high_x = spain_egif.PLAUSIBLE_UTM_EASTING
+    low_y, high_y = spain_egif.PLAUSIBLE_UTM_NORTHING
     if not (low_x <= record.utm_x <= high_x and low_y <= record.utm_y <= high_y):
         record.problems.append(
             f"coordinate ({record.utm_x:.0f}, {record.utm_y:.0f}) is not where a "
@@ -332,8 +332,8 @@ def resolve_srid(record: PifRecord) -> int | None:
         return None
 
     zone = record.utm_zone
-    if zone not in egif.UTM_ZONES:
-        zone = egif.PROVINCE_UTM_ZONES.get(record.province_ine_code or "")
+    if zone not in spain_egif.UTM_ZONES:
+        zone = spain_egif.PROVINCE_UTM_ZONES.get(record.province_ine_code or "")
         if zone is None:
             record.problems.append(
                 f"huso {record.utm_zone!r} is not a zone Spain lies in and province "
@@ -345,8 +345,8 @@ def resolve_srid(record: PifRecord) -> int | None:
             f"zone {zone}, the usual one for province {record.province_ine_code}"
         )
 
-    datum = record.datum or egif.DATUM_ETRS89
-    srid = egif.SOURCE_SRIDS.get((datum, zone))
+    datum = record.datum or spain_egif.DATUM_ETRS89
+    srid = spain_egif.SOURCE_SRIDS.get((datum, zone))
     if srid is None:
         record.problems.append(
             f"no CRS known for datum {datum!r} in zone {zone}; stored without a point"
@@ -375,7 +375,7 @@ def load_admin_boundaries(session: Session, logger: logging.Logger) -> dict[str,
     """Map INE municipal code to ``admin_boundary.id``, for the fires to hang off.
 
     Resolved by code rather than by point-in-polygon, which is what
-    :mod:`src.providers.egif.wildfire` calls for: EGIF states where a fire is
+    :mod:`src.providers.spain_egif.wildfire` calls for: EGIF states where a fire is
     *filed*, and where it is filed is the answer the statistic is compiled on even
     when the coordinate falls elsewhere. It also works for the 22,855 fires that
     have no coordinate to test.
@@ -394,7 +394,7 @@ def load_admin_boundaries(session: Session, logger: logging.Logger) -> dict[str,
         logger.warning(
             "No %s municipal boundaries imported: fires will have no admin_boundary_id. "
             "Import them with src.apps.imports.admin_boundaries.ign.import_admin_boundaries",
-            ign.PROVIDER_NAME,
+            spain_ign.PROVIDER_NAME,
         )
     else:
         logger.debug("%d municipal boundaries available for matching", len(boundaries))
@@ -830,8 +830,8 @@ def import_wildfires(args: argparse.Namespace, engine: Engine,
 
     with Session(engine) as session:
         provider = common.get_or_create_data_provider(
-            session, egif.PROVIDER_NAME, egif.PROVIDER_PRODUCT,
-            egif.PROVIDER_FULL_NAME, egif.PROVIDER_URL, logger,
+            session, spain_egif.PROVIDER_NAME, spain_egif.PROVIDER_PRODUCT,
+            spain_egif.PROVIDER_FULL_NAME, spain_egif.PROVIDER_URL, logger,
         )
         admin_boundaries = load_admin_boundaries(session, logger)
         causes.load(session)

@@ -19,7 +19,7 @@ Why it is imported
 ------------------
 
 The ICNF burnt-area layers say where a fire started as a set of administrative
-codes and names — :attr:`~src.providers.icnf.wildfire.IcnfWildfire.dicofre_code`
+codes and names — :attr:`~src.providers.portugal_icnf.wildfire.IcnfWildfire.dicofre_code`
 above all — and never as a coordinate. These boundaries are what turns that code
 into a location: the *freguesia* it names has a polygon, and a point on that
 polygon is the fire's approximate origin. The median *freguesia* is 15.8 km²,

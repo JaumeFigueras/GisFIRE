@@ -3,9 +3,9 @@
 """Import ICNF burnt area polygons for Portugal.
 
 Loads the published *áreas ardidas* archives into
-:class:`~src.providers.icnf.wildfire.IcnfWildfire` rows — the generic columns in
+:class:`~src.providers.portugal_icnf.wildfire.IcnfWildfire` rows — the generic columns in
 ``wildfire``, the ICNF ones in ``icnf_wildfire`` — and the fire cause
-classification into :class:`~src.providers.icnf.fire_cause.IcnfFireCause`.
+classification into :class:`~src.providers.portugal_icnf.fire_cause.IcnfFireCause`.
 
 The ICNF publishes one zipped shapefile per layer, so point the import at the
 directory they were downloaded into::
@@ -107,10 +107,10 @@ from sqlalchemy.orm import Session
 import src.settings  # noqa: F401  (imported for the side effect of loading .env)
 
 from src.apps.imports import common
-from src.providers import icnf
-from src.providers.icnf.fire_cause import DESCRIPTION_TRANSLATIONS
-from src.providers.icnf.fire_cause import IcnfFireCause
-from src.providers.icnf.fire_cause import TYPE_TRANSLATIONS
+from src.providers import portugal_icnf
+from src.providers.portugal_icnf.fire_cause import DESCRIPTION_TRANSLATIONS
+from src.providers.portugal_icnf.fire_cause import IcnfFireCause
+from src.providers.portugal_icnf.fire_cause import TYPE_TRANSLATIONS
 
 # The plumbing every wildfire importer shares, re-exported so this module reads
 # as one application: see :mod:`src.apps.imports.common`.
@@ -342,7 +342,7 @@ written AS (
     JOIN ins_wildfire ON ins_wildfire.id = located.wildfire_id
     -- On the whole triple, not on the code: four codes name two different causes
     -- each, and joining on the code alone would give a 2025 fire the meaning its
-    -- code had until 2024. See src.providers.icnf.fire_cause.
+    -- code had until 2024. See src.providers.portugal_icnf.fire_cause.
     LEFT JOIN icnf_fire_cause AS cause
            ON cause.code = located.causa_cod
           AND cause.type = located.causa_tipo
@@ -490,7 +490,7 @@ def upsert_causes(session: Session, staging_table: str, logger: logging.Logger) 
     )
     if untranslated:
         logger.warning("No English for %d cause term(s), stored untranslated: %s. "
-                       "Add them to src.providers.icnf.fire_cause.",
+                       "Add them to src.providers.portugal_icnf.fire_cause.",
                        len(untranslated), ", ".join(repr(term) for term in untranslated))
 
     session.execute(
@@ -534,10 +534,10 @@ def transform(session: Session, provider_id: int, boundary_provider_id: int | No
         # -1 matches no provider, so with no boundaries imported the join simply
         # finds nothing and every fire gets a NULL country — no separate query.
         "boundary_provider_id": boundary_provider_id if boundary_provider_id is not None else -1,
-        "fallback_time_zone": icnf.DEFAULT_TIME_ZONE,
+        "fallback_time_zone": portugal_icnf.DEFAULT_TIME_ZONE,
         "source_layer": source_layer,
-        "precision_year": icnf.PRECISION_YEAR,
-        "precision_day": icnf.PRECISION_DAY,
+        "precision_year": portugal_icnf.PRECISION_YEAR,
+        "precision_day": portugal_icnf.PRECISION_DAY,
     })
 
 
@@ -567,11 +567,11 @@ def import_archive(archive: Path, engine: Engine, args: argparse.Namespace,
         # The published CRS, kept rather than converted: the model stores the
         # polygon in it as well as in EPSG:4326, and the 4326 one is derived from
         # it in SQL so that the two provably agree.
-        target_srs=f"EPSG:{icnf.SOURCE_SRID}",
+        target_srs=f"EPSG:{portugal_icnf.SOURCE_SRID}",
         # Without this every accented Portuguese name is silently mangled: the
         # archives carry a .cst file, which GDAL does not read, and no .cpg,
         # which it does.
-        open_options=[f"ENCODING={icnf.SOURCE_ENCODING}"],
+        open_options=[f"ENCODING={portugal_icnf.SOURCE_ENCODING}"],
     )
 
     with Session(engine) as session:
@@ -611,10 +611,10 @@ def import_wildfires(args: argparse.Namespace, engine: Engine, logger: logging.L
     common.create_staging_schema(engine, args.staging_schema)
 
     with Session(engine) as session:
-        check_time_zones(session, logger, icnf.DEFAULT_TIME_ZONE)
+        check_time_zones(session, logger, portugal_icnf.DEFAULT_TIME_ZONE)
         provider = common.get_or_create_data_provider(
-            session, icnf.PROVIDER_NAME, icnf.PROVIDER_PRODUCT,
-            icnf.PROVIDER_FULL_NAME, icnf.PROVIDER_URL, logger,
+            session, portugal_icnf.PROVIDER_NAME, portugal_icnf.PROVIDER_PRODUCT,
+            portugal_icnf.PROVIDER_FULL_NAME, portugal_icnf.PROVIDER_URL, logger,
         )
         boundary_provider = find_boundary_provider(session, logger)
         session.commit()

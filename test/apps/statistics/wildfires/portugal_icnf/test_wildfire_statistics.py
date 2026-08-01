@@ -32,10 +32,10 @@ from sqlalchemy import select
 
 from src.apps.statistics.wildfires.portugal_icnf import wildfire_statistics as app
 from src.data_model.data_provider import DataProvider
-from src.providers import icnf
 from src.providers import ocha
-from src.providers.icnf.wildfire import IcnfWildfire
+from src.providers import portugal_icnf
 from src.providers.ocha.admin_boundary import OchaAdminBoundary
+from src.providers.portugal_icnf.wildfire import IcnfWildfire
 
 logger = logging.getLogger("test-icnf-statistics")
 
@@ -52,19 +52,19 @@ COUNTRIES = [
 #: a year so a minimum and a maximum are distinguishable from each other and from
 #: the total.
 #:
-#: The 1985 fires carry :data:`~src.providers.icnf.PRECISION_YEAR`, which in the
+#: The 1985 fires carry :data:`~src.providers.portugal_icnf.PRECISION_YEAR`, which in the
 #: real data means the layer published no date and the importer stored 1 January
 #: as a placeholder. The report has to group them by 1985 all the same.
 FIRES = [
     # 2024: three dated fires of clearly different sizes.
-    ("2024-1", 2024, icnf.PRECISION_DAY, box(-8.0, 40.0, -7.9, 40.1)),
-    ("2024-2", 2024, icnf.PRECISION_DAY, box(-8.5, 40.0, -8.1, 40.4)),
-    ("2024-3", 2024, icnf.PRECISION_DAY, box(-7.5, 40.0, -7.3, 40.2)),
+    ("2024-1", 2024, portugal_icnf.PRECISION_DAY, box(-8.0, 40.0, -7.9, 40.1)),
+    ("2024-2", 2024, portugal_icnf.PRECISION_DAY, box(-8.5, 40.0, -8.1, 40.4)),
+    ("2024-3", 2024, portugal_icnf.PRECISION_DAY, box(-7.5, 40.0, -7.3, 40.2)),
     # 2023: one dated fire, smaller than every 2024 one.
-    ("2023-1", 2023, icnf.PRECISION_DAY, box(-8.0, 39.0, -7.95, 39.05)),
+    ("2023-1", 2023, portugal_icnf.PRECISION_DAY, box(-8.0, 39.0, -7.95, 39.05)),
     # 1985: two undated fires, the larger one bigger than anything else.
-    ("1985-1", 1985, icnf.PRECISION_YEAR, box(-8.0, 41.0, -7.0, 42.0)),
-    ("1985-2", 1985, icnf.PRECISION_YEAR, box(-9.0, 38.0, -8.9, 38.1)),
+    ("1985-1", 1985, portugal_icnf.PRECISION_YEAR, box(-8.0, 41.0, -7.0, 42.0)),
+    ("1985-2", 1985, portugal_icnf.PRECISION_YEAR, box(-9.0, 38.0, -8.9, 38.1)),
 ]
 
 #: Filed with a Portuguese boundary, digitised into the Atlantic. 2019 holds this
@@ -94,8 +94,8 @@ def populated(db_session):
     """Two countries and six consistent Portuguese fires across three years."""
     ocha_provider = DataProvider(name=ocha.PROVIDER_NAME, product=ocha.PROVIDER_PRODUCT,
                                  full_name=ocha.PROVIDER_FULL_NAME, url=ocha.PROVIDER_URL)
-    icnf_provider = DataProvider(name=icnf.PROVIDER_NAME, product=icnf.PROVIDER_PRODUCT,
-                                 full_name=icnf.PROVIDER_FULL_NAME, url=icnf.PROVIDER_URL)
+    icnf_provider = DataProvider(name=portugal_icnf.PROVIDER_NAME, product=portugal_icnf.PROVIDER_PRODUCT,
+                                 full_name=portugal_icnf.PROVIDER_FULL_NAME, url=portugal_icnf.PROVIDER_URL)
     db_session.add_all([ocha_provider, icnf_provider])
     db_session.flush()
 
@@ -118,13 +118,13 @@ def populated(db_session):
         # A 'year' row's start is 1 January of its year — a placeholder satisfying
         # a NOT NULL column, exactly as the importer stores it.
         start = (datetime.datetime(year, 1, 1, tzinfo=datetime.timezone.utc)
-                 if precision == icnf.PRECISION_YEAR
+                 if precision == portugal_icnf.PRECISION_YEAR
                  else datetime.datetime(year, 7, 1, tzinfo=datetime.timezone.utc))
         db_session.add(IcnfWildfire(
             source_layer=f"ardida_{year}", sgif_code=code, year=year,
             date_time_precision=precision, area_ha_gis=hectares(geometry),
             data_provider_id=icnf_provider.id,
-            start_date_time=start, time_zone=icnf.DEFAULT_TIME_ZONE,
+            start_date_time=start, time_zone=portugal_icnf.DEFAULT_TIME_ZONE,
             perimeter=f"SRID=4326;{MultiPolygon([geometry]).wkt}",
             admin_boundary_id=boundaries["Portugal"].id,
         ))
@@ -138,14 +138,14 @@ def misattributed(populated):
     portugal = populated.scalar(
         select(OchaAdminBoundary).where(OchaAdminBoundary.iso_3 == "PRT"))
     provider_id = populated.scalar(
-        select(DataProvider.id).where(DataProvider.name == icnf.PROVIDER_NAME))
+        select(DataProvider.id).where(DataProvider.name == portugal_icnf.PROVIDER_NAME))
     for code, geometry in (("2019-sea", IN_THE_SEA), ("2019-border", OVER_THE_BORDER)):
         populated.add(IcnfWildfire(
             source_layer="ardida_2019", sgif_code=code, year=2019,
-            date_time_precision=icnf.PRECISION_DAY, area_ha_gis=hectares(geometry),
+            date_time_precision=portugal_icnf.PRECISION_DAY, area_ha_gis=hectares(geometry),
             data_provider_id=provider_id,
             start_date_time=datetime.datetime(2019, 7, 1, tzinfo=datetime.timezone.utc),
-            time_zone=icnf.DEFAULT_TIME_ZONE,
+            time_zone=portugal_icnf.DEFAULT_TIME_ZONE,
             perimeter=f"SRID=4326;{MultiPolygon([geometry]).wkt}",
             admin_boundary_id=portugal.id,
         ))
@@ -356,12 +356,12 @@ def test_the_published_year_is_used_even_when_the_start_date_disagrees(populated
     geometry = box(-8.2, 40.5, -8.15, 40.55)
     populated.add(IcnfWildfire(
         source_layer="ardida_2022", sgif_code="straddler", year=2022,
-        date_time_precision=icnf.PRECISION_MINUTE, area_ha_gis=hectares(geometry),
+        date_time_precision=portugal_icnf.PRECISION_MINUTE, area_ha_gis=hectares(geometry),
         data_provider_id=populated.scalar(
-            select(DataProvider.id).where(DataProvider.name == icnf.PROVIDER_NAME)),
+            select(DataProvider.id).where(DataProvider.name == portugal_icnf.PROVIDER_NAME)),
         # Filed under 2022; burnt on New Year's Eve into 2023 by the clock.
         start_date_time=datetime.datetime(2023, 1, 1, 0, 30, tzinfo=datetime.timezone.utc),
-        time_zone=icnf.DEFAULT_TIME_ZONE,
+        time_zone=portugal_icnf.DEFAULT_TIME_ZONE,
         perimeter=f"SRID=4326;{MultiPolygon([geometry]).wkt}",
         admin_boundary_id=portugal.id,
     ))
@@ -423,9 +423,9 @@ def test_the_published_national_grid_is_not_offered():
     cannot know in advance that no island fire will appear in it. Asserted here so
     that the omission is deliberate and stays that way.
     """
-    assert icnf.SOURCE_SRID == 3763
-    assert str(icnf.SOURCE_SRID) not in " ".join(app.AREA_METHODS)
-    assert app.EQUAL_AREA_SRID != icnf.SOURCE_SRID
+    assert portugal_icnf.SOURCE_SRID == 3763
+    assert str(portugal_icnf.SOURCE_SRID) not in " ".join(app.AREA_METHODS)
+    assert app.EQUAL_AREA_SRID != portugal_icnf.SOURCE_SRID
 
 
 # --------------------------------------------------------------------------

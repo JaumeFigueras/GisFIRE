@@ -21,16 +21,16 @@ from sqlalchemy.exc import IntegrityError
 
 from src.data_model.data_provider import DataProvider
 from src.data_model.ignition import Ignition
-from src.providers import egif
-from src.providers.egif.ignition import EgifIgnition
+from src.providers import spain_egif
+from src.providers.spain_egif.ignition import EgifIgnition
 
 UTC = datetime.timezone.utc
 
 
 @pytest.fixture
 def provider(db_session):
-    provider = DataProvider(name=egif.PROVIDER_NAME, product=egif.PROVIDER_PRODUCT,
-                            full_name=egif.PROVIDER_FULL_NAME)
+    provider = DataProvider(name=spain_egif.PROVIDER_NAME, product=spain_egif.PROVIDER_PRODUCT,
+                            full_name=spain_egif.PROVIDER_FULL_NAME)
     db_session.add(provider)
     db_session.commit()
     return provider
@@ -43,11 +43,11 @@ def an_ignition(provider, **overrides) -> EgifIgnition:
         "report_number": "2020080001",
         "geometry": "SRID=4326;POINT(1.85254312549163 41.4441304358167)",
         "date_time": datetime.datetime(2020, 1, 1, 15, 30, tzinfo=UTC),
-        "time_zone": egif.DEFAULT_TIME_ZONE,
+        "time_zone": spain_egif.DEFAULT_TIME_ZONE,
         "utm_zone": 31,
         "utm_x": 404147.0,
         "utm_y": 4588697.0,
-        "datum": egif.DATUM_ETRS89,
+        "datum": spain_egif.DATUM_ETRS89,
         "start_point_count": 1,
         "mtn_sheet": "0902",
         "mtn_grid": "Q09",
@@ -89,7 +89,7 @@ def test_the_only_geometry_is_the_reprojected_one_on_the_parent(db_session):
     assert {"utm_zone", "utm_x", "utm_y", "datum"} <= columns
 
 
-@pytest.mark.parametrize("zone", egif.UTM_ZONES)
+@pytest.mark.parametrize("zone", spain_egif.UTM_ZONES)
 def test_every_zone_spain_spans_is_accepted(db_session, provider, zone):
     db_session.add(an_ignition(provider, utm_zone=zone))
     db_session.commit()
@@ -114,7 +114,7 @@ def test_a_zone_outside_spain_is_stored_as_published(db_session, provider, zone)
     assert db_session.scalar(select(EgifIgnition)).utm_zone == zone
 
 
-@pytest.mark.parametrize("datum", egif.DATUMS)
+@pytest.mark.parametrize("datum", spain_egif.DATUMS)
 def test_both_published_datums_are_accepted(db_session, provider, datum):
     db_session.add(an_ignition(provider, datum=datum))
     db_session.commit()
@@ -161,19 +161,19 @@ def test_an_unresolvable_datum_code_keeps_its_code(db_session, provider):
     assert (stored.datum, stored.datum_code) == (None, "3")
 
 
-@pytest.mark.parametrize("code,datum", sorted(egif.DATUM_CODES.items()))
+@pytest.mark.parametrize("code,datum", sorted(spain_egif.DATUM_CODES.items()))
 def test_the_resolvable_datum_codes_map_to_a_published_label(code, datum):
-    assert datum in egif.DATUMS
+    assert datum in spain_egif.DATUMS
 
 
 def test_the_datum_and_zone_name_a_real_crs(db_session, provider):
     """The pair is what the importer reprojects from, so it has to resolve."""
-    assert egif.SOURCE_SRIDS[(egif.DATUM_ETRS89, 31)] == 25831
-    assert egif.SOURCE_SRIDS[(egif.DATUM_REGCAN95, 28)] == 4083
-    for datum in egif.DATUMS:
-        for zone in egif.UTM_ZONES:
-            if (datum, zone) in egif.SOURCE_SRIDS:
-                assert isinstance(egif.SOURCE_SRIDS[(datum, zone)], int)
+    assert spain_egif.SOURCE_SRIDS[(spain_egif.DATUM_ETRS89, 31)] == 25831
+    assert spain_egif.SOURCE_SRIDS[(spain_egif.DATUM_REGCAN95, 28)] == 4083
+    for datum in spain_egif.DATUMS:
+        for zone in spain_egif.UTM_ZONES:
+            if (datum, zone) in spain_egif.SOURCE_SRIDS:
+                assert isinstance(spain_egif.SOURCE_SRIDS[(datum, zone)], int)
 
 
 @pytest.mark.parametrize("column", ["utm_zone", "utm_x", "utm_y"])

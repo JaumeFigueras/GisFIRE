@@ -44,7 +44,7 @@ import zipfile
 
 from pathlib import Path
 
-from src.providers import egif
+from src.providers import spain_egif
 
 #: Cell values that mean "no value" in the Excel export.
 #:
@@ -535,7 +535,7 @@ def _excel_record(report_number: str, row: dict[str, str | None]) -> PifRecord:
 #:
 #: What is absent is as deliberate as what is here: ``pif_medios``,
 #: ``pif_tecnicas``, ``pif_anexo`` and ``ParteMonte`` are not read at all. See
-#: :mod:`src.providers.egif` for the scope decision behind that.
+#: :mod:`src.providers.spain_egif` for the scope decision behind that.
 XML_SCALARS: dict[str, dict[str, str]] = {
     "pif_comun": {"idpif": "egif_id", "anio": "campaign"},
     "pif_localizacion": {
@@ -742,7 +742,7 @@ def _xml_location(element: ElementTree.Element, record: PifRecord) -> None:
     elif len(record.report_number) >= 6 and record.report_number[4:6].isdigit():
         record.province_ine_code = record.report_number[4:6]
 
-    record.datum = egif.DATUM_CODES.get(record.datum_code or "")
+    record.datum = spain_egif.DATUM_CODES.get(record.datum_code or "")
     if record.datum_code is not None and record.datum is None:
         record.problems.append(f"unknown iddatum {record.datum_code!r}, datum left unset")
 

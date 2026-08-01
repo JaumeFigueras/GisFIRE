@@ -9,7 +9,7 @@ Every layer is a set of burnt-area polygons in EPSG:3763.
 
 The dataset spans fifty years, and what it publishes about a fire changed
 completely half way through — which is the one thing to know before reading
-:class:`~src.providers.icnf.wildfire.IcnfWildfire`.
+:class:`~src.providers.portugal_icnf.wildfire.IcnfWildfire`.
 
 Two eras, one model
 -------------------
@@ -29,7 +29,7 @@ the fire database keeps the old two attributes and nothing else, 901 of the
 
 Both eras are the same model. An importer fills what a layer publishes and leaves
 the rest ``NULL``, and
-:attr:`~src.providers.icnf.wildfire.IcnfWildfire.date_time_precision` records
+:attr:`~src.providers.portugal_icnf.wildfire.IcnfWildfire.date_time_precision` records
 which of the two a row came from without anyone having to know the years by
 heart.
 
@@ -52,9 +52,9 @@ Provenance is on the row, not in a comment
 
 Because the two eras and the two date resolutions all live in one table, every
 row says where it came from and how good its dates are:
-:attr:`~src.providers.icnf.wildfire.IcnfWildfire.source_layer` names the
+:attr:`~src.providers.portugal_icnf.wildfire.IcnfWildfire.source_layer` names the
 published layer, and
-:attr:`~src.providers.icnf.wildfire.IcnfWildfire.date_time_precision` is one of
+:attr:`~src.providers.portugal_icnf.wildfire.IcnfWildfire.date_time_precision` is one of
 :data:`PRECISION_YEAR`, :data:`PRECISION_DAY` or :data:`PRECISION_MINUTE`.
 """
 
@@ -70,7 +70,7 @@ PROVIDER_URL = "https://si.icnf.pt/geoserverplinia/BDG/ows"
 
 #: The projected CRS the ICNF publishes in — ETRS89 / Portugal TM06, the national
 #: grid. Every layer, both eras. The published geometry is kept in it unchanged
-#: (:attr:`~src.providers.icnf.wildfire.IcnfWildfire.perimeter_etrs89_tm06`)
+#: (:attr:`~src.providers.portugal_icnf.wildfire.IcnfWildfire.perimeter_etrs89_tm06`)
 #: alongside the EPSG:4326 reprojection on the generic model.
 SOURCE_SRID = 3763
 
@@ -92,7 +92,7 @@ DEFAULT_TIME_ZONE = "Europe/Lisbon"
 
 #: The fire was never dated: the layer publishes only a year, so
 #: :attr:`~src.data_model.wildfire.Wildfire.start_date_time` is the 1st of January
-#: of :attr:`~src.providers.icnf.wildfire.IcnfWildfire.year` at local midnight and
+#: of :attr:`~src.providers.portugal_icnf.wildfire.IcnfWildfire.year` at local midnight and
 #: means "some time in this year", not "on New Year's Day".
 PRECISION_YEAR = "year"
 
@@ -105,6 +105,6 @@ PRECISION_DAY = "day"
 #: reachable by reading them from the WFS, which the archive import does not do.
 PRECISION_MINUTE = "minute"
 
-#: Every value :attr:`~src.providers.icnf.wildfire.IcnfWildfire.date_time_precision`
+#: Every value :attr:`~src.providers.portugal_icnf.wildfire.IcnfWildfire.date_time_precision`
 #: may take, in increasing order of precision.
 DATE_TIME_PRECISIONS = (PRECISION_YEAR, PRECISION_DAY, PRECISION_MINUTE)

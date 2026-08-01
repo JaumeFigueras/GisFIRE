@@ -3,7 +3,7 @@
 """IGN administrative boundary model.
 
 One *comunidad autónoma*, *provincia* or *municipio* of the Base de Datos de
-Divisiones Administrativas de España. See :mod:`src.providers.ign` for what the
+Divisiones Administrativas de España. See :mod:`src.providers.spain_ign` for what the
 dataset is, how its codes nest and what is left out of it.
 """
 
@@ -17,7 +17,7 @@ from sqlalchemy.orm import Mapped
 from sqlalchemy.orm import mapped_column
 
 from src.data_model.geography.admin_boundary import AdminBoundary
-from src.providers.ign import KINDS
+from src.providers.spain_ign import KINDS
 
 _KINDS_SQL = ", ".join(f"'{kind}'" for kind in KINDS)
 
@@ -37,17 +37,17 @@ class IgnAdminBoundary(AdminBoundary):
     edition : str
         Label of the BDDAE publication this boundary came from, ``"2026"``. It
         also appears in the provider's ``product``, which is what actually keeps
-        editions apart (see :mod:`src.providers.ign`); it is repeated here so that
+        editions apart (see :mod:`src.providers.spain_ign`); it is repeated here so that
         filtering or grouping by edition needs no join.
 
         Nothing in the published files states it, so it is whatever the import was
         told — unlike the CAOP, where the file names carry the year and can be
         checked against it.
     kind : str
-        Which division this is: :data:`~src.providers.ign.KIND_COMUNIDAD_AUTONOMA`,
-        :data:`~src.providers.ign.KIND_PROVINCIA`,
-        :data:`~src.providers.ign.KIND_MUNICIPIO` or, only when the import was
-        asked for them, :data:`~src.providers.ign.KIND_TERRITORIO`. Redundant with
+        Which division this is: :data:`~src.providers.spain_ign.KIND_COMUNIDAD_AUTONOMA`,
+        :data:`~src.providers.spain_ign.KIND_PROVINCIA`,
+        :data:`~src.providers.spain_ign.KIND_MUNICIPIO` or, only when the import was
+        asked for them, :data:`~src.providers.spain_ign.KIND_TERRITORIO`. Redundant with
         the inherited ``level`` for the first three, and kept anyway: ``level`` is
         a normalised depth shared with every other provider, while this names the
         division in the terms Spain uses. For the fourth it is not redundant at
@@ -75,12 +75,12 @@ class IgnAdminBoundary(AdminBoundary):
         It nests inside the *provincia* rather than cutting across it, unlike its
         Portuguese counterpart: it equals the province except in the three island
         provinces, which it splits one region per island. See
-        :mod:`src.providers.ign`.
+        :mod:`src.providers.spain_ign`.
 
     Notes
     -----
     Two published columns are deliberately not stored. ``INSPIREID`` is exactly
-    :data:`~src.providers.ign.INSPIRE_ID_PREFIX` followed by the ``NATCODE`` in
+    :data:`~src.providers.spain_ign.INSPIRE_ID_PREFIX` followed by the ``NATCODE`` in
     every one of the 8 293 rows, so it carries nothing ``source_id`` does not.
     ``NATLEV`` is the INSPIRE codelist URL for the level, one constant per layer,
     which :attr:`kind` already says in a form that can be queried.

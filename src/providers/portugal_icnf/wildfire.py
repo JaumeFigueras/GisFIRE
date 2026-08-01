@@ -8,7 +8,7 @@ the perimeter; this model adds the identifiers, the administrative location of
 the ignition, the areas by land type, the link to the cause and the perimeter as
 the ICNF published it.
 
-See :mod:`src.providers.icnf` for the two eras of the dataset and why a row has
+See :mod:`src.providers.portugal_icnf` for the two eras of the dataset and why a row has
 to say how good its own dates are.
 
 The perimeter is stored twice, on purpose
@@ -58,9 +58,9 @@ from sqlalchemy.orm import mapped_column
 from sqlalchemy.orm import relationship
 
 from src.data_model.wildfire import Wildfire
-from src.providers.icnf import DATE_TIME_PRECISIONS
-from src.providers.icnf import SOURCE_SRID
-from src.providers.icnf.fire_cause import IcnfFireCause
+from src.providers.portugal_icnf import DATE_TIME_PRECISIONS
+from src.providers.portugal_icnf import SOURCE_SRID
+from src.providers.portugal_icnf.fire_cause import IcnfFireCause
 
 
 class IcnfWildfire(Wildfire):
@@ -103,15 +103,15 @@ class IcnfWildfire(Wildfire):
         derived. Indexed.
     date_time_precision : str
         How much of :attr:`~src.data_model.wildfire.Wildfire.start_date_time` the
-        provider actually published — :data:`~src.providers.icnf.PRECISION_YEAR`,
-        :data:`~src.providers.icnf.PRECISION_DAY` or
-        :data:`~src.providers.icnf.PRECISION_MINUTE`. Constrained to those three.
+        provider actually published — :data:`~src.providers.portugal_icnf.PRECISION_YEAR`,
+        :data:`~src.providers.portugal_icnf.PRECISION_DAY` or
+        :data:`~src.providers.portugal_icnf.PRECISION_MINUTE`. Constrained to those three.
 
         This is the column that keeps the model honest. A ``year`` row's start is
         the 1st of January because that is the only instant the year supports,
         not because anything happened that day, and an average or a histogram
         that does not filter on this column will be wrong by up to twelve months
-        for 71% of the dataset. See :mod:`src.providers.icnf`.
+        for 71% of the dataset. See :mod:`src.providers.portugal_icnf`.
     first_response_date_time : datetime.datetime or None
         When the first crew reached the fire (``DH_1Interv``), never earlier than
         the parent's ``start_date_time``. Same instant-plus-zone rule and the same
@@ -144,7 +144,7 @@ class IcnfWildfire(Wildfire):
     place_name : str or None
         Locality or place the fire started at (``PI_Local``), free text.
     cause_id : int or None
-        Foreign key to the :class:`~src.providers.icnf.fire_cause.IcnfFireCause`
+        Foreign key to the :class:`~src.providers.portugal_icnf.fire_cause.IcnfFireCause`
         the fire was classified as. ``None`` for an unclassified fire and for
         every fire before 2014.
     cause : IcnfFireCause or None

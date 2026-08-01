@@ -2,8 +2,8 @@ Import EGIF fire statistics (Spain)
 ===================================
 
 Imports the Spanish national fire statistics — the *Estadística General de Incendios
-Forestales* — into :class:`~src.providers.egif.wildfire.EgifWildfire` and
-:class:`~src.providers.egif.ignition.EgifIgnition` rows, in **two steps**: every Excel
+Forestales* — into :class:`~src.providers.spain_egif.wildfire.EgifWildfire` and
+:class:`~src.providers.spain_egif.ignition.EgifIgnition` rows, in **two steps**: every Excel
 export first, then every XML export.
 
 .. contents::
@@ -51,7 +51,7 @@ Import these first
     code to match on.
 
 The time zone areas are *not* needed. EGIF is a national dataset and the zone follows from
-the province — :data:`~src.providers.egif.CANARY_PROVINCE_INE_CODES` — rather than from a
+the province — :data:`~src.providers.spain_egif.CANARY_PROVINCE_INE_CODES` — rather than from a
 point-in-polygon test, which is also why it works for the 22,855 fires that have no point.
 
 Why two steps
@@ -160,7 +160,7 @@ places each cell where its own ``r`` reference says it goes.
 
 9.2% of the archive, and almost all of it early — 10,865 of the 46,888 fires of 2004-2005,
 1,037 in 2011-2013, **none from 2017 on**. Those fires get no
-:class:`~src.providers.egif.ignition.EgifIgnition` row and a ``NULL`` ``ignition_id``,
+:class:`~src.providers.spain_egif.ignition.EgifIgnition` row and a ``NULL`` ``ignition_id``,
 rather than an ignition with a hole where the point should be.
 
 If a later XML export supplies a coordinate for a fire that had none, the import gives it
@@ -179,7 +179,7 @@ A fire with no datum is reprojected **as ETRS89**, which is what every fire that
 anything says bar the Canarian ones — and those are caught by the zone, where
 ``(ETRS89, 28)`` is a metre-level difference from REGCAN95 rather than a wrong place. A
 fire whose ``iddatum`` is the unmappable ``3`` keeps the raw code in
-:attr:`~src.providers.egif.ignition.EgifIgnition.datum_code` beside a ``NULL`` datum.
+:attr:`~src.providers.spain_egif.ignition.EgifIgnition.datum_code` beside a ``NULL`` datum.
 
 The published zone is sometimes wrong, and so is the published lat/lon
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -195,7 +195,7 @@ Sixteen fires in the archive carry a ``huso`` outside 28-31 — ``3``, ``27``, `
 
 So the published geographic coordinate is **derived, not independent**, and cannot be used
 to check the projected one. The importer derives the zone from the province instead, using
-:data:`~src.providers.egif.PROVINCE_UTM_ZONES`, and reports every substitution.
+:data:`~src.providers.spain_egif.PROVINCE_UTM_ZONES`, and reports every substitution.
 
 .. warning::
 
@@ -220,8 +220,8 @@ obvious once reprojected:
 
 Reprojected faithfully they scatter across the ocean, where nothing excludes them from a
 spatial query. A fire whose coordinate falls outside
-:data:`~src.providers.egif.PLAUSIBLE_UTM_EASTING` and
-:data:`~src.providers.egif.PLAUSIBLE_UTM_NORTHING` is therefore stored **without an
+:data:`~src.providers.spain_egif.PLAUSIBLE_UTM_EASTING` and
+:data:`~src.providers.spain_egif.PLAUSIBLE_UTM_NORTHING` is therefore stored **without an
 ignition**, exactly like the 293,710 that publish none, and the substitution is logged.
 
 The published numbers survive on the fire's own row either way, so refusing the *point*
@@ -314,7 +314,7 @@ and behaviour codes — and leaves the response and the accounting: ``pif_medios
 ``pif_tecnicas``, the casualty and by-ownership breakdowns, ``pif_anexo``'s regeneration
 and erosion indices, and the whole ``ParteMonte`` tree.
 
-See :mod:`src.providers.egif` for the scope decision and what it rests on. Adding any of
+See :mod:`src.providers.spain_egif` for the scope decision and what it rests on. Adding any of
 it later is additive: the report is 1:1 on the wildfire's primary key and ``numeroparte``
 is a stable unique key, so a re-import backfills new columns by upsert.
 

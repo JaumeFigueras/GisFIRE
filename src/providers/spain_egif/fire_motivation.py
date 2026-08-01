@@ -5,7 +5,7 @@
 ``idmotivacion`` says *why* an intentional fire was lit — to clear pasture, to
 force a change of land use, out of revenge, for the sake of watching it burn. It
 is a three-digit code with the same shape as ``idcausa`` and is published on
-exactly the fires whose cause is :data:`~src.providers.egif.CAUSE_INTENTIONAL`:
+exactly the fires whose cause is :data:`~src.providers.spain_egif.CAUSE_INTENTIONAL`:
 7,117 of the 13,656 fires in the 2022-2023 export, and not one fire outside that
 family.
 
@@ -23,12 +23,12 @@ They are as unrelated as two enumerations that happen to start counting at the
 same place. Put both in one table keyed by code and every query that joins on the
 code alone is wrong half the time, silently; keep them apart and the mistake
 cannot be expressed. This is the one thing to remember about EGIF's coding, and it
-is why :class:`~src.providers.egif.wildfire.EgifWildfire` carries two foreign keys
+is why :class:`~src.providers.spain_egif.wildfire.EgifWildfire` carries two foreign keys
 rather than one.
 
 Everything else about the model — where the labels come from, why the code is not
 the key, why :attr:`EgifFireMotivation.label_en` ships empty — is the argument in
-:mod:`src.providers.egif.fire_cause`, and is not repeated here.
+:mod:`src.providers.spain_egif.fire_cause`, and is not repeated here.
 
 The catalogue is fully known
 ----------------------------
@@ -67,7 +67,7 @@ class EgifFireMotivation(Base):
     code : str
         The published ``idmotivacion``, three digits. Indexed and **not** unique,
         and text rather than a number, for the reasons given in
-        :class:`~src.providers.egif.fire_cause.EgifFireCause`.
+        :class:`~src.providers.spain_egif.fire_cause.EgifFireCause`.
 
         Do not compare it with a cause code: ``400`` exists in both spaces and
         names different things.

@@ -20,7 +20,7 @@ together, ``[213]  Quema de restos agrícolas (viñas,etc)``. The 87 codes prese
 across the 2022 and 2023 campaigns were read off it; the seed for this table is
 ``NOTES_EGIF_codes.csv`` at the root of the repository.
 
-That is why the import order in :mod:`src.providers.egif` is not negotiable. The
+That is why the import order in :mod:`src.providers.spain_egif` is not negotiable. The
 XML publishes ``<idcausa>231</idcausa>`` and nothing else, so an XML import into a
 database whose catalogue was never seeded produces fires whose cause is an integer
 with no meaning attached.
@@ -35,7 +35,7 @@ added subcodes. ``327`` *Aerogenerador* and ``328`` *Huerto solar/placas solares
 are plainly recent additions to a list that once ended at ``326``.
 
 So the key is ``(code, label)`` and the code is indexed but **not unique**,
-exactly as in :class:`~src.providers.icnf.fire_cause.IcnfFireCause`. If an edition
+exactly as in :class:`~src.providers.portugal_icnf.fire_cause.IcnfFireCause`. If an edition
 ever renames a code, both meanings are storable and a fire links to the one its
 own export published, instead of every historical fire silently acquiring the new
 label.
@@ -81,7 +81,7 @@ class EgifFireCause(Base):
         The published ``idcausa``, three digits. Indexed and **not** unique.
 
         Text, not a number: it is an identifier rather than a quantity, its first
-        digit is a family (see :mod:`src.providers.egif`), and nothing is gained
+        digit is a family (see :mod:`src.providers.spain_egif`), and nothing is gained
         by making ``100`` and ``0100`` the same value.
     label : str
         The Spanish label as the Excel export prints it, with the ``[code]``
@@ -101,7 +101,7 @@ class EgifFireCause(Base):
     -----
     The table has no ``data_provider_id``. This classification is the EGIF's own
     and means nothing outside it, which the table name already says — the same
-    argument as for :class:`~src.providers.icnf.fire_cause.IcnfFireCause`.
+    argument as for :class:`~src.providers.portugal_icnf.fire_cause.IcnfFireCause`.
 
     Nor are the rows seeded from a list frozen in the source. The importer inserts
     whatever ``(code, label)`` pairs the export it is reading actually contains,

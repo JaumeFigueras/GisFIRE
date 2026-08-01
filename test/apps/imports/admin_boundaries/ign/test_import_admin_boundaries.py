@@ -25,8 +25,8 @@ from src.apps.imports.admin_boundaries.ign import import_admin_boundaries as app
 from src.data_model import Base
 from src.data_model.data_provider import DataProvider
 from src.data_model.geography.admin_boundary import AdminBoundary
-from src.providers import ign
-from src.providers.ign.admin_boundary import IgnAdminBoundary
+from src.providers import spain_ign
+from src.providers.spain_ign.admin_boundary import IgnAdminBoundary
 from src.settings import ROOT_DIR
 
 #: Both published datums, cut to what one file cannot show on its own.
@@ -119,7 +119,7 @@ def test_a_directory_is_required():
 def test_defaults_are_applied():
     parsed = app.parse_arguments(["-d", "bddae/"])
     assert parsed.directory == Path("bddae/")
-    assert parsed.edition == ign.DEFAULT_EDITION == "2026"
+    assert parsed.edition == spain_ign.DEFAULT_EDITION == "2026"
     assert parsed.include_territories is False
     assert parsed.staging_schema == app.DEFAULT_STAGING_SCHEMA
 
@@ -130,7 +130,7 @@ def test_the_shapefiles_are_found_in_both_datums():
     for kind, paths in found.items():
         assert len(paths) == 2, f"{kind} should be published once per datum"
     # The peninsular file sorts before the Canary one, and both are the same level.
-    assert [path.name for path in found[ign.KIND_MUNICIPIO]] == [
+    assert [path.name for path in found[spain_ign.KIND_MUNICIPIO]] == [
         "recintos_municipales_inspire_peninbal_etrs89.shp",
         "recintos_municipales_inspire_canarias_regcan95.shp",
     ]
@@ -143,10 +143,10 @@ def test_the_line_layers_are_not_picked_up(tmp_path):
     (tmp_path / "recintos_municipales_inspire_peninbal_etrs89.shp").touch()
 
     found = app.find_shapefiles(tmp_path)
-    assert [path.name for path in found[ign.KIND_MUNICIPIO]] == [
+    assert [path.name for path in found[spain_ign.KIND_MUNICIPIO]] == [
         "recintos_municipales_inspire_peninbal_etrs89.shp"
     ]
-    assert found[ign.KIND_PROVINCIA] == []
+    assert found[spain_ign.KIND_PROVINCIA] == []
 
 
 def test_a_directory_with_no_recintos_is_reported(tmp_path):
@@ -156,7 +156,7 @@ def test_a_directory_with_no_recintos_is_reported(tmp_path):
 
 
 def test_the_model_says_what_it_is():
-    boundary = IgnAdminBoundary(kind=ign.KIND_MUNICIPIO, source_id="34172626145", name="Sotés")
+    boundary = IgnAdminBoundary(kind=spain_ign.KIND_MUNICIPIO, source_id="34172626145", name="Sotés")
     assert repr(boundary) == ("IgnAdminBoundary(kind='municipio', "
                               "source_id='34172626145', name='Sotés')")
 
@@ -241,10 +241,10 @@ def test_the_territories_can_be_asked_for(database, database_args):
             select(IgnAdminBoundary).where(IgnAdminBoundary.name == "Gibraltar")
         )
         # Stored at municipal depth, but not called a municipality.
-        assert gibraltar.kind == ign.KIND_TERRITORIO
+        assert gibraltar.kind == spain_ign.KIND_TERRITORIO
         assert gibraltar.level == 3
         assert session.scalar(select(func.count()).select_from(IgnAdminBoundary).where(
-            IgnAdminBoundary.kind == ign.KIND_TERRITORIO
+            IgnAdminBoundary.kind == spain_ign.KIND_TERRITORIO
         )) == 7
 
 
@@ -295,7 +295,7 @@ def test_the_fields_are_mapped(database, args):
         )
         assert municipality.name == "Sotés"
         assert municipality.level == 3
-        assert municipality.kind == ign.KIND_MUNICIPIO
+        assert municipality.kind == spain_ign.KIND_MUNICIPIO
         assert municipality.edition == "2026"
         assert municipality.ine_code == "26145"
         assert (municipality.nuts1_code, municipality.nuts2_code, municipality.nuts3_code) == (
@@ -320,7 +320,7 @@ def test_the_ine_code_is_the_tail_of_the_natcode_and_only_at_municipal_level(dat
             IgnAdminBoundary.ine_code == "00000"
         )) == 0
         assert session.scalars(select(IgnAdminBoundary.ine_code).where(
-            IgnAdminBoundary.kind != ign.KIND_MUNICIPIO
+            IgnAdminBoundary.kind != spain_ign.KIND_MUNICIPIO
         )).all() == [None] * 4
 
 
@@ -353,7 +353,7 @@ def test_nuts3_refines_a_province_rather_than_crossing_it(database, args):
         regions = session.scalars(
             select(IgnAdminBoundary.nuts3_code)
             .where(IgnAdminBoundary.source_id.startswith("340538"),
-                   IgnAdminBoundary.kind == ign.KIND_MUNICIPIO)
+                   IgnAdminBoundary.kind == spain_ign.KIND_MUNICIPIO)
             .distinct()
         ).all()
         assert set(regions) == {"ES703", "ES706", "ES709"}

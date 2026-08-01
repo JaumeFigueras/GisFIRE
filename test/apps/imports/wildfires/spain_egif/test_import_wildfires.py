@@ -24,12 +24,12 @@ from sqlalchemy.orm import Session
 
 from src.apps.imports.wildfires.spain_egif import import_wildfires as app
 from src.data_model import Base
-from src.providers import egif
-from src.providers.egif.fire_cause import EgifFireCause
-from src.providers.egif.fire_motivation import EgifFireMotivation
-from src.providers.egif.ignition import EgifIgnition
-from src.providers.egif.wildfire import EgifWildfire
-from src.providers.egif.wildfire_report import EgifWildfireReport
+from src.providers import spain_egif
+from src.providers.spain_egif.fire_cause import EgifFireCause
+from src.providers.spain_egif.fire_motivation import EgifFireMotivation
+from src.providers.spain_egif.ignition import EgifIgnition
+from src.providers.spain_egif.wildfire import EgifWildfire
+from src.providers.spain_egif.wildfire_report import EgifWildfireReport
 
 from .conftest import block
 from .conftest import code_list
@@ -189,7 +189,7 @@ def test_the_published_coordinate_becomes_a_point_in_4326(database, tmp_path):
         fire = session.scalar(select(EgifWildfire))
         assert fire.ignition_id == ignition.id
         assert fire.start_date_time == datetime.datetime(2020, 1, 1, 15, 30, tzinfo=UTC)
-        assert fire.time_zone == egif.DEFAULT_TIME_ZONE
+        assert fire.time_zone == spain_egif.DEFAULT_TIME_ZONE
 
 
 def test_a_canarian_fire_is_dated_in_its_own_zone(database, tmp_path):
@@ -206,7 +206,7 @@ def test_a_canarian_fire_is_dated_in_its_own_zone(database, tmp_path):
 
     with Session(engine) as session:
         fire = session.scalar(select(EgifWildfire))
-        assert fire.time_zone == egif.CANARY_TIME_ZONE
+        assert fire.time_zone == spain_egif.CANARY_TIME_ZONE
         # 12:00 Atlantic/Canary in July is 11:00 UTC; the mainland would be 10:00.
         assert fire.start_date_time == datetime.datetime(2020, 7, 1, 11, 0, tzinfo=UTC)
 
@@ -432,7 +432,7 @@ def test_a_ground_fire_and_a_holdover_are_queryable_together(database, tmp_path)
             select(EgifWildfire.report_number)
             .join(EgifWildfireReport, EgifWildfireReport.id == EgifWildfire.id)
             .join(EgifFireCause, EgifFireCause.id == EgifWildfire.cause_id)
-            .where(EgifFireCause.code == egif.CAUSE_LIGHTNING)
+            .where(EgifFireCause.code == spain_egif.CAUSE_LIGHTNING)
             .where(EgifWildfireReport.days_since_storm > 0)
             .where(EgifWildfireReport.fire_type_codes.any("3"))
         ).all()

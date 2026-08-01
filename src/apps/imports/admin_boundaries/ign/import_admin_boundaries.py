@@ -4,8 +4,8 @@
 
 Loads the *comunidades autónomas*, *provincias* and *municipios* of the Base de
 Datos de Divisiones Administrativas de España into
-:class:`~src.providers.ign.admin_boundary.IgnAdminBoundary` rows, as administrative
-levels 1, 2 and 3 below the country. See :mod:`src.providers.ign` for what the
+:class:`~src.providers.spain_ign.admin_boundary.IgnAdminBoundary` rows, as administrative
+levels 1, 2 and 3 below the country. See :mod:`src.providers.spain_ign` for what the
 dataset is and what it leaves out.
 
 Run it over the directory the IGN's download was unpacked into::
@@ -64,7 +64,7 @@ import src.settings  # noqa: F401  (imported for the side effect of loading .env
 
 from src.apps.imports import common
 from src.data_model.data_provider import DataProvider
-from src.providers import ign
+from src.providers import spain_ign
 
 # The plumbing every importer shares, re-exported so this module reads as one
 # application: see :mod:`src.apps.imports.common`.
@@ -75,27 +75,27 @@ from src.apps.imports.common import resolve_database_settings  # noqa: F401
 
 #: The provider row every imported boundary is attached to. The product carries
 #: the edition, so each publication of the BDDAE is its own provider — see
-#: :mod:`src.providers.ign`.
-PROVIDER_NAME = ign.PROVIDER_NAME
-PROVIDER_FULL_NAME = ign.PROVIDER_FULL_NAME
-PROVIDER_URL = ign.PROVIDER_URL
+#: :mod:`src.providers.spain_ign`.
+PROVIDER_NAME = spain_ign.PROVIDER_NAME
+PROVIDER_FULL_NAME = spain_ign.PROVIDER_FULL_NAME
+PROVIDER_URL = spain_ign.PROVIDER_URL
 
-DEFAULT_EDITION = ign.DEFAULT_EDITION
+DEFAULT_EDITION = spain_ign.DEFAULT_EDITION
 
 #: How each level's shapefile is recognised while walking the directory. The IGN
 #: names them for the level in Spanish and for the datum, and only the level part
 #: is common to both publications.
 FILENAME_MARKERS = {
-    ign.KIND_COMUNIDAD_AUTONOMA: "recintos_autonomicas",
-    ign.KIND_PROVINCIA: "recintos_provinciales",
-    ign.KIND_MUNICIPIO: "recintos_municipales",
+    spain_ign.KIND_COMUNIDAD_AUTONOMA: "recintos_autonomicas",
+    spain_ign.KIND_PROVINCIA: "recintos_provinciales",
+    spain_ign.KIND_MUNICIPIO: "recintos_municipales",
 }
 
 #: Staging table each level is gathered into, from both datums at once.
 STAGING_TABLES = {
-    ign.KIND_COMUNIDAD_AUTONOMA: "ign_autonomicas",
-    ign.KIND_PROVINCIA: "ign_provinciales",
-    ign.KIND_MUNICIPIO: "ign_municipales",
+    spain_ign.KIND_COMUNIDAD_AUTONOMA: "ign_autonomicas",
+    spain_ign.KIND_PROVINCIA: "ign_provinciales",
+    spain_ign.KIND_MUNICIPIO: "ign_municipales",
 }
 
 #: Maps a staged level onto the two tables of the model in one statement.
@@ -146,25 +146,25 @@ RETURNING id
 #: code at the bottom level and padding above it — hence NULL rather than
 #: ``'00000'``.
 LEVEL_MAPPINGS = {
-    ign.KIND_COMUNIDAD_AUTONOMA: {
+    spain_ign.KIND_COMUNIDAD_AUTONOMA: {
         # Parented to the country, which comes from another provider entirely and
         # so is passed in rather than joined to.
         "parent": ":country_id",
         "parent_join": "",
-        "kind": f"'{ign.KIND_COMUNIDAD_AUTONOMA}'",
+        "kind": f"'{spain_ign.KIND_COMUNIDAD_AUTONOMA}'",
         "ine_code": "NULL",
     },
-    ign.KIND_PROVINCIA: {
+    spain_ign.KIND_PROVINCIA: {
         "parent": "parent.id",
         "parent_join": (
             "LEFT JOIN admin_boundary AS parent"
             "  ON parent.data_provider_id = :provider_id"
             " AND parent.source_id = left(staging.natcode, 4) || '0000000'"
         ),
-        "kind": f"'{ign.KIND_PROVINCIA}'",
+        "kind": f"'{spain_ign.KIND_PROVINCIA}'",
         "ine_code": "NULL",
     },
-    ign.KIND_MUNICIPIO: {
+    spain_ign.KIND_MUNICIPIO: {
         "parent": "parent.id",
         "parent_join": (
             "LEFT JOIN admin_boundary AS parent"
@@ -172,8 +172,8 @@ LEVEL_MAPPINGS = {
             " AND parent.source_id = left(staging.natcode, 6) || '00000'"
         ),
         "kind": (
-            f"CASE WHEN staging.natlevname = '{ign.EXCLUDED_NATLEVNAME}'"
-            f" THEN '{ign.KIND_TERRITORIO}' ELSE '{ign.KIND_MUNICIPIO}' END"
+            f"CASE WHEN staging.natlevname = '{spain_ign.EXCLUDED_NATLEVNAME}'"
+            f" THEN '{spain_ign.KIND_TERRITORIO}' ELSE '{spain_ign.KIND_MUNICIPIO}' END"
         ),
         "ine_code": "right(staging.natcode, 5)",
     },
@@ -182,15 +182,15 @@ LEVEL_MAPPINGS = {
 #: Removes the branch that is not a Spanish administrative division: Gibraltar,
 #: the *plazas de soberanía*, the Isla de los Faisanes and the pseudo *comunidad
 #: autónoma* and *provincia* that exist only to hold them. Nine rows across the
-#: three levels. See :mod:`src.providers.ign`.
+#: three levels. See :mod:`src.providers.spain_ign`.
 #:
 #: Written as ``left(...) <> ...`` rather than ``NOT LIKE '3420%'`` on purpose: a
 #: literal ``%`` inside :func:`sqlalchemy.text` has to be doubled for the DBAPI's
 #: parameter style, which is a trap for whoever edits this next. The comparison
 #: says the same thing and cannot be got wrong.
 TERRITORY_FILTER = (
-    f"AND left(staging.natcode, {len(ign.EXCLUDED_CODE_PREFIX)}) "
-    f"<> '{ign.EXCLUDED_CODE_PREFIX}'"
+    f"AND left(staging.natcode, {len(spain_ign.EXCLUDED_CODE_PREFIX)}) "
+    f"<> '{spain_ign.EXCLUDED_CODE_PREFIX}'"
 )
 
 #: Finds the country row the *comunidades autónomas* hang off: the OCHA level 0
@@ -254,7 +254,7 @@ def parse_arguments(argv: list[str] | None = None) -> argparse.Namespace:
                              "across the three levels, excluded by default)")
 
     common.add_database_arguments(parser)
-    common.add_staging_arguments(parser, STAGING_TABLES[ign.KIND_MUNICIPIO])
+    common.add_staging_arguments(parser, STAGING_TABLES[spain_ign.KIND_MUNICIPIO])
     common.add_common_arguments(parser)
 
     return parser.parse_args(argv)
@@ -292,7 +292,7 @@ def get_or_create_data_provider(session: Session, edition: str,
                                 logger: logging.Logger) -> DataProvider:
     """Return the provider row for this BDDAE edition, creating it on first import."""
     return common.get_or_create_data_provider(
-        session, PROVIDER_NAME, ign.provider_product(edition), PROVIDER_FULL_NAME,
+        session, PROVIDER_NAME, spain_ign.provider_product(edition), PROVIDER_FULL_NAME,
         PROVIDER_URL, logger,
     )
 
@@ -305,20 +305,20 @@ def find_country(session: Session, logger: logging.Logger) -> int | None:
     divisions are worth having on their own, and the country they sit under can be
     imported afterwards — :func:`relink_orphans` picks it up on the next run.
     """
-    found = session.execute(text(COUNTRY_SQL), {"iso_3": ign.COUNTRY_ISO_3}).all()
+    found = session.execute(text(COUNTRY_SQL), {"iso_3": spain_ign.COUNTRY_ISO_3}).all()
     if not found:
         logger.warning(
             "No OCHA boundary for %s: the comunidades autónomas will be imported as roots, "
             "with no country above them. Import the countries with "
             "src.apps.imports.admin_boundaries.ocha.import_admin_boundaries and run this "
             "again to link them.",
-            ign.COUNTRY_ISO_3,
+            spain_ign.COUNTRY_ISO_3,
         )
         return None
     if len(found) > 1:
         logger.warning(
             "%d OCHA boundaries carry iso_3 = %s; parenting the comunidades autónomas to %r, "
-            "the first by source id.", len(found), ign.COUNTRY_ISO_3, found[0].name,
+            "the first by source id.", len(found), spain_ign.COUNTRY_ISO_3, found[0].name,
         )
     logger.debug("Parenting the comunidades autónomas to %r (id %d)", found[0].name, found[0].id)
     return found[0].id
@@ -345,12 +345,12 @@ def transform(session: Session, provider: DataProvider, kind: str, staging_table
     """Map one staged level onto the model, returning the number of rows imported."""
     statement = TRANSFORM_SQL.format(
         staging_table=staging_table,
-        level=ign.LEVELS[kind],
+        level=spain_ign.LEVELS[kind],
         territory_filter="" if args.include_territories else TERRITORY_FILTER,
         **LEVEL_MAPPINGS[kind],
     )
     parameters: dict[str, object] = {"provider_id": provider.id, "edition": args.edition}
-    if kind == ign.KIND_COMUNIDAD_AUTONOMA:
+    if kind == spain_ign.KIND_COMUNIDAD_AUTONOMA:
         parameters["country_id"] = country_id
 
     # The statement returns one row per boundary written, so counting them needs
@@ -382,16 +382,16 @@ def relink_orphans(session: Session, provider: DataProvider, country_id: int | N
             {"provider_id": provider.id, "country_id": country_id},
         ).all())
 
-    for kind in (ign.KIND_PROVINCIA, ign.KIND_MUNICIPIO):
-        parent_kind = ign.TREE_KINDS[ign.TREE_KINDS.index(kind) - 1]
-        parent_code_length = ign.CODE_LENGTHS[parent_kind]
+    for kind in (spain_ign.KIND_PROVINCIA, spain_ign.KIND_MUNICIPIO):
+        parent_kind = spain_ign.TREE_KINDS[spain_ign.TREE_KINDS.index(kind) - 1]
+        parent_code_length = spain_ign.CODE_LENGTHS[parent_kind]
         relinked += len(session.execute(
             text(RELINK_BY_CODE_SQL),
             {
                 "provider_id": provider.id,
-                "level": ign.LEVELS[kind],
+                "level": spain_ign.LEVELS[kind],
                 "parent_code_length": parent_code_length,
-                "padding": ign.CODE_WIDTH - parent_code_length,
+                "padding": spain_ign.CODE_WIDTH - parent_code_length,
             },
         ).all())
 
@@ -423,7 +423,7 @@ def import_boundaries(args: argparse.Namespace, engine: Engine, logger: logging.
     staging_tables = {
         kind: f"{args.staging_schema}.{table}" for kind, table in STAGING_TABLES.items()
     }
-    for kind in ign.TREE_KINDS:
+    for kind in spain_ign.TREE_KINDS:
         load_staging(shapefiles[kind], staging_tables[kind], args, settings, logger)
 
     with Session(engine) as session:
@@ -434,7 +434,7 @@ def import_boundaries(args: argparse.Namespace, engine: Engine, logger: logging.
         # wrote, so the order is not an optimisation but a requirement.
         imported = sum(
             transform(session, provider, kind, staging_tables[kind], country_id, args, logger)
-            for kind in ign.TREE_KINDS
+            for kind in spain_ign.TREE_KINDS
         )
         relink_orphans(session, provider, country_id, logger)
 

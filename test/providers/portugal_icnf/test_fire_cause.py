@@ -7,9 +7,9 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
-from src.providers.icnf.fire_cause import DESCRIPTION_TRANSLATIONS
-from src.providers.icnf.fire_cause import IcnfFireCause
-from src.providers.icnf.fire_cause import TYPE_TRANSLATIONS
+from src.providers.portugal_icnf.fire_cause import DESCRIPTION_TRANSLATIONS
+from src.providers.portugal_icnf.fire_cause import IcnfFireCause
+from src.providers.portugal_icnf.fire_cause import TYPE_TRANSLATIONS
 
 
 def a_cause(**overrides) -> IcnfFireCause:

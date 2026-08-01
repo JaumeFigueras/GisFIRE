@@ -2,7 +2,7 @@ Import ICNF burnt areas (Portugal)
 ==================================
 
 Imports the Portuguese national burnt area cartography — the ICNF *áreas ardidas*
-layers — into :class:`~src.providers.icnf.wildfire.IcnfWildfire` rows, with the generic
+layers — into :class:`~src.providers.portugal_icnf.wildfire.IcnfWildfire` rows, with the generic
 columns in ``wildfire`` and the ICNF ones in ``icnf_wildfire``.
 
 .. contents::
@@ -164,7 +164,7 @@ Dates: instant, zone and precision
 The instant-plus-zone rule is the project's own (see :mod:`src.data_model.wildfire`), and
 is applied here as everywhere. What is specific to this dataset is that a row also says
 **how much of its date the provider actually published**, in
-:attr:`~src.providers.icnf.wildfire.IcnfWildfire.date_time_precision`:
+:attr:`~src.providers.portugal_icnf.wildfire.IcnfWildfire.date_time_precision`:
 
 .. list-table::
    :header-rows: 1
@@ -239,7 +239,7 @@ layer: ten pairs share a year and a burnt area to fifteen decimal places. There 
 therefore no row-level "have I seen this before".
 
 Re-running is controlled **a layer at a time**, through
-:attr:`~src.providers.icnf.wildfire.IcnfWildfire.source_layer`:
+:attr:`~src.providers.portugal_icnf.wildfire.IcnfWildfire.source_layer`:
 
 * a layer already in the database is **skipped**, so re-running the whole directory
   after adding one newly published year imports only that year;
@@ -253,7 +253,7 @@ Re-running is controlled **a layer at a time**, through
 
 That second form is worth knowing about, because the ICNF does revise published years:
 fires of 2024 carry ``Edicao`` dates into March 2025.
-:attr:`~src.providers.icnf.wildfire.IcnfWildfire.edition_date_time` is what tells you
+:attr:`~src.providers.portugal_icnf.wildfire.IcnfWildfire.edition_date_time` is what tells you
 whether a year is still moving.
 
 The cause classification
@@ -303,7 +303,7 @@ tables beside the model; a string missing from them is stored untranslated and r
 .. code-block:: text
 
    WARNING  No English for 2 cause term(s), stored untranslated: 'Categoria inventada',
-            'Descrição que ainda não existe'. Add them to src.providers.icnf.fire_cause.
+            'Descrição que ainda não existe'. Add them to src.providers.portugal_icnf.fire_cause.
 
 An existing row is left alone rather than rewritten, so a translation added to the
 database by hand survives the next import.
@@ -321,7 +321,7 @@ them — including the one place that costs something:
    ``PI_Distrit`` spells Viana do Castelo two ways in 2014-2016, ``"Viana Do Castelo"``
    and ``"Viana do Castelo"``, so eighteen districts come back as nineteen names.
    Grouping by the name splits that district in two.
-   :attr:`~src.providers.icnf.wildfire.IcnfWildfire.dicofre_code` — the six-digit INE
+   :attr:`~src.providers.portugal_icnf.wildfire.IcnfWildfire.dicofre_code` — the six-digit INE
    code — is the reliable key, and is stored as text so that ``"030415"`` keeps its
    leading zero.
 

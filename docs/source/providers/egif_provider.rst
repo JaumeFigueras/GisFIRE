@@ -9,6 +9,6 @@ families were established from the published labels.
 The module docstring is also where the dataset itself is described — its two export
 formats, why both are read, and why a published year is never complete.
 
-.. automodule:: src.providers.egif
+.. automodule:: src.providers.spain_egif
    :members:
    :show-inheritance:

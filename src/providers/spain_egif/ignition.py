@@ -16,7 +16,7 @@ See :attr:`EgifIgnition.start_point_count`.
 Why the published coordinate is kept as numbers and not as a geometry
 ---------------------------------------------------------------------
 
-:class:`~src.providers.icnf.wildfire.IcnfWildfire` keeps its polygon twice, in
+:class:`~src.providers.portugal_icnf.wildfire.IcnfWildfire` keeps its polygon twice, in
 EPSG:4326 and in the national grid it was published in, because an area computed
 on a projected grid in metres is the number Portuguese forestry works in and
 reprojecting is neither free nor lossless.
@@ -39,7 +39,7 @@ Which CRS the numbers are in
 ----------------------------
 
 :attr:`utm_zone` and :attr:`datum` together name it, through
-:data:`~src.providers.egif.SOURCE_SRIDS` — ``("ETRS89", 31)`` is EPSG:25831,
+:data:`~src.providers.spain_egif.SOURCE_SRIDS` — ``("ETRS89", 31)`` is EPSG:25831,
 ``("REGCAN95", 28)`` is EPSG:4083.
 
 Neither is guaranteed, and the importer, not a ``CHECK``, is what resolves them:
@@ -47,7 +47,7 @@ Neither is guaranteed, and the importer, not a ``CHECK``, is what resolves them:
 * **The datum is missing for most of the archive.** ``iddatum`` does not appear in
   the XML before the 2014-2016 campaigns; 2004-2013 publish coordinates with no
   datum at all. So :attr:`datum` is nullable and the mainland default has to be
-  assumed for those years. See :data:`~src.providers.egif.DATUM_CODES`.
+  assumed for those years. See :data:`~src.providers.spain_egif.DATUM_CODES`.
 * **The published zone is sometimes wrong, and so is the published lat/lon.**
   Sixteen fires in the archive carry a ``huso`` outside 28-31 — ``3``, ``27``,
   ``32``, ``33``, ``39``, ``50``, ``63``, ``71`` — and the service's own
@@ -70,7 +70,7 @@ archive have no coordinate at all** — every fire before 1998, and a diminishin
 share after it until 2017, when the last of them gets one.
 
 Those fires get no ignition row and a ``NULL``
-:attr:`~src.providers.egif.wildfire.EgifWildfire.ignition_id`, rather than an
+:attr:`~src.providers.spain_egif.wildfire.EgifWildfire.ignition_id`, rather than an
 ignition with a hole where the point should be.
 """
 
@@ -85,7 +85,7 @@ from sqlalchemy.orm import Mapped
 from sqlalchemy.orm import mapped_column
 
 from src.data_model.ignition import Ignition
-from src.providers.egif import DATUMS
+from src.providers.spain_egif import DATUMS
 
 
 class EgifIgnition(Ignition):
@@ -104,7 +104,7 @@ class EgifIgnition(Ignition):
         identifier, shared with the parent row.
     report_number : str
         The fire's ``numeroparte``, **unique**, and the same value carried by the
-        matching :attr:`~src.providers.egif.wildfire.EgifWildfire.report_number`.
+        matching :attr:`~src.providers.spain_egif.wildfire.EgifWildfire.report_number`.
         This is what ties an ignition to its report, the way ``gfa_id`` ties a
         GFA ignition to its perimeter.
 
@@ -115,7 +115,7 @@ class EgifIgnition(Ignition):
     utm_zone : int
         The UTM zone the published coordinate is in (``huso``), stored **as
         published and unconstrained**. Normally one of
-        :data:`~src.providers.egif.UTM_ZONES`; sixteen fires in the archive carry
+        :data:`~src.providers.spain_egif.UTM_ZONES`; sixteen fires in the archive carry
         something else, and the module docstring explains why that is kept rather
         than rejected.
     utm_x : float
@@ -124,8 +124,8 @@ class EgifIgnition(Ignition):
         Published northing, in metres. Stored as published.
     datum : str or None
         The geodetic datum the coordinate is on, constrained to
-        :data:`~src.providers.egif.DATUMS` where present. With :attr:`utm_zone` it
-        names the CRS: see :data:`~src.providers.egif.SOURCE_SRIDS`.
+        :data:`~src.providers.spain_egif.DATUMS` where present. With :attr:`utm_zone` it
+        names the CRS: see :data:`~src.providers.spain_egif.SOURCE_SRIDS`.
 
         ``None`` for every campaign before 2014 and most of 2014-2016, where the
         XML publishes no ``iddatum``, and for the three records whose ``iddatum``

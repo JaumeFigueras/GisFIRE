@@ -25,8 +25,8 @@ from sqlalchemy.orm import Session
 
 from src.apps.imports.wildfires.portugal_icnf import resync_wildfires as app
 from src.data_model import Base
-from src.providers import icnf
-from src.providers.icnf.wildfire import IcnfWildfire
+from src.providers import portugal_icnf
+from src.providers.portugal_icnf.wildfire import IcnfWildfire
 
 logger = logging.getLogger("test-icnf-resync")
 
@@ -141,7 +141,7 @@ def connection_arguments(database):
             "--db-password", info.password or ""]
 
 
-def seed_fire(session, provider_id, layer, sgif, published_date, precision=icnf.PRECISION_DAY):
+def seed_fire(session, provider_id, layer, sgif, published_date, precision=portugal_icnf.PRECISION_DAY):
     """Insert a fire as the archive import would have left it.
 
     The start is **local midnight** on the published day, which is what the import
@@ -176,15 +176,15 @@ def stored(database):
         provider = session.execute(text(
             "INSERT INTO data_provider (name, product, full_name) "
             "VALUES (:name, :product, :full) RETURNING id"
-        ), {"name": icnf.PROVIDER_NAME, "product": icnf.PROVIDER_PRODUCT,
-            "full": icnf.PROVIDER_FULL_NAME}).scalar()
+        ), {"name": portugal_icnf.PROVIDER_NAME, "product": portugal_icnf.PROVIDER_PRODUCT,
+            "full": portugal_icnf.PROVIDER_FULL_NAME}).scalar()
 
         seed_fire(session, provider, "ardida_2024", "SGIF-1", "2024-07-15")
         seed_fire(session, provider, "ardida_2024", "SGIF-2", "2024-08-01")
         # No identifier and no date: the source has nothing to offer for it.
-        seed_fire(session, provider, "ardida_2024", None, "2024-01-01", icnf.PRECISION_YEAR)
+        seed_fire(session, provider, "ardida_2024", None, "2024-01-01", portugal_icnf.PRECISION_YEAR)
         seed_fire(session, provider, "ardida_1975_1989", None, "1980-01-01",
-                  icnf.PRECISION_YEAR)
+                  portugal_icnf.PRECISION_YEAR)
         session.commit()
     return engine
 
@@ -394,9 +394,9 @@ def test_the_published_instants_are_stored_unchanged(stored, args):
 
 
 def test_the_precision_becomes_minute(stored, args):
-    assert stored_fire(stored, "SGIF-1").date_time_precision == icnf.PRECISION_DAY
+    assert stored_fire(stored, "SGIF-1").date_time_precision == portugal_icnf.PRECISION_DAY
     resync_one_layer(stored, args, [feature("SGIF-1")])
-    assert stored_fire(stored, "SGIF-1").date_time_precision == icnf.PRECISION_MINUTE
+    assert stored_fire(stored, "SGIF-1").date_time_precision == portugal_icnf.PRECISION_MINUTE
 
 
 def test_every_other_attribute_is_resynced(stored, args):
@@ -470,7 +470,7 @@ def test_a_fire_the_wfs_no_longer_returns_is_reported_not_deleted(stored, args):
     counts = resync_one_layer(stored, args, [feature("SGIF-1")])
     assert counts["missing"] == 1  # SGIF-2 was not returned
     assert stored_fire(stored, "SGIF-2") is not None
-    assert stored_fire(stored, "SGIF-2").date_time_precision == icnf.PRECISION_DAY
+    assert stored_fire(stored, "SGIF-2").date_time_precision == portugal_icnf.PRECISION_DAY
 
 
 def test_a_fire_the_database_does_not_have_is_reported_not_inserted(stored, args):
@@ -502,7 +502,7 @@ def test_a_start_at_local_midnight_is_counted(stored, args):
 def test_a_fire_the_wfs_still_has_no_date_for_keeps_its_precision(stored, args):
     resync_one_layer(stored, args, [feature("SGIF-1", DH_Inicio=None, DH_Fim=None)])
     fire = stored_fire(stored, "SGIF-1")
-    assert fire.date_time_precision == icnf.PRECISION_DAY
+    assert fire.date_time_precision == portugal_icnf.PRECISION_DAY
     # And the start it already had is kept rather than nulled.
     assert fire.start_date_time is not None
 
@@ -558,7 +558,7 @@ def test_a_dry_run_changes_nothing(stored, connection_arguments, monkeypatch):
 
     totals = app.resync(dry, stored, logger)
     assert totals["dates"] == 1               # it says what it would have done
-    assert stored_fire(stored, "SGIF-1").date_time_precision == icnf.PRECISION_DAY
+    assert stored_fire(stored, "SGIF-1").date_time_precision == portugal_icnf.PRECISION_DAY
 
 
 def test_a_failing_layer_does_not_cost_the_others(stored, args, monkeypatch, caplog):
@@ -570,7 +570,7 @@ def test_a_failing_layer_does_not_cost_the_others(stored, args, monkeypatch, cap
 
     assert totals["failed"] == 1
     assert totals["layers"] == 0
-    assert stored_fire(stored, "SGIF-1").date_time_precision == icnf.PRECISION_DAY
+    assert stored_fire(stored, "SGIF-1").date_time_precision == portugal_icnf.PRECISION_DAY
     assert "giving up on this layer" in caplog.text
 
 
@@ -584,7 +584,7 @@ def test_main_runs_the_whole_resync(stored, connection_arguments, monkeypatch):
     client = wfs([FakeResponse(payload=collection([feature("SGIF-1")]))])
     monkeypatch.setattr(app, "Wfs", lambda **kwargs: client)
     assert app.main(["--delay", "0", *connection_arguments]) == 0
-    assert stored_fire(stored, "SGIF-1").date_time_precision == icnf.PRECISION_MINUTE
+    assert stored_fire(stored, "SGIF-1").date_time_precision == portugal_icnf.PRECISION_MINUTE
 
 
 def test_main_reports_missing_database_settings(monkeypatch, caplog):
@@ -601,7 +601,7 @@ def test_main_reports_an_empty_database(database, connection_arguments, caplog):
 
 def test_defaults_are_applied():
     parsed = app.parse_arguments([])
-    assert parsed.url == icnf.PROVIDER_URL
+    assert parsed.url == portugal_icnf.PROVIDER_URL
     assert parsed.delay == app.DEFAULT_DELAY == 2.0
     assert parsed.layers is None
     assert parsed.dry_run is False
