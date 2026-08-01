@@ -120,6 +120,7 @@ as the importers::
    src/apps/statistics/wildfires/gwis/wildfire_statistics.py
    src/apps/statistics/wildfires/gfa/wildfire_statistics.py
    src/apps/statistics/wildfires/portugal_icnf/wildfire_statistics.py
+   src/apps/statistics/wildfires/spain_egif/wildfire_statistics.py
 
 :doc:`applications/gwis_wildfire_statistics`
     Burnt area of the GWIS GlobFire wildfires, per country and year — smallest fire,
@@ -139,6 +140,13 @@ as the importers::
     start date, because 71% of these fires publish no date and carry a 1 January
     placeholder — and declines to measure in Portugal's own EPSG:3763 grid, which is
     conformal rather than equal-area and 7.6% out in the Azores.
+
+:doc:`applications/egif_wildfire_statistics`
+    The same report over the Spanish EGIF fire statistics, and the only one of the four
+    whose hectares are **reported rather than measured**: EGIF publishes no perimeter, so
+    there is no ``--area-method``. It publishes five burnt areas instead, and ``--surface``
+    picks which one — ``forest`` by default, the figure the national statistic is quoted
+    in. Groups on the filed ``Campania``.
 
 .. note::
 
@@ -161,3 +169,4 @@ as the importers::
    applications/gwis_wildfire_statistics
    applications/gfa_wildfire_statistics
    applications/icnf_wildfire_statistics
+   applications/egif_wildfire_statistics
