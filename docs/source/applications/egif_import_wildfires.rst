@@ -19,14 +19,14 @@ importer — then point it at the directory the exports were downloaded into:
 .. code-block:: bash
 
    make migrate
-   python3 -m src.apps.imports.wildfires.egif.import_wildfires -d /path/to/egif/
+   python3 -m src.apps.imports.wildfires.spain_egif.import_wildfires -d /path/to/egif/
 
 Every ``.xlsx`` in the directory is read before every ``.xml``, both in name order, which
 for these files is chronological. Individual files can be given instead:
 
 .. code-block:: bash
 
-   python3 -m src.apps.imports.wildfires.egif.import_wildfires \
+   python3 -m src.apps.imports.wildfires.spain_egif.import_wildfires \
        -s 2020-2023.xlsx 2020-2023.xml
 
 Database settings are read from the environment (``.env``, see
@@ -103,9 +103,9 @@ row.
 
    **Each step writes only the columns its own format publishes.** This is the mechanism
    that stops the second step undoing the first, and it is why
-   :data:`~src.apps.imports.wildfires.egif.import_wildfires.XML_WILDFIRE_COLUMNS` is
+   :data:`~src.apps.imports.wildfires.spain_egif.import_wildfires.XML_WILDFIRE_COLUMNS` is
    deliberately *not* a superset of
-   :data:`~src.apps.imports.wildfires.egif.import_wildfires.EXCEL_WILDFIRE_COLUMNS`.
+   :data:`~src.apps.imports.wildfires.spain_egif.import_wildfires.EXCEL_WILDFIRE_COLUMNS`.
 
    Without it, re-importing an Excel export to pick up a revised campaign would set
    ``egif_id``, ``municipality_ine_code`` and the *paraje* back to ``NULL`` — and nothing
@@ -294,7 +294,7 @@ bars carry a percentage and an estimate. An XML export cannot be counted without
 it, so its display shows the running count and rate instead.
 
 Problems are logged per fire with its report number, up to
-:data:`~src.apps.imports.wildfires.egif.import_wildfires.MAX_REPORTED_PROBLEMS` per file,
+:data:`~src.apps.imports.wildfires.spain_egif.import_wildfires.MAX_REPORTED_PROBLEMS` per file,
 after which they are only counted — a file that is wrong in some systematic way would
 otherwise write one line per fire and bury the summary that says so.
 
@@ -321,10 +321,10 @@ is a stable unique key, so a re-import backfills new columns by upsert.
 API reference
 -------------
 
-.. automodule:: src.apps.imports.wildfires.egif.import_wildfires
+.. automodule:: src.apps.imports.wildfires.spain_egif.import_wildfires
    :members:
    :show-inheritance:
 
-.. automodule:: src.apps.imports.wildfires.egif.readers
+.. automodule:: src.apps.imports.wildfires.spain_egif.readers
    :members:
    :show-inheritance:

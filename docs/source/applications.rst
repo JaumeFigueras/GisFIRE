@@ -26,7 +26,7 @@ under ``src/apps/imports/``::
    src/apps/imports/wildfires/gwis/import_wildfires.py
    src/apps/imports/wildfires/gfa/import_wildfires.py
    src/apps/imports/wildfires/portugal_icnf/import_wildfires.py
-   src/apps/imports/wildfires/egif/import_wildfires.py
+   src/apps/imports/wildfires/spain_egif/import_wildfires.py
 
 so that a second source for the same kind of data — OSM for the administrative levels
 below the country, another agency's fire perimeters — sits beside the first rather than

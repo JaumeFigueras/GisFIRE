@@ -22,7 +22,7 @@ from sqlalchemy import select
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from src.apps.imports.wildfires.egif import import_wildfires as app
+from src.apps.imports.wildfires.spain_egif import import_wildfires as app
 from src.data_model import Base
 from src.providers import egif
 from src.providers.egif.fire_cause import EgifFireCause

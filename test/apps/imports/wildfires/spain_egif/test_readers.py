@@ -12,7 +12,7 @@ import datetime
 
 import pytest
 
-from src.apps.imports.wildfires.egif import readers
+from src.apps.imports.wildfires.spain_egif import readers
 
 from .conftest import block
 from .conftest import code_list

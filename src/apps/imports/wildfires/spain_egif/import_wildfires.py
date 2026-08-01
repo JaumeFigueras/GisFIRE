@@ -4,7 +4,7 @@
 
 One application, two steps, in that order::
 
-    python3 -m src.apps.imports.wildfires.egif.import_wildfires -d /path/to/egif/
+    python3 -m src.apps.imports.wildfires.spain_egif.import_wildfires -d /path/to/egif/
 
 **Step 1 reads every ``.xlsx``.** The Excel "resumen" is the only public source
 that prints a code *with its label* — ``[213]  Quema de restos agrícolas`` — so it
@@ -83,8 +83,8 @@ import src.settings  # noqa: F401  (imported for the side effect of loading .env
 from src.apps.imports import common
 from src.apps.imports.common import ArchiveLogger
 from src.apps.imports.common import ProgressReporter
-from src.apps.imports.wildfires.egif import readers
-from src.apps.imports.wildfires.egif.readers import PifRecord
+from src.apps.imports.wildfires.spain_egif import readers
+from src.apps.imports.wildfires.spain_egif.readers import PifRecord
 from src.providers import egif
 from src.providers import ign
 

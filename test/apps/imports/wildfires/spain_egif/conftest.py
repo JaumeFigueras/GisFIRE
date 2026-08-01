@@ -23,7 +23,7 @@ import zipfile
 
 from pathlib import Path
 
-from src.apps.imports.wildfires.egif.readers import EXCEL_COLUMNS
+from src.apps.imports.wildfires.spain_egif.readers import EXCEL_COLUMNS
 
 #: A minimal but valid workbook part set, namespaced the way the exports are
 #: (``x:`` prefixed) so the readers are exercised against the real shape.
