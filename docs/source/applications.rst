@@ -121,6 +121,7 @@ as the importers::
    src/apps/statistics/wildfires/gfa/wildfire_statistics.py
    src/apps/statistics/wildfires/portugal_icnf/wildfire_statistics.py
    src/apps/statistics/wildfires/spain_egif/wildfire_statistics.py
+   src/apps/statistics/wildfires/portugal_icnf/wildfire_causes.py
 
 :doc:`applications/gwis_wildfire_statistics`
     Burnt area of the GWIS GlobFire wildfires, per country and year — smallest fire,
@@ -146,7 +147,16 @@ as the importers::
     whose hectares are **reported rather than measured**: EGIF publishes no perimeter, so
     there is no ``--area-method``. It publishes five burnt areas instead, and ``--surface``
     picks which one — ``forest`` by default, the figure the national statistic is quoted
-    in. Groups on the filed ``Campania``.
+    in. Groups on the filed ``Campania``. Its ``--country-source`` tests the published
+    ignition point rather than a perimeter, which is how a coordinate that landed in the
+    sea gets caught.
+
+:doc:`applications/icnf_wildfire_causes`
+    The companion of the ICNF report, over the same fires under the same rule, counting
+    instead of measuring: how many fires there were, how many carry a cause at all, and
+    how many of those were ``Natural``. The ICNF publishes no lightning category, so
+    ``Natural`` is the nearest proxy — and only fires from 2014 on are classified, which
+    is why the percentage is of the classified ones and not of all.
 
 .. note::
 
@@ -170,3 +180,4 @@ as the importers::
    applications/gfa_wildfire_statistics
    applications/icnf_wildfire_statistics
    applications/egif_wildfire_statistics
+   applications/icnf_wildfire_causes

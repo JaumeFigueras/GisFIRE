@@ -39,6 +39,10 @@ Over everything, or narrowed to one campaign, one surface, or the fires above a 
    python3 -m src.apps.statistics.wildfires.spain_egif.wildfire_statistics \
        --surface burnt --min-area 5 --csv over-5-ha.csv
 
+   # only the fires whose published ignition point really is inside a country
+   python3 -m src.apps.statistics.wildfires.spain_egif.wildfire_statistics \
+       --country-source geometry --csv located.csv
+
 At least one of ``--csv`` and ``--docx`` is required.
 
 The application only reads; it never modifies the database. Settings are read from the
@@ -48,13 +52,10 @@ environment (``.env``, see :doc:`../setup/configuration`) and each can be overri
 .. important::
 
    **There is no** ``--country``. EGIF is the Spanish national statistic, so every fire in
-   it is filed in Spain and there is nothing to select between. The column stays, holding
-   the constant ``Spain``, so this report's CSV has the same shape as the other three.
-
-   Unlike the ICNF report there is not even a ``--country-source``: with no perimeter
-   there is nothing to test against a boundary, and EGIF's own answer to where a fire is —
-   *comunidad*, province, municipality — is administrative and never in doubt about the
-   country.
+   it is filed in Spain and there is nothing to select between. The column stays so this
+   report's CSV has the same shape as the other three — and under ``--country-source
+   geometry`` it is not always ``Spain``, which is the point of that option. See
+   :ref:`egif-country-source`.
 
 Output
 ------
@@ -177,6 +178,67 @@ means every fire that burnt no forest at all.
    different vintages compares two degrees of completeness, not two fire seasons. The
    ``.docx`` says so on its front page for the same reason.
 
+.. _egif-country-source:
+
+Which country a fire counts towards, and the points in the sea
+--------------------------------------------------------------
+
+EGIF has no perimeter, but it does have a **point**: the published ignition coordinate on
+:doc:`../providers/egif_ignition`. That point is testable against a country polygon exactly
+as the other three reports test an interior point of their perimeter, and
+``--country-source`` chooses whether to use it.
+
+``filed`` (default)
+    Takes EGIF's own word for it. The report is a Spanish *parte*, so the fire is in Spain;
+    the ``Country`` column is the constant ``Spain`` on every row and every fire that
+    reports the surface is counted. The coordinate never comes into it.
+
+``geometry``
+    Asks the database which country actually contains the ignition point, at report time,
+    against the real OCHA country polygons. A point that is in no country — in the sea —
+    drops out, and a point over the French or Portuguese border is reported as that
+    country's row rather than folded into Spain's.
+
+**Why ``geometry`` is worth having.** An EGIF coordinate can be badly wrong and still
+survive import. The importer's only geometric guard is a plausibility box on the published
+UTM easting and northing (100,000-900,000 E and 2,800,000-4,900,000 N), and that rectangle
+contains a great deal of Atlantic and Mediterranean. On top of that, where the published
+*huso* is not a zone Spain lies in, the zone is replaced with the modal one for the
+province — right in all sixteen archive cases, but a repair that can in principle walk a
+coastal point out to sea. Nothing downstream of the import checks where the point landed
+until this option does.
+
+.. warning::
+
+   **``geometry`` also drops every fire with no published point, which is half the
+   archive.** 293,710 of the 586,157 fires of 1982-2023 publish no coordinate at all,
+   every fire before 1998 among them.
+
+   So a ``geometry`` run is not comparable with a ``filed`` one and is nowhere near the
+   published national figure. It answers "what do the located fires say", not "what
+   burnt". This is why the default here is the opposite of the other three reports': there
+   ``geometry`` costs nothing, every perimeter being present.
+
+Whenever ``geometry`` is in force the log says what was left out and why, split between
+the two — they mean entirely different things and the report does not add them up:
+
+.. code-block:: text
+
+   INFO    Excluded 3 of 6 fires reporting a forest area: 1 publish no point,
+           2 publish a point in no country
+   WARNING 2 fire(s) have a published coordinate that is inside no country — a point
+           in the sea survives import, whose only geometric guard is a plausibility
+           box on the UTM easting and northing
+
+*No point* is an ordinary property of the archive. *Point in no country* is a data fault,
+and it is the number to watch. The ``.docx`` carries a paragraph saying the run covers only
+located fires, for the same reason.
+
+.. tip::
+
+   Running the same report both ways is the cheap way to find the bad coordinates: the
+   fires that disappear are the ones whose point and whose filing disagree.
+
 One statement, not one per year
 -------------------------------
 
@@ -185,13 +247,14 @@ point-in-polygon test against a country polygon needs is only released when the 
 ends, and a single pass over twenty million perimeters took a 30 GB machine to the OOM
 killer.
 
-This report does **no geometry at all** — it is an indexed aggregate over one column of
-one table, and it does not even join the parent ``wildfire`` row, everything it reads
-being on ``egif_wildfire``. So there is nothing to spread over several statements and it
-runs as one ``GROUP BY campaign``, under one spinner. The ``Total`` row is still arithmetic
-over the campaigns, by
+This report is one statement. Under ``filed`` it does no geometry at all — an indexed
+aggregate over one column of one table, which does not even join the parent ``wildfire``
+row, everything it reads being on ``egif_wildfire``. Under ``geometry`` it does test a
+point per fire, but against 586,157 points at worst, two orders of magnitude short of the
+case that died, and a point is a far cheaper thing to contain than a multipolygon. The
+``Total`` row is arithmetic over the campaigns, by
 :func:`~src.apps.statistics.wildfires.spain_egif.wildfire_statistics.combine`, so the
-output is the same shape as the other three.
+output is the same shape as the other three either way.
 
 API reference
 -------------

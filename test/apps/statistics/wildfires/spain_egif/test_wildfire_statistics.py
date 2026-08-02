@@ -21,9 +21,15 @@ import logging
 
 import pytest
 
+from shapely.geometry import MultiPolygon
+from shapely.geometry import box
+
 from src.apps.statistics.wildfires.spain_egif import wildfire_statistics as app
 from src.data_model.data_provider import DataProvider
+from src.providers import ocha
 from src.providers import spain_egif
+from src.providers.ocha.admin_boundary import OchaAdminBoundary
+from src.providers.spain_egif.ignition import EgifIgnition
 from src.providers.spain_egif.wildfire import EgifWildfire
 
 logger = logging.getLogger("test-egif-statistics")
@@ -122,8 +128,9 @@ def with_edge_cases(populated, provider_id):
     return populated
 
 
-def rows_for(session, year=None, surface=app.SURFACE_FOREST, min_area=None) -> list[app.Row]:
-    return app.compute(session, year, logger, surface, min_area)
+def rows_for(session, year=None, surface=app.SURFACE_FOREST, min_area=None,
+             country_source=app.COUNTRY_SOURCE_FILED) -> list[app.Row]:
+    return app.compute(session, year, logger, surface, min_area, country_source)
 
 
 def find(rows: list[app.Row], year: int | None) -> app.Row:
@@ -151,6 +158,18 @@ def test_the_defaults_are_every_campaign_of_forest_area():
     assert parsed.year is None
     assert parsed.surface == app.SURFACE_FOREST
     assert parsed.min_area is None
+
+
+def test_the_country_source_defaults_to_filed_unlike_the_other_reports():
+    """Deliberately the opposite default: 'geometry' would drop half the archive."""
+    assert app.parse_arguments(["--csv", "out.csv"]).country_source == app.COUNTRY_SOURCE_FILED
+
+
+def test_an_unknown_country_source_is_refused():
+    with pytest.raises(SystemExit):
+        app.parse_arguments(["--csv", "out.csv", "--country-source", "vibes"])
+    with pytest.raises(ValueError, match="unknown country source"):
+        app.country_columns("vibes")
 
 
 def test_the_columns_match_the_other_reports():
@@ -542,4 +561,173 @@ def test_the_total_row_is_combined_from_the_campaigns_measured(populated):
     rows = rows_for(populated)
     campaigns = [row for row in rows if not row.is_total]
 
-    assert find(rows, None) == app.combine(campaigns)
+    assert find(rows, None) == app.combine(campaigns, "Spain", None)
+
+
+# --------------------------------------------------------------------------
+# Where the country comes from, and the points in the sea
+# --------------------------------------------------------------------------
+
+#: Spain, and France next door so a coordinate over the border has somewhere to go.
+COUNTRIES = [
+    ("ESP", "Spain", box(-9.3, 36.0, 3.0, 43.8)),
+    ("FRA", "France", box(3.0, 42.0, 8.0, 51.0)),
+]
+
+#: (report_number, longitude, latitude or None, forest hectares). ``None`` for the
+#: coordinate means the fire publishes no point at all, which half the archive does.
+LOCATED = [
+    ("2015280001", -3.70, 40.42, 10.0),   # Madrid: inland, in Spain
+    ("2015280002", -12.00, 40.00, 20.0),  # the Atlantic: a point in no country
+    ("2015280003", 5.00, 44.00, 30.0),    # over the French border
+    ("2015280004", None, None, 40.0),     # no coordinate published
+]
+
+
+@pytest.fixture
+def located(db_session, provider_id):
+    """Four 2015 fires: one in Spain, one in the sea, one in France, one unlocated."""
+    ocha_provider = DataProvider(name=ocha.PROVIDER_NAME, product=ocha.PROVIDER_PRODUCT,
+                                 full_name=ocha.PROVIDER_FULL_NAME, url=ocha.PROVIDER_URL)
+    db_session.add(ocha_provider)
+    db_session.flush()
+    for code, name, geometry in COUNTRIES:
+        db_session.add(OchaAdminBoundary(
+            data_provider_id=ocha_provider.id, source_id=code, level=0, name=name,
+            geometry=f"SRID=4326;{MultiPolygon([geometry]).wkt}",
+            source=code, iso_code=1, iso_2=code[:2], iso_3=code, iso_name=name,
+            iso_3_group=code, region1_code=1, region1_name="r1", region2_code=2,
+            region2_name="r2", region3_code=3, region3_name="r3", status_code=1,
+            status_name="State", valid_date=datetime.date(2025, 1, 1),
+            update_date=datetime.date(2025, 1, 1), land_source="osm", view="intl",
+        ))
+
+    for number, longitude, latitude, hectares in LOCATED:
+        ignition_id = None
+        if longitude is not None:
+            ignition = EgifIgnition(
+                data_provider_id=provider_id, report_number=number,
+                geometry=f"SRID=4326;POINT({longitude} {latitude})",
+                date_time=datetime.datetime(2015, 7, 1, tzinfo=UTC),
+                time_zone=spain_egif.DEFAULT_TIME_ZONE,
+                utm_zone=30, utm_x=440000.0, utm_y=4474000.0,
+                datum=spain_egif.DATUM_ETRS89, start_point_count=1)
+            db_session.add(ignition)
+            db_session.flush()
+            ignition_id = ignition.id
+        db_session.add(EgifWildfire(
+            report_number=number, campaign=2015, province_ine_code=number[4:6],
+            data_provider_id=provider_id, ignition_id=ignition_id,
+            start_date_time=datetime.datetime(2015, 7, 1, tzinfo=UTC),
+            time_zone=spain_egif.DEFAULT_TIME_ZONE,
+            area_ha_wooded=hectares, area_ha_non_wooded=0.0,
+            area_ha_forest_total=hectares,
+            area_ha_agricultural=0.0, area_ha_other_non_forest=0.0))
+    db_session.commit()
+    return db_session
+
+
+def find_country(rows, country, year):
+    matches = [row for row in rows if row.country == country and row.year == year]
+    assert len(matches) == 1, f"expected one row for {country}/{year}, got {len(matches)}"
+    return matches[0]
+
+
+def test_filed_counts_every_fire_wherever_its_point_is(located):
+    """The default takes EGIF's word for it, and the coordinate never comes into it."""
+    rows = rows_for(located, country_source=app.COUNTRY_SOURCE_FILED)
+    year_2015 = find_country(rows, "Spain", 2015)
+
+    assert year_2015.fires == len(LOCATED)
+    assert year_2015.total == pytest.approx(sum(fire[3] for fire in LOCATED))
+    assert {row.country for row in rows} == {"Spain"}
+
+
+def test_a_point_in_the_sea_is_dropped(located):
+    """What the option is for: a coordinate that is somewhere a Spanish fire is not.
+
+    It keeps its Spanish province code and its report number, and nothing before
+    this test looks at where it actually is.
+    """
+    rows = rows_for(located, country_source=app.COUNTRY_SOURCE_GEOMETRY)
+    spain = find_country(rows, "Spain", 2015)
+
+    assert spain.fires == 1
+    assert spain.total == pytest.approx(10.0), "only the Madrid fire is in Spain"
+
+
+def test_a_point_over_the_border_is_attributed_where_it_actually_is(located):
+    """The Country column is what makes this visible, which is why it is kept."""
+    rows = rows_for(located, country_source=app.COUNTRY_SOURCE_GEOMETRY)
+
+    france = find_country(rows, "France", 2015)
+    assert france.fires == 1
+    assert france.total == pytest.approx(30.0)
+    assert [(row.country, row.year_label) for row in rows] == [
+        ("France", "2015"), ("France", "Total"), ("Spain", "2015"), ("Spain", "Total")]
+
+
+def test_a_fire_with_no_point_is_dropped_too(located):
+    """Half the archive, and the reason this is not the default."""
+    counted = sum(row.fires for row in rows_for(
+        located, country_source=app.COUNTRY_SOURCE_GEOMETRY) if not row.is_total)
+
+    assert counted == 2, "the sea fire and the unlocated one both go"
+
+
+def test_the_audit_separates_no_point_from_a_point_in_no_country(located):
+    """The two mean entirely different things, so the report does not add them up."""
+    audit = located.execute(app.location_audit()).one()
+
+    assert audit.no_point == 1
+    assert audit.outside == 1
+
+
+def test_the_audit_and_the_report_account_for_every_fire(located):
+    """counted + no point + outside == the fires that reported the surface."""
+    rows = rows_for(located, country_source=app.COUNTRY_SOURCE_GEOMETRY)
+    counted = sum(row.fires for row in rows if not row.is_total)
+    audit = located.execute(app.location_audit()).one()
+
+    assert counted + audit.no_point + audit.outside == len(LOCATED)
+
+
+def test_the_audit_follows_the_scope_it_is_given(located):
+    """Otherwise its numbers would not add up to the report standing beside it."""
+    assert located.execute(app.location_audit(year=1999)).one() == (0, 0)
+    # The unlocated fire burnt 40 ha and the sea fire 20: a threshold between them
+    # leaves only the unlocated one to account for.
+    audit = located.execute(app.location_audit(min_area=30.0)).one()
+    assert (audit.no_point, audit.outside) == (1, 0)
+
+
+def test_the_geometry_run_warns_about_the_points_in_the_sea(located, caplog):
+    """A run that silently halved itself would be worse than no option at all."""
+    with caplog.at_level(logging.INFO):
+        rows_for(located, country_source=app.COUNTRY_SOURCE_GEOMETRY)
+
+    messages = "\n".join(record.getMessage() for record in caplog.records)
+    assert "publish no point" in messages
+    assert "point in no country" in messages
+    # And it says how many of each, not just that some exist.
+    assert "1 publish no point" in messages
+
+
+def test_the_docx_says_the_run_only_covers_located_fires(located, tmp_path):
+    docx = pytest.importorskip("docx")
+    target = tmp_path / "burnt.docx"
+    rows = rows_for(located, country_source=app.COUNTRY_SOURCE_GEOMETRY)
+    app.write_docx(rows, target, None, logger, country_source=app.COUNTRY_SOURCE_GEOMETRY)
+
+    prose = "\n".join(p.text for p in docx.Document(str(target)).paragraphs)
+    assert "usable published coordinate" in prose
+    assert "not comparable" in prose
+
+
+def test_the_docx_claims_no_such_restriction_by_default(located, tmp_path):
+    docx = pytest.importorskip("docx")
+    target = tmp_path / "burnt.docx"
+    app.write_docx(rows_for(located), target, None, logger)
+
+    prose = "\n".join(p.text for p in docx.Document(str(target)).paragraphs)
+    assert "usable published coordinate" not in prose

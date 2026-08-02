@@ -117,25 +117,66 @@ By default there is no threshold.
    campaigns of different vintages compares two different degrees of completeness,
    not two fire seasons.
 
-One statement, and no country test
-----------------------------------
+Which country a fire counts towards, and the points in the sea
+--------------------------------------------------------------
 
-The other three reports measure one year per statement, because a point-in-polygon
-test against a country polygon holds its memory until the statement ends and a
-single pass over twenty million perimeters took a 30 GB machine to the OOM killer.
-**This report does no geometry at all** — it is an indexed aggregate over one
-column of one table — so there is nothing to spread over several statements, and
-it runs as one ``GROUP BY campaign``. The ``Total`` row is still arithmetic over
-the years, by :func:`combine`, so the output is the same shape as the other three.
+EGIF has no perimeter, but it does have a **point** — the published ignition
+coordinate on :class:`~src.providers.spain_egif.ignition.EgifIgnition` — and that
+point is testable against a country polygon exactly as the other three reports
+test an interior point of their perimeter. ``--country-source`` chooses whether to
+use it.
 
-For the same reason there is no ``--country-source``: with no perimeter there is
-nothing to test against a boundary, and EGIF's own answer to where a fire is —
-*comunidad*, province, municipality — is administrative and never in doubt about
-the country. The ``Country`` column is therefore the constant
-:data:`COUNTRY_NAME`. It is kept so that this report's CSV has the same shape as
-the other three and the four can be concatenated and compared, which is the whole
-reason for reporting a national statistic in the same table as three perimeter
-datasets.
+**``filed``** (the default) takes EGIF's own word for it: the report is a Spanish
+*parte*, so the fire is in Spain, and the ``Country`` column is the constant
+:data:`COUNTRY_NAME` on every row. Every fire that reports the surface is counted.
+
+**``geometry``** asks the database which country actually contains the ignition
+point, at report time, against the real polygons. It is worth reaching for because
+**an EGIF coordinate can be badly wrong and still survive import**. The importer's
+only geometric guard is a plausibility box on the published easting and northing
+(:data:`~src.providers.spain_egif.PLAUSIBLE_UTM_EASTING`), which is a rectangle
+containing a great deal of Atlantic and Mediterranean; and where the published
+*huso* is not a zone Spain lies in, the zone is replaced with the modal one for the
+province, which can walk a coastal point out to sea. Under ``geometry`` those fires
+are dropped, and a point that lands over the French or Portuguese border is
+reported as that country's row rather than folded into Spain's.
+
+Two things to know before switching it on:
+
+* **It drops every fire with no published point, which is half the archive.**
+  293,710 of the 586,157 fires of 1982-2023 publish no coordinate at all, every
+  fire before 1998 among them. A ``geometry`` run of the historical series is
+  therefore not comparable with a ``filed`` one and is nowhere near the published
+  national figure. It answers "what do the located fires say", not "what burnt".
+* Whenever it is in force the log says how many fires were dropped and why, split
+  between *no point published* and *point in no country* — see
+  :func:`location_audit`. The second number is the one to watch: it is the count
+  of coordinates that are somewhere a Spanish fire is not.
+
+So the default is the opposite of the other three reports', which default to
+``geometry``. There it costs nothing, every perimeter being present; here it would
+silently halve the report.
+
+One statement
+-------------
+
+The other three reports measure one year per statement, because the memory a
+point-in-polygon test against a country polygon needs is only released when the
+statement ends, and a single pass over twenty million perimeters took a 30 GB
+machine to the OOM killer.
+
+This report is one statement. Under ``filed`` it does no geometry whatsoever — an
+indexed aggregate over one column of one table, which does not even join the
+parent ``wildfire`` row. Under ``geometry`` it does test a point per fire, but
+against 586,157 points at worst, two orders of magnitude short of the case that
+died, and a point is a far cheaper thing to contain than a multipolygon. The
+``Total`` row is arithmetic over the campaigns, by :func:`combine`, so the output
+is the same shape as the other three either way.
+
+The ``Country`` column is kept in both modes so that this report's CSV has the
+same shape as the other three and the four can be concatenated and compared, which
+is the whole reason for reporting a national statistic in the same table as three
+perimeter datasets.
 """
 
 from __future__ import annotations
@@ -155,13 +196,18 @@ from sqlalchemy import Engine
 from sqlalchemy import Select
 from sqlalchemy import create_engine
 from sqlalchemy import func
+from sqlalchemy import literal
 from sqlalchemy import or_
 from sqlalchemy import select
+from sqlalchemy import true
 from sqlalchemy.orm import Session
 
 import src.settings  # noqa: F401  (imported for the side effect of loading .env)
 
 from src.apps.imports import common
+from src.data_model.geography.admin_boundary import AdminBoundary
+from src.data_model.ignition import Ignition
+from src.providers.ocha.admin_boundary import OchaAdminBoundary
 from src.providers.spain_egif.wildfire import EgifWildfire
 
 #: Label used in the ``Year`` column for the summary row.
@@ -176,11 +222,20 @@ COLUMNS = ("Country", "Year", "Fires", "Minimum (ha)", "Maximum (ha)", "Total (h
 #: Word table.
 FIRST_NUMERIC_COLUMN = 2
 
-#: The only country EGIF reports on. A constant and not a query: see the module
-#: docstring for why there is nothing to resolve here. Spelled as the OCHA
-#: boundaries spell it, so a row of this report sorts and groups with the rows of
-#: the other three.
+#: The country EGIF reports on, and the whole of the ``Country`` column under
+#: ``--country-source filed``. Spelled as the OCHA boundaries spell it, so a row of
+#: this report sorts and groups with the rows of the other three.
 COUNTRY_NAME = "Spain"
+
+#: The two ways of deciding which country a fire counts towards. Unlike the other
+#: three reports the default is **not** ``geometry``: see the module docstring —
+#: half the archive publishes no coordinate, so testing one would halve the report.
+COUNTRY_SOURCE_FILED = "filed"
+COUNTRY_SOURCE_GEOMETRY = "geometry"
+COUNTRY_SOURCES = (COUNTRY_SOURCE_FILED, COUNTRY_SOURCE_GEOMETRY)
+
+#: Administrative level of a country in ``admin_boundary``.
+COUNTRY_LEVEL = 0
 
 #: The burnt areas EGIF publishes, as ``--surface`` accepts them.
 SURFACE_FOREST = "forest"
@@ -266,9 +321,76 @@ def reported_surface(surface: str) -> tuple[ColumnElement, ColumnElement]:
     )
 
 
+def country_columns(source: str) -> tuple[ColumnElement, list]:
+    """Where a fire's country comes from, as ``(name, joins)``.
+
+    Parameters
+    ----------
+    source : str
+        One of :data:`COUNTRY_SOURCES`.
+
+    Returns
+    -------
+    tuple
+        The country-name expression, and the joins that have to be applied to a
+        ``select`` over ``egif_wildfire`` for it to resolve.
+
+    Raises
+    ------
+    ValueError
+        If ``source`` is not one of :data:`COUNTRY_SOURCES`.
+
+    Notes
+    -----
+    **``filed``** is a literal and needs no join. It is still grouped on, like the
+    real column: by the time the outer aggregate sees it, it is a column of the
+    subquery rather than a constant, and PostgreSQL requires every one of those in
+    the ``GROUP BY``. One extra grouping key with a single distinct value costs
+    nothing and keeps the two modes the same shape.
+
+    **``geometry``** tests the published ignition point. Both of its joins are
+    inner, and each drops a different kind of fire: the join to ``ignition`` drops
+    the fires that publish no coordinate — half the archive — and the lateral drops
+    the ones whose coordinate is inside no country, which is what a point in the
+    sea is. :func:`location_audit` counts the two separately, because they mean
+    entirely different things about the data.
+
+    ``LATERAL ... LIMIT 1`` rather than a plain join: a point on a shared border
+    can satisfy ``ST_Contains`` for two countries, and one fire must not become two
+    rows. The join to ``ocha_admin_boundary`` is what keeps the test against the
+    OCHA country outlines rather than against every level-0 boundary any provider
+    has ever loaded.
+    """
+    if source == COUNTRY_SOURCE_FILED:
+        return literal(COUNTRY_NAME), []
+
+    if source != COUNTRY_SOURCE_GEOMETRY:
+        raise ValueError(
+            f"unknown country source {source!r}; expected one of {', '.join(COUNTRY_SOURCES)}"
+        )
+
+    ignition = Ignition.__table__
+    ocha_boundary = OchaAdminBoundary.__table__
+    containing = (
+        select(AdminBoundary.name.label("name"))
+        .select_from(AdminBoundary)
+        .join(ocha_boundary, ocha_boundary.c.id == AdminBoundary.id)
+        .where(AdminBoundary.level == COUNTRY_LEVEL)
+        .where(func.ST_Contains(AdminBoundary.geometry, ignition.c.geometry))
+        .limit(1)
+        .lateral("containing")
+    )
+    joins = [
+        (ignition, ignition.c.id == EgifWildfire.__table__.c.ignition_id),
+        (containing, true()),
+    ]
+    return containing.c.name, joins
+
+
 def statistics_query(surface: str = SURFACE_FOREST,
                      year: int | None = None,
-                     min_area: float | None = None) -> Select:
+                     min_area: float | None = None,
+                     country_source: str = COUNTRY_SOURCE_FILED) -> Select:
     """Build the statistics query: one row per campaign, newest first.
 
     Parameters
@@ -280,22 +402,25 @@ def statistics_query(surface: str = SURFACE_FOREST,
     min_area : float, optional
         Count only fires of at least this many hectares of the chosen surface.
         ``None``, the default, counts every fire.
+    country_source : str
+        One of :data:`COUNTRY_SOURCES`.
 
     Returns
     -------
     Select
-        A query yielding ``year, minimum, maximum, total, fires``. The summary row
-        is :func:`summarise`'s work.
+        A query yielding ``country, year, minimum, maximum, total, fires``. The
+        summary rows are :func:`summarise`'s work.
 
     Notes
     -----
-    Built against the mapped class rather than written as SQL text, so a column
-    renamed on the model breaks this at import time rather than in front of a user.
+    Built against the mapped classes rather than written as SQL text, so a column
+    renamed on a model breaks this at import time rather than in front of a user.
 
-    Selected from ``egif_wildfire`` alone: everything this report reads —
-    the campaign and the five reported areas — is on that table, so the parent
-    ``wildfire`` row is not joined at all. By table and not through the mapped
-    class, to keep SQLAlchemy from adding a polymorphic join of its own.
+    Under ``filed`` it is selected from ``egif_wildfire`` alone: everything the
+    report reads — the campaign and the five reported areas — is on that table, so
+    neither the parent ``wildfire`` row nor the ignition is joined at all. By table
+    and not through the mapped class, to keep SQLAlchemy from adding a polymorphic
+    join of its own.
 
     The inner query computes each area exactly once. Folded into the outer
     aggregate instead, the ``burnt`` expression would be evaluated three times per
@@ -307,30 +432,98 @@ def statistics_query(surface: str = SURFACE_FOREST,
     discard years whose total came out small.
     """
     hectares, is_reported = reported_surface(surface)
+    country_name, joins = country_columns(country_source)
 
     fires = (
-        select(CAMPAIGN.label("year"), hectares.label("hectares"))
+        select(country_name.label("country"),
+               CAMPAIGN.label("year"),
+               hectares.label("hectares"))
         .select_from(EgifWildfire.__table__)
         .where(is_reported)
     )
+    for target, condition in joins:
+        fires = fires.join(target, condition)
     if year is not None:
         fires = fires.where(CAMPAIGN == year)
 
     fire = fires.subquery("fire")
     statistics = (
         select(
+            fire.c.country,
             fire.c.year,
             func.min(fire.c.hectares).label("minimum"),
             func.max(fire.c.hectares).label("maximum"),
             func.sum(fire.c.hectares).label("total"),
             func.count().label("fires"),
         )
-        .group_by(fire.c.year)
+        .group_by(fire.c.country, fire.c.year)
         .order_by(fire.c.year.desc())
     )
     if min_area is not None:
         statistics = statistics.where(fire.c.hectares >= min_area)
     return statistics
+
+
+def location_audit(surface: str = SURFACE_FOREST,
+                   year: int | None = None,
+                   min_area: float | None = None) -> Select:
+    """Count the fires ``--country-source geometry`` leaves out, and why.
+
+    Returns
+    -------
+    Select
+        A query yielding one row, ``no_point, outside``: how many fires in scope
+        publish no coordinate at all, and how many publish one that is inside no
+        country.
+
+    Notes
+    -----
+    The two are worth separating and the report does not add them up. *No point* is
+    an ordinary property of the archive — half of it, and every fire before 1998 —
+    and says nothing about the fires that do have one. *Outside* is a coordinate
+    that is somewhere a Spanish fire is not, which is a data fault: the import's
+    only geometric guard is a plausibility box on the published UTM easting and
+    northing, and that rectangle contains a great deal of sea.
+
+    Run under the same scope as the report it accompanies — same surface, same
+    year, same threshold — so that its two numbers and the ``Fires`` column add up
+    to the fires that reported the surface.
+    """
+    hectares, is_reported = reported_surface(surface)
+    egif = EgifWildfire.__table__
+    ignition = Ignition.__table__
+    ocha_boundary = OchaAdminBoundary.__table__
+
+    located = (
+        select(AdminBoundary.id)
+        .select_from(AdminBoundary)
+        .join(ocha_boundary, ocha_boundary.c.id == AdminBoundary.id)
+        .where(AdminBoundary.level == COUNTRY_LEVEL)
+        .where(func.ST_Contains(AdminBoundary.geometry, ignition.c.geometry))
+        .exists()
+    )
+
+    fires = (
+        select(egif.c.ignition_id.label("ignition_id"),
+               hectares.label("hectares"))
+        .select_from(egif)
+        .outerjoin(ignition, ignition.c.id == egif.c.ignition_id)
+        .add_columns(located.label("in_a_country"))
+        .where(is_reported)
+    )
+    if year is not None:
+        fires = fires.where(CAMPAIGN == year)
+
+    fire = fires.subquery("fire")
+    audit = select(
+        func.count().filter(fire.c.ignition_id.is_(None)).label("no_point"),
+        func.count().filter(
+            fire.c.ignition_id.is_not(None) & ~fire.c.in_a_country
+        ).label("outside"),
+    ).select_from(fire)
+    if min_area is not None:
+        audit = audit.where(fire.c.hectares >= min_area)
+    return audit
 
 
 @dataclass(frozen=True)
@@ -340,8 +533,9 @@ class Row:
     Attributes
     ----------
     country : str
-        Always :data:`COUNTRY_NAME`; kept as a field so that this report's rows
-        are the same shape as the other three's.
+        Name of the country the fires burnt in. :data:`COUNTRY_NAME` under
+        ``--country-source filed``; under ``geometry`` it is whichever country
+        contains the ignition point, which is normally but not always Spain.
     year : int or None
         The campaign, or ``None`` for the summary row.
     minimum, maximum, total : float
@@ -370,7 +564,7 @@ class Row:
         return TOTAL_LABEL if self.is_total else str(self.year)
 
 
-def combine(rows: list[Row], year: int | None = None) -> Row:
+def combine(rows: list[Row], country: str = COUNTRY_NAME, year: int | None = None) -> Row:
     """One row summarising several: the four figures taken over all of them.
 
     Notes
@@ -384,7 +578,7 @@ def combine(rows: list[Row], year: int | None = None) -> Row:
     totals costs nothing and cannot drift from what one pass would have returned.
     """
     return Row(
-        country=COUNTRY_NAME,
+        country=country,
         year=year,
         minimum=min(row.minimum for row in rows),
         maximum=max(row.maximum for row in rows),
@@ -393,22 +587,59 @@ def combine(rows: list[Row], year: int | None = None) -> Row:
     )
 
 
-def summarise(measured: list[Row]) -> list[Row]:
-    """The report: the campaigns newest first, then the summary row.
+def ordered_countries(session: Session, names: set[str]) -> list[str]:
+    """The countries of the report, in the order the database would have sorted them.
+
+    Notes
+    -----
+    One name, ``Spain``, under ``--country-source filed``; under ``geometry`` there
+    can be a second, which is a fire whose ignition point is over a border.
+
+    Sorted by PostgreSQL and not by Python because the two do not agree: Python
+    compares code points, which puts every accented name after every unaccented
+    one, while the database sorts by its collation.
+
+    A name the query does not return is appended rather than dropped — under
+    ``filed`` the constant ``Spain`` is not a row of ``admin_boundary`` at all
+    unless the OCHA boundaries happen to be imported, and a report that vanished
+    for want of them would be a poor trade.
+    """
+    if not names:
+        return []
+    ordered = list(session.scalars(
+        select(AdminBoundary.name)
+        .distinct()
+        .where(AdminBoundary.level == COUNTRY_LEVEL)
+        .where(AdminBoundary.name.in_(names))
+        .order_by(AdminBoundary.name)
+    ))
+    return ordered + sorted(names - set(ordered))
+
+
+def summarise(measured: list[Row], countries: list[str]) -> list[Row]:
+    """Build the report from the campaigns measured: the summary rows, in order.
 
     Parameters
     ----------
     measured : list of Row
-        One row per campaign, as the statement returned them.
+        One row per country and campaign, as the statement returned them.
+    countries : list of str
+        The countries in scope, in the order they are to be reported.
 
     Returns
     -------
     list of Row
-        Empty if nothing was measured — a report of no fires has no total either.
+        Each country, its campaigns newest first and its summary row last. Empty
+        if nothing was measured — a report of no fires has no total either.
     """
-    if not measured:
-        return []
-    return sorted(measured, key=lambda row: row.year, reverse=True) + [combine(measured)]
+    report: list[Row] = []
+    for name in countries:
+        rows = [row for row in measured if row.country == name]
+        if not rows:
+            continue
+        report += sorted(rows, key=lambda row: row.year, reverse=True)
+        report.append(combine(rows, name, None))
+    return report
 
 
 def hectares(text: str) -> float:
@@ -463,6 +694,16 @@ def parse_arguments(argv: list[str] | None = None) -> argparse.Namespace:
                         help="count only fires that burnt at least this many hectares of "
                              "the chosen surface; by default every fire that reports one "
                              "counts, including a reported zero")
+    parser.add_argument("--country-source", default=COUNTRY_SOURCE_FILED,
+                        choices=COUNTRY_SOURCES,
+                        help="how to decide which country a fire counts towards: 'filed' "
+                             "(default) takes EGIF's word for it, every fire being a "
+                             "Spanish parte; 'geometry' tests the published ignition point "
+                             "against the real country polygons, so a coordinate that "
+                             "landed in the sea drops out and one over a border is "
+                             "reported as that country. Note that 'geometry' also drops "
+                             "every fire with no published point, which is half the "
+                             "1982-2023 archive — the log says how many of each")
 
     # Accepted only so that they can be refused clearly. Anyone reaching for either
     # has copied a command line from the GWIS, GFA or ICNF report, which is a
@@ -485,7 +726,8 @@ def parse_arguments(argv: list[str] | None = None) -> argparse.Namespace:
         parser.error(
             "there is no --country here: EGIF is the Spanish national statistic, so "
             f"every fire in it is filed in {COUNTRY_NAME} and there is nothing to select "
-            "between. The Country column says so on every row."
+            "between. Every fire is reported, and the Country column says which country "
+            "each one turned out to be in — see --country-source."
         )
     if arguments.area_method is not None:
         parser.error(
@@ -500,7 +742,8 @@ def parse_arguments(argv: list[str] | None = None) -> argparse.Namespace:
 
 def compute(session: Session, year: int | None, logger: logging.Logger,
             surface: str = SURFACE_FOREST,
-            min_area: float | None = None) -> list[Row]:
+            min_area: float | None = None,
+            country_source: str = COUNTRY_SOURCE_FILED) -> list[Row]:
     """Run the statement and return the report's rows in order.
 
     Notes
@@ -508,20 +751,41 @@ def compute(session: Session, year: int | None, logger: logging.Logger,
     One statement, under one spinner — see the module docstring for why this
     report does not need the year-at-a-time machinery the other three are built
     on. The ``Total`` row is arithmetic over its result, not a second query.
+
+    Under ``geometry`` a second, cheap statement follows it: :func:`location_audit`
+    counts what the first one dropped and why. A report that quietly left out half
+    its fires would be worse than one that did not offer the option.
     """
     with common.Spinner(f"Measuring the reported {surface} area of the EGIF fires", logger):
         measured = [
-            Row(country=COUNTRY_NAME, year=record.year,
+            Row(country=record.country, year=record.year,
                 minimum=float(record.minimum),
                 maximum=float(record.maximum),
                 total=float(record.total),
                 fires=record.fires)
-            for record in session.execute(statistics_query(surface, year, min_area))
+            for record in session.execute(
+                statistics_query(surface, year, min_area, country_source))
         ]
 
-    rows = summarise(measured)
-    logger.info("Computed %d rows over %d campaign(s) (%s area, %s)",
-                len(rows), len(measured), surface,
+    if country_source == COUNTRY_SOURCE_GEOMETRY:
+        with common.Spinner("Counting the fires with no usable point", logger):
+            audit = session.execute(location_audit(surface, year, min_area)).one()
+        counted = sum(row.fires for row in measured)
+        logger.info(
+            "Excluded %d of %d fires reporting a %s area: %d publish no point, "
+            "%d publish a point in no country",
+            audit.no_point + audit.outside, counted + audit.no_point + audit.outside,
+            surface, audit.no_point, audit.outside)
+        if audit.outside:
+            logger.warning(
+                "%d fire(s) have a published coordinate that is inside no country — "
+                "a point in the sea survives import, whose only geometric guard is a "
+                "plausibility box on the UTM easting and northing", audit.outside)
+
+    rows = summarise(measured, ordered_countries(session, {row.country for row in measured}))
+    logger.info("Computed %d rows over %d campaign(s) (%s area, country from %s, %s)",
+                len(rows), len({row.year for row in rows if not row.is_total}),
+                surface, country_source,
                 "every fire" if min_area is None else f"fires of {min_area:g} ha or more")
     return rows
 
@@ -546,7 +810,8 @@ def write_csv(rows: list[Row], path: Path, logger: logging.Logger) -> None:
 def write_docx(rows: list[Row], path: Path, year: int | None,
                logger: logging.Logger,
                surface: str = SURFACE_FOREST,
-               min_area: float | None = None) -> None:
+               min_area: float | None = None,
+               country_source: str = COUNTRY_SOURCE_FILED) -> None:
     """Write the report as a Word document.
 
     One table, with the summary row in bold. Numbers get thousands separators here
@@ -571,6 +836,8 @@ def write_docx(rows: list[Row], path: Path, year: int | None,
     scope = [f"campaign: {year}" if year is not None else "all campaigns"]
     if min_area is not None:
         scope.append(f"only fires of {min_area:g} ha or more")
+    if country_source == COUNTRY_SOURCE_GEOMETRY:
+        scope.append("only fires whose published ignition point falls inside a country")
     document.add_paragraph(
         f"Areas in hectares as reported by EGIF — {SURFACE_PROSE[surface]} — and not "
         f"measured from a perimeter, which EGIF does not publish. Fires that do not "
@@ -582,6 +849,16 @@ def write_docx(rows: list[Row], path: Path, year: int | None,
         "reviewed, so a recently exported year is missing whole regions and will grow "
         "when it is re-imported."
     )
+    if country_source == COUNTRY_SOURCE_GEOMETRY:
+        # Not a footnote: this run left out half the archive, and a reader who does
+        # not know that will compare its totals with a filed run's.
+        document.add_paragraph(
+            "These figures cover only the fires with a usable published coordinate. EGIF "
+            "publishes none at all for about half of the 1982-2023 archive, including "
+            "every fire before 1998, and those fires are not in this table — so its "
+            "totals are well below the national figure and are not comparable with a run "
+            "made without this restriction."
+        )
 
     table = document.add_table(rows=1, cols=len(COLUMNS))
     table.style = "Table Grid"
@@ -610,25 +887,30 @@ def write_docx(rows: list[Row], path: Path, year: int | None,
 def report(args: argparse.Namespace, engine: Engine, logger: logging.Logger) -> list[Row]:
     """Compute the statistics and write whichever outputs were asked for."""
     with Session(engine) as session:
-        rows = compute(session, args.year, logger, args.surface, args.min_area)
+        rows = compute(session, args.year, logger, args.surface, args.min_area,
+                       args.country_source)
 
     if not rows:
         # An empty report is almost always a campaign with no data, and writing an
         # empty file would hide that. The surface is named because asking for one
-        # the export does not fill in is the other likely reason, and so is the
-        # threshold when there is one.
-        threshold = "" if args.min_area is None else \
+        # the export does not fill in is the other likely reason, and so are the
+        # threshold and the point test when either is in force.
+        extra = "" if args.min_area is None else \
             f" No fire reached the --min-area of {args.min_area:g} ha."
+        if args.country_source == COUNTRY_SOURCE_GEOMETRY:
+            extra += (" --country-source geometry also needs the OCHA country boundaries "
+                      "imported, and counts only fires with a published ignition point.")
         raise RuntimeError(
             f"No wildfires matched. Check --year, and that the EGIF fires are imported "
             f"and report a {args.surface} area — fires that do not report the surface "
-            f"asked for are not counted." + threshold
+            f"asked for are not counted." + extra
         )
 
     if args.csv is not None:
         write_csv(rows, args.csv, logger)
     if args.docx is not None:
-        write_docx(rows, args.docx, args.year, logger, args.surface, args.min_area)
+        write_docx(rows, args.docx, args.year, logger, args.surface, args.min_area,
+                   args.country_source)
     return rows
 
 
