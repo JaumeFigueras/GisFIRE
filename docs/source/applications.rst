@@ -122,6 +122,7 @@ as the importers::
    src/apps/statistics/wildfires/portugal_icnf/wildfire_statistics.py
    src/apps/statistics/wildfires/spain_egif/wildfire_statistics.py
    src/apps/statistics/wildfires/portugal_icnf/wildfire_causes.py
+   src/apps/statistics/wildfires/spain_egif/wildfire_causes.py
 
 :doc:`applications/gwis_wildfire_statistics`
     Burnt area of the GWIS GlobFire wildfires, per country and year — smallest fire,
@@ -158,6 +159,14 @@ as the importers::
     ``Natural`` is the nearest proxy — and only fires from 2014 on are classified, which
     is why the percentage is of the classified ones and not of all.
 
+:doc:`applications/egif_wildfire_causes`
+    The companion of the EGIF report, counting instead of measuring — and the one that
+    can name lightning, EGIF's ``idcausa`` family ``100`` being *Rayo*. Gives every count
+    **twice**: over the fires as filed, and over the fires whose published ignition point
+    really falls inside Spain, since a coordinate here can land in the sea or over a
+    border and half the archive publishes none at all. No ``--surface``: it counts fires,
+    so a blank burnt area is no reason to leave one out.
+
 .. note::
 
    Further application pages are added as the applications are ported into
@@ -181,3 +190,4 @@ as the importers::
    applications/icnf_wildfire_statistics
    applications/egif_wildfire_statistics
    applications/icnf_wildfire_causes
+   applications/egif_wildfire_causes
