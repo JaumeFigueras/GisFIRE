@@ -43,6 +43,12 @@ Over everything, or narrowed to one campaign, one surface, or the fires above a 
    python3 -m src.apps.statistics.wildfires.spain_egif.wildfire_statistics \
        --country-source geometry --csv located.csv
 
+   # one autonomous community instead of the whole country
+   python3 -m src.apps.statistics.wildfires.spain_egif.wildfire_statistics \
+       --region Catalonia --csv catalonia.csv
+   python3 -m src.apps.statistics.wildfires.spain_egif.wildfire_statistics \
+       --region Andalucía --year 2023 --csv andalucia-2023.csv --docx andalucia-2023.docx
+
 At least one of ``--csv`` and ``--docx`` is required.
 
 The application only reads; it never modifies the database. Settings are read from the
@@ -177,6 +183,77 @@ means every fire that burnt no forest at all.
    A year has to be re-exported and re-imported later. Comparing two campaigns of
    different vintages compares two degrees of completeness, not two fire seasons. The
    ``.docx`` says so on its front page for the same reason.
+
+.. _egif-region:
+
+One autonomous community
+------------------------
+
+``--region`` reports one *comunidad autónoma* instead of the whole country. Both this
+report and its companion :doc:`egif_wildfire_causes` take it, and they take it exactly
+alike — one resolver, imported by the second from the first.
+
+.. code-block:: bash
+
+   python3 -m src.apps.statistics.wildfires.spain_egif.wildfire_statistics \
+       --region Catalonia --csv catalonia.csv
+
+   # the same community, four other ways of naming it
+   --region Cataluña        --region Catalunya
+   --region "Cataluña/Catalunya"   --region 09
+
+What it accepts is generous on purpose, because the IGN names are not what anyone types:
+four of the nineteen are bilingual (``Cataluña/Catalunya``, ``País Vasco/Euskadi``) and
+several carry a prefix (``Comunidad de Madrid``, ``Región de Murcia``).
+
+* the published IGN name, or **either half** of a bilingual one;
+* the **English** name — ``Catalonia``, ``Andalusia``, ``Basque Country``;
+* the two-digit **INE code**, padded or not (``09``, ``9``);
+* **case and accents do not matter** — ``cataluna`` resolves;
+* a name that picks out **exactly one** community by being part of it: ``Madrid``,
+  ``Murcia``, ``Navarra``. A fragment several share — ``Comunidad`` — is refused rather
+  than guessed at, and so is one nothing matches, with the list of what is imported.
+
+It needs the IGN administrative boundaries (:doc:`ign_import_admin_boundaries`), levels 1
+**and** 2: the community gives the name and its *provincias* give the codes that do the
+work.
+
+The selection is on the filing, not on the map
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+A fire is in the report when its *parte* is filed to a province of that community —
+:attr:`~src.providers.spain_egif.wildfire.EgifWildfire.province_ine_code`, which is
+``NOT NULL`` on every fire EGIF has ever published. The community's province codes are
+resolved once, before the report runs, so the statement itself carries a handful of
+two-character codes and joins nothing.
+
+.. important::
+
+   Testing the published ignition point against the community's polygon would be a
+   different question with a much worse answer: **half the archive publishes no
+   coordinate at all**, so it would silently drop 293,710 of the 586,157 fires and leave
+   nothing at all before 1998.
+
+   Because the region filter is on the filing, it composes with ``--country-source``
+   without either changing what the other means. ``--region Cataluña --country-source
+   geometry`` is "the fires filed in Catalonia, of which only those with a point inside a
+   country are measured" — and the audit that says what was dropped is narrowed to the
+   community too, so its numbers still account for exactly the fires reported.
+
+.. note::
+
+   The ``Country`` column still says ``Spain`` on every row, and the ``.csv`` keeps the
+   shape the other four reports have, so it can still be concatenated with them. What the
+   table is a table *of* appears in the ``.docx`` heading and its opening paragraph — with
+   the province codes the selection was actually made on — and in the log. **Name the
+   region in the filename of a CSV you mean to keep.**
+
+.. warning::
+
+   A community's totals are subject to the same incompleteness as the national ones, and
+   more visibly: a campaign whose export never reached that community is simply absent
+   from the report rather than present as a zero. The 2022+2023 export is missing
+   Cataluña for 2023 outright — see the warning above.
 
 .. _egif-country-source:
 

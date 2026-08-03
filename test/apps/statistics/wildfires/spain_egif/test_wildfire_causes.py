@@ -196,8 +196,8 @@ def without_boundaries(db_session, provider_id, causes):
     return db_session
 
 
-def rows_for(session, year=None, family=app.DEFAULT_FAMILY) -> list[app.Row]:
-    return app.compute(session, year, logger, family)
+def rows_for(session, year=None, family=app.DEFAULT_FAMILY, region=None) -> list[app.Row]:
+    return app.compute(session, year, logger, family, region)
 
 
 def find(rows: list[app.Row], year: int | None, country: str = "Spain") -> app.Row:
@@ -719,3 +719,214 @@ def test_the_statement_selects_the_country_by_name(populated):
     """
     assert "boundary.name = :country_name" in app.COUNTS_SQL
     assert "ORDER BY" not in app.COUNTS_SQL.upper()
+
+
+# --------------------------------------------------------------------------
+# One autonomous community
+# --------------------------------------------------------------------------
+
+#: The communities the fixture fires are filed in: 28 Madrid is the whole of 2023,
+#: 17 Girona is the whole of 2022, and 12 Castellón is 2019.
+REGIONS = [
+    ("13", "Comunidad de Madrid", ["28"]),
+    ("09", "Cataluña/Catalunya", ["08", "17", "25", "43"]),
+    ("10", "Comunitat Valenciana", ["03", "12", "46"]),
+]
+
+#: ``admin_boundary.geometry`` is NOT NULL, and the region filter never reads it: the
+#: selection is on the province the parte names, not on where the fire is.
+REGION_GEOMETRY = f"SRID=4326;{MultiPolygon([box(0.0, 40.0, 0.1, 40.1)]).wkt}"
+
+
+@pytest.fixture
+def regions(populated):
+    """``populated`` plus the three IGN communities its fires are filed in."""
+    from src.providers import spain_ign
+    from src.providers.spain_ign.admin_boundary import IgnAdminBoundary
+
+    provider = DataProvider(name=spain_ign.PROVIDER_NAME,
+                            product=spain_ign.PROVIDER_PRODUCT_TEMPLATE.format(edition="2026"),
+                            full_name=spain_ign.PROVIDER_FULL_NAME, url=spain_ign.PROVIDER_URL)
+    populated.add(provider)
+    populated.flush()
+
+    for code, name, provinces in REGIONS:
+        region = IgnAdminBoundary(
+            data_provider_id=provider.id, source_id=f"34{code}0000000",
+            level=stats_app.REGION_LEVEL, name=name, geometry=REGION_GEOMETRY,
+            edition="2026", kind=spain_ign.KIND_COMUNIDAD_AUTONOMA)
+        populated.add(region)
+        populated.flush()
+        for province in provinces:
+            populated.add(IgnAdminBoundary(
+                data_provider_id=provider.id, source_id=f"34{code}{province}00000",
+                level=stats_app.PROVINCE_LEVEL, name=f"Provincia {province}",
+                parent_id=region.id, geometry=REGION_GEOMETRY,
+                edition="2026", kind=spain_ign.KIND_PROVINCIA))
+    populated.commit()
+    return populated
+
+
+def region_of(session, wanted) -> stats_app.Region:
+    return app.resolve_region(session, wanted)
+
+
+def test_the_region_defaults_to_the_whole_country():
+    assert app.parse_arguments(["--csv", "out.csv"]).region is None
+
+
+def test_the_region_has_a_short_option():
+    assert app.parse_arguments(["--csv", "out.csv", "-r", "Catalonia"]).region == "Catalonia"
+
+
+def test_the_region_is_resolved_exactly_as_the_companion_report_does(regions):
+    """One rule, one implementation: this report imports the companion's resolver."""
+    assert app.resolve_region is stats_app.resolve_region
+    assert region_of(regions, "Catalonia") == stats_app.resolve_region(regions, "09")
+
+
+def test_a_region_counts_only_the_fires_filed_in_it(regions):
+    """2022's three fires are filed in Girona, province 17, which is Cataluña."""
+    rows = rows_for(regions, region=region_of(regions, "Catalonia"))
+
+    assert [row.year_label for row in rows] == ["2022", "Total"]
+    assert find(rows, 2022).fires == 3
+    assert find(rows, 2022).matching == 1       # the lightning fire whose point is French
+    assert find(rows, 2022).classified == 3
+
+
+def test_another_region_counts_its_own(regions):
+    rows = rows_for(regions, region=region_of(regions, "Madrid"))
+
+    assert [row.year_label for row in rows] == ["2023", "Total"]
+    assert find(rows, 2023).fires == 5
+    assert find(rows, 2023).matching == 2
+
+
+def test_no_region_counts_the_whole_country(regions):
+    """The default has to leave the report exactly as it was."""
+    assert rows_for(regions, region=None) == rows_for(regions)
+
+
+def test_the_regions_add_up_to_the_country(regions):
+    whole = find(rows_for(regions), None)
+    parts = [find(rows_for(regions, region=region_of(regions, code)), None)
+             for code, *_ in REGIONS]
+
+    assert sum(part.fires for part in parts) == whole.fires
+    assert sum(part.matching for part in parts) == whole.matching
+    assert sum(part.inside_fires for part in parts) == whole.inside_fires
+
+
+def test_a_campaign_the_region_filed_nothing_in_is_absent(regions):
+    """And not a row of zeros, which would claim a fire-free year rather than none."""
+    rows = rows_for(regions, region=region_of(regions, "Catalonia"))
+
+    assert {row.year for row in rows} == {2022, None}
+
+
+def test_the_region_and_a_campaign_combine(regions):
+    assert rows_for(regions, year=2023, region=region_of(regions, "Catalonia")) == []
+    assert [row.year_label for row in rows_for(regions, year=2022,
+                                               region=region_of(regions, "Catalonia"))] == \
+           ["2022", "Total"]
+
+
+def test_the_region_and_a_cause_family_combine(regions):
+    rows = rows_for(regions, family="intentional", region=region_of(regions, "Catalonia"))
+
+    assert find(rows, 2022).matching == 1
+
+
+def test_the_region_does_not_move_the_inside_test_to_the_community(regions):
+    """'Inside' still means inside Spain, which is the question this report asks.
+
+    2022's three Catalan fires include one whose point is over the French border. It
+    is out of the inside block because it is not in Spain — not because it is not in
+    Catalonia, which is a different question and one this report does not ask.
+    """
+    year_2022 = find(rows_for(regions, region=region_of(regions, "Catalonia")), 2022)
+
+    assert year_2022.fires == 3
+    assert year_2022.inside_fires == 2
+    assert year_2022.inside_matching == 0
+
+
+def test_the_region_counts_the_fires_with_no_point(regions):
+    """Half the archive publishes none, and the filing is what selects them."""
+    year_2023 = find(rows_for(regions, region=region_of(regions, "Madrid")), 2023)
+
+    assert year_2023.fires == 5
+    assert year_2023.matching == 2          # both lightning fires, one of them unlocated
+    assert year_2023.inside_matching == 1   # only the one with a point inside Spain
+
+
+def test_an_empty_region_report_names_the_region(regions, tmp_path):
+    """A community with no fire at all in the archive, which Aragón is here."""
+    from src.providers import spain_ign
+    from src.providers.spain_ign.admin_boundary import IgnAdminBoundary
+
+    provider_id = regions.scalar(
+        select(DataProvider.id).where(DataProvider.name == spain_ign.PROVIDER_NAME))
+    aragon = IgnAdminBoundary(
+        data_provider_id=provider_id, source_id="34020000000",
+        level=stats_app.REGION_LEVEL, name="Aragón", geometry=REGION_GEOMETRY,
+        edition="2026", kind=spain_ign.KIND_COMUNIDAD_AUTONOMA)
+    regions.add(aragon)
+    regions.flush()
+    regions.add(IgnAdminBoundary(
+        data_provider_id=provider_id, source_id="34025000000",
+        level=stats_app.PROVINCE_LEVEL, name="Provincia 50", parent_id=aragon.id,
+        geometry=REGION_GEOMETRY, edition="2026", kind=spain_ign.KIND_PROVINCIA))
+    regions.commit()
+
+    args = app.parse_arguments(["--region", "Aragón", "--csv", str(tmp_path / "a.csv")])
+    with pytest.raises(RuntimeError, match="Aragón"):
+        app.report(args, regions.get_bind(), logger)
+    assert not (tmp_path / "a.csv").exists()
+
+
+def test_an_unknown_region_stops_the_report_before_it_counts(regions, tmp_path):
+    args = app.parse_arguments(["--region", "Atlantis", "--csv", str(tmp_path / "a.csv")])
+
+    with pytest.raises(RuntimeError, match="No comunidad autónoma matches"):
+        app.report(args, regions.get_bind(), logger)
+    assert not (tmp_path / "a.csv").exists()
+
+
+def test_the_csv_keeps_its_shape_for_a_region(regions, tmp_path):
+    target = tmp_path / "catalonia.csv"
+    app.write_csv(rows_for(regions, region=region_of(regions, "Catalonia")), target, logger)
+
+    with target.open(encoding="utf-8") as handle:
+        table = list(csv.reader(handle))
+
+    assert table[0] == list(app.columns())
+    assert {line[0] for line in table[1:]} == {stats_app.COUNTRY_NAME}
+
+
+def test_the_docx_says_which_community_it_is_of(regions, tmp_path):
+    """Because the Country column says Spain on every row of it."""
+    docx = pytest.importorskip("docx")
+    target = tmp_path / "catalonia.docx"
+    region = region_of(regions, "Catalonia")
+    app.write_docx(rows_for(regions, region=region), target, None, logger, region=region)
+
+    document = docx.Document(str(target))
+    headings = [p.text for p in document.paragraphs if p.style.name.startswith("Heading")]
+    prose = "\n".join(p.text for p in document.paragraphs)
+
+    assert any("Cataluña/Catalunya" in heading for heading in headings)
+    assert "not a national total" in prose
+    assert "08, 17, 25, 43" in prose
+    # And it says the inside columns did not move with the region.
+    assert "not against the community" in prose
+
+
+def test_the_docx_claims_no_region_when_there_is_none(regions, tmp_path):
+    docx = pytest.importorskip("docx")
+    target = tmp_path / "spain.docx"
+    app.write_docx(rows_for(regions), target, None, logger)
+
+    prose = "\n".join(p.text for p in docx.Document(str(target)).paragraphs)
+    assert "not a national total" not in prose

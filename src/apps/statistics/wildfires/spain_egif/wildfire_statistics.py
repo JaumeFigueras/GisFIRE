@@ -19,6 +19,13 @@ size::
     python3 -m src.apps.statistics.wildfires.spain_egif.wildfire_statistics \\
         --surface burnt --min-area 5 --csv over-5-ha.csv
 
+…or to one autonomous community::
+
+    python3 -m src.apps.statistics.wildfires.spain_egif.wildfire_statistics \\
+        --region Catalonia --csv catalonia.csv
+    python3 -m src.apps.statistics.wildfires.spain_egif.wildfire_statistics \\
+        --region Andalucía --year 2023 --csv andalucia-2023.csv
+
 At least one of ``--csv`` and ``--docx`` is required: an application that
 computed a report and then printed nothing would be a strange thing.
 
@@ -107,6 +114,37 @@ the unreported ones contributing nothing.
 ``--min-area`` narrows it further, to the fires of at least that many hectares.
 By default there is no threshold.
 
+One autonomous community
+------------------------
+
+``--region`` reports one *comunidad autónoma* instead of the whole country —
+``--region Catalonia``, ``--region Andalucía``, ``--region 09``. It takes the
+published IGN name, either half of a bilingual one (``Cataluña/Catalunya``), the
+English name, or the two-digit INE code; case and accents do not matter, and a name
+that picks out exactly one community by being part of it (``Madrid``) works too. It
+needs the IGN administrative boundaries imported, and an unrecognised name is
+answered with the list of the ones that are.
+
+**The selection is on the filing, not on the map.** A fire is in the report when its
+*parte* is filed to a province of that community —
+:attr:`~src.providers.spain_egif.wildfire.EgifWildfire.province_ine_code`, which is
+``NOT NULL`` on every fire EGIF has ever published. The provinces of the community
+are read from the IGN hierarchy at the start of the run, so the statement itself
+carries a handful of two-character codes and joins nothing.
+
+Testing the published ignition point against the community's polygon would be a
+different question, and a much worse one to answer with: half the archive publishes
+no coordinate at all, so it would silently drop 294,052 of the 586,157 fires. It is
+therefore not what this does, and ``--region`` composes with ``--country-source``
+without either changing what the other means.
+
+.. note::
+
+   The ``Country`` column still says ``Spain`` on every row, and the CSV keeps the
+   shape the other four reports have. What the table is a table *of* is in the
+   ``.docx`` heading and in the log — so name the region in the filename of a CSV
+   you intend to keep.
+
 .. warning::
 
    **A campaign's total is a floor, not the year's burnt area.** Every fire the
@@ -187,6 +225,7 @@ import logging
 import math
 import os
 import sys
+import unicodedata
 
 from dataclasses import dataclass
 from pathlib import Path
@@ -201,6 +240,7 @@ from sqlalchemy import or_
 from sqlalchemy import select
 from sqlalchemy import true
 from sqlalchemy.orm import Session
+from sqlalchemy.orm import aliased
 
 import src.settings  # noqa: F401  (imported for the side effect of loading .env)
 
@@ -209,6 +249,7 @@ from src.data_model.geography.admin_boundary import AdminBoundary
 from src.data_model.ignition import Ignition
 from src.providers.ocha.admin_boundary import OchaAdminBoundary
 from src.providers.spain_egif.wildfire import EgifWildfire
+from src.providers.spain_ign.admin_boundary import IgnAdminBoundary
 
 #: Label used in the ``Year`` column for the summary row.
 TOTAL_LABEL = "Total"
@@ -237,6 +278,42 @@ COUNTRY_SOURCES = (COUNTRY_SOURCE_FILED, COUNTRY_SOURCE_GEOMETRY)
 #: Administrative level of a country in ``admin_boundary``.
 COUNTRY_LEVEL = 0
 
+#: Administrative level of a *comunidad autónoma* in ``admin_boundary``, which is
+#: what ``--region`` selects, and of a *provincia*, which is what an EGIF fire is
+#: filed to and therefore how the selection is made. See :func:`resolve_region`.
+REGION_LEVEL = 1
+PROVINCE_LEVEL = 2
+
+#: The English name of each *comunidad autónoma*, keyed by its two-digit INE code,
+#: which is also digits 3-4 of the IGN ``NATCODE``.
+#:
+#: Accepted by ``--region`` **in addition to** the published name, never instead of
+#: it: the IGN names are the answer to "what is this region called", and these are a
+#: convenience so that ``--region Catalonia`` from an English-language command line
+#: does not fail against ``Cataluña/Catalunya``. Keyed by the code rather than by the
+#: name so that a renaming in a later IGN edition cannot silently unpair them.
+REGION_ENGLISH_NAMES = {
+    "01": "Andalusia",
+    "02": "Aragon",
+    "03": "Asturias",
+    "04": "Balearic Islands",
+    "05": "Canary Islands",
+    "06": "Cantabria",
+    "07": "Castile and León",
+    "08": "Castile-La Mancha",
+    "09": "Catalonia",
+    "10": "Valencian Community",
+    "11": "Extremadura",
+    "12": "Galicia",
+    "13": "Community of Madrid",
+    "14": "Region of Murcia",
+    "15": "Navarre",
+    "16": "Basque Country",
+    "17": "La Rioja",
+    "18": "Ceuta",
+    "19": "Melilla",
+}
+
 #: The burnt areas EGIF publishes, as ``--surface`` accepts them.
 SURFACE_FOREST = "forest"
 SURFACE_WOODED = "wooded"
@@ -262,6 +339,11 @@ SURFACE_PROSE = {
 #: The campaign a fire counts towards. See the module docstring: the filing, not
 #: the clock.
 CAMPAIGN = EgifWildfire.__table__.c.campaign
+
+#: The province the *parte* is filed to, which is what ``--region`` selects on. INE
+#: two-digit codes, and ``NOT NULL`` on every fire in the archive — which is why the
+#: region filter reaches all of it and a geometric one would reach half.
+PROVINCE = EgifWildfire.__table__.c.province_ine_code
 
 
 def reported_surface(surface: str) -> tuple[ColumnElement, ColumnElement]:
@@ -387,10 +469,217 @@ def country_columns(source: str) -> tuple[ColumnElement, list]:
     return containing.c.name, joins
 
 
+@dataclass(frozen=True)
+class Region:
+    """One *comunidad autónoma*, and the provinces an EGIF fire can be filed to in it.
+
+    Attributes
+    ----------
+    source_id : str
+        The IGN ``NATCODE``, eleven digits — ``34090000000`` for Cataluña.
+    name : str
+        The name the IGN publishes, which for four of the nineteen is bilingual and
+        carries a slash: ``Cataluña/Catalunya``, ``País Vasco/Euskadi``.
+    provinces : tuple of str
+        The INE province codes of its *provincias*, in order. This is what the
+        reports filter on — see :func:`resolve_region`.
+    """
+
+    source_id: str
+    name: str
+    provinces: tuple[str, ...]
+
+    @property
+    def code(self) -> str:
+        """The two-digit INE code of the community, digits 3-4 of the ``NATCODE``."""
+        return self.source_id[2:4]
+
+    @property
+    def english_name(self) -> str | None:
+        """The English name ``--region`` also accepts, where there is one."""
+        return REGION_ENGLISH_NAMES.get(self.code)
+
+    @property
+    def label(self) -> str:
+        """How the region is named in prose, in the log and in the ``.docx``."""
+        english = self.english_name
+        if english is None or normalise(english) in {normalise(part)
+                                                     for part in self.name.split("/")}:
+            return self.name
+        return f"{self.name} ({english})"
+
+    @property
+    def aliases(self) -> set[str]:
+        """Everything ``--region`` accepts for this region, normalised.
+
+        The code, the published name, each half of a bilingual one, and the English
+        name. Compared after :func:`normalise`, so case and accents do not matter and
+        ``Cataluna`` reaches ``Cataluña/Catalunya``.
+        """
+        names = [self.name, *self.name.split("/")]
+        if self.english_name is not None:
+            names.append(self.english_name)
+        return {self.code} | {normalise(name) for name in names}
+
+
+def normalise(text: str) -> str:
+    """A name as it is compared: case-folded, unaccented, stripped.
+
+    Notes
+    -----
+    Decomposed with NFKD and the combining marks dropped, rather than a table of
+    substitutions, so that every accent in every one of the nineteen names is handled
+    by the same rule. It is deliberately **not** applied to what is stored or
+    reported: it exists to compare what someone typed with what the IGN published.
+    """
+    decomposed = unicodedata.normalize("NFKD", text.strip().casefold())
+    return "".join(character for character in decomposed
+                   if not unicodedata.combining(character))
+
+
+def regions_query() -> Select:
+    """Every IGN *comunidad autónoma* with the provinces under it, one row per province.
+
+    Returns
+    -------
+    Select
+        A query yielding ``source_id, name, province`` — the last one ``None`` for a
+        community with no province imported under it.
+
+    Notes
+    -----
+    Joined to ``ign_admin_boundary`` and not left at ``level = 1``, for the same
+    reason the country queries join ``ocha_admin_boundary``: level 1 is *some*
+    provider's first division below the country, and the Portuguese CAOP *distritos*
+    are at that level too. Only the IGN publishes Spanish communities.
+
+    The province's INE code is read out of its ``NATCODE`` rather than from
+    :attr:`~src.providers.spain_ign.admin_boundary.IgnAdminBoundary.ine_code`, which
+    the IGN fills on *municipios* only — above that level those five digits are
+    padding and the column is ``NULL``. Digits 5-6 of a *provincia*'s ``NATCODE`` are
+    its INE code, which is exactly what EGIF files a fire under.
+
+    Outer-joined to the provinces, so a community whose *provincias* were never
+    imported comes back with none rather than vanishing: that is a different failure
+    from naming a region that does not exist, and :func:`resolve_region` reports it
+    as one.
+    """
+    region = aliased(AdminBoundary, name="region")
+    province = aliased(AdminBoundary, name="province")
+    ign = IgnAdminBoundary.__table__
+
+    return (
+        select(region.source_id.label("source_id"),
+               region.name.label("name"),
+               func.substr(province.source_id, 5, 2).label("province"))
+        .select_from(region)
+        .join(ign, ign.c.id == region.id)
+        .outerjoin(province, (province.parent_id == region.id)
+                   & (province.level == PROVINCE_LEVEL))
+        .where(region.level == REGION_LEVEL)
+        .order_by(region.source_id, province.source_id)
+    )
+
+
+def available_regions(session: Session) -> list[Region]:
+    """The *comunidades autónomas* in the database, in ``NATCODE`` order."""
+    regions: dict[str, tuple[str, list[str]]] = {}
+    for record in session.execute(regions_query()):
+        name, provinces = regions.setdefault(record.source_id, (record.name, []))
+        if record.province is not None:
+            provinces.append(record.province)
+    return [Region(source_id=source_id, name=name, provinces=tuple(provinces))
+            for source_id, (name, provinces) in regions.items()]
+
+
+def resolve_region(session: Session, wanted: str) -> Region:
+    """The *comunidad autónoma* ``--region`` names.
+
+    Parameters
+    ----------
+    session : Session
+        An open session. The regions are read from the database rather than written
+        out here, so the nineteen names are the IGN edition's own.
+    wanted : str
+        What was passed to ``--region``: the published name, either half of a
+        bilingual one, the English name, or the two-digit INE code. Case and accents
+        do not matter, and a name that identifies exactly one region by being part of
+        it — ``Madrid`` for ``Comunidad de Madrid`` — is accepted too.
+
+    Returns
+    -------
+    Region
+        The community, with the INE province codes the reports filter on.
+
+    Raises
+    ------
+    RuntimeError
+        If no IGN community is imported at all, if nothing matches, if several
+        regions match, or if the one that matched has no *provincias* under it.
+
+    Notes
+    -----
+    **Why the provinces and not the polygon.** A fire is selected by the province its
+    *parte* is filed to, which is
+    :attr:`~src.providers.spain_egif.wildfire.EgifWildfire.province_ine_code`,
+    ``NOT NULL`` on every fire in the archive. Testing the published ignition point
+    against the community's polygon would be a different question with a much worse
+    answer: half the archive publishes no coordinate at all, so it would drop 294,052
+    of the 586,157 fires — see the module docstring on ``--country-source geometry``,
+    which is the one place this report does ask a geometric question.
+
+    So ``--region`` is a filter on the **filing**, and it composes with
+    ``--country-source`` without either changing what the other means.
+
+    Every error names what to do about it. Getting a region wrong is much likelier
+    than the other failures this report can have — there are nineteen names, four of
+    them bilingual — and an unhelpful message would be answered by reading the source.
+    """
+    regions = available_regions(session)
+    if not regions:
+        raise RuntimeError(
+            "No comunidad autónoma is imported, so --region has nothing to select "
+            "from: import the IGN administrative boundaries first, with "
+            "src.apps.imports.admin_boundaries.ign.import_admin_boundaries"
+        )
+
+    asked = normalise(wanted)
+    if asked.isdigit():
+        asked = asked.zfill(2)
+
+    matched = [region for region in regions if asked in region.aliases]
+    if not matched:
+        # Only when nothing matched exactly, so 'Rioja' cannot be dragged away from a
+        # region actually called that by a longer one that happens to contain it.
+        matched = [region for region in regions
+                   if any(asked in alias for alias in region.aliases if not alias.isdigit())]
+    if not matched:
+        raise RuntimeError(
+            f"No comunidad autónoma matches {wanted!r}. The regions imported are: "
+            f"{', '.join(region.label for region in regions)}"
+        )
+    if len(matched) > 1:
+        raise RuntimeError(
+            f"{wanted!r} matches several comunidades autónomas — "
+            f"{', '.join(region.label for region in matched)} — so it is refused rather "
+            f"than one of them being guessed at. Give the whole name, or the INE code"
+        )
+
+    region = matched[0]
+    if not region.provinces:
+        raise RuntimeError(
+            f"{region.label} is imported but none of its provincias is, and an EGIF fire "
+            f"is filed to a province rather than to a community: import the IGN level-2 "
+            f"boundaries as well"
+        )
+    return region
+
+
 def statistics_query(surface: str = SURFACE_FOREST,
                      year: int | None = None,
                      min_area: float | None = None,
-                     country_source: str = COUNTRY_SOURCE_FILED) -> Select:
+                     country_source: str = COUNTRY_SOURCE_FILED,
+                     region: Region | None = None) -> Select:
     """Build the statistics query: one row per campaign, newest first.
 
     Parameters
@@ -404,6 +693,9 @@ def statistics_query(surface: str = SURFACE_FOREST,
         ``None``, the default, counts every fire.
     country_source : str
         One of :data:`COUNTRY_SOURCES`.
+    region : Region, optional
+        Restrict to the fires filed in one *comunidad autónoma*. ``None``, the
+        default, reports the whole country.
 
     Returns
     -------
@@ -415,6 +707,11 @@ def statistics_query(surface: str = SURFACE_FOREST,
     -----
     Built against the mapped classes rather than written as SQL text, so a column
     renamed on a model breaks this at import time rather than in front of a user.
+
+    ``region`` is an ``IN`` over the province the *parte* is filed to, and joins
+    nothing: the provinces were resolved once, before the report ran (see
+    :func:`resolve_region`), so the statement carries a handful of two-character
+    codes rather than a join to the boundary tables.
 
     Under ``filed`` it is selected from ``egif_wildfire`` alone: everything the
     report reads — the campaign and the five reported areas — is on that table, so
@@ -445,6 +742,8 @@ def statistics_query(surface: str = SURFACE_FOREST,
         fires = fires.join(target, condition)
     if year is not None:
         fires = fires.where(CAMPAIGN == year)
+    if region is not None:
+        fires = fires.where(PROVINCE.in_(region.provinces))
 
     fire = fires.subquery("fire")
     statistics = (
@@ -466,7 +765,8 @@ def statistics_query(surface: str = SURFACE_FOREST,
 
 def location_audit(surface: str = SURFACE_FOREST,
                    year: int | None = None,
-                   min_area: float | None = None) -> Select:
+                   min_area: float | None = None,
+                   region: Region | None = None) -> Select:
     """Count the fires ``--country-source geometry`` leaves out, and why.
 
     Returns
@@ -486,8 +786,8 @@ def location_audit(surface: str = SURFACE_FOREST,
     northing, and that rectangle contains a great deal of sea.
 
     Run under the same scope as the report it accompanies — same surface, same
-    year, same threshold — so that its two numbers and the ``Fires`` column add up
-    to the fires that reported the surface.
+    year, same threshold, same region — so that its two numbers and the ``Fires``
+    column add up to the fires that reported the surface.
     """
     hectares, is_reported = reported_surface(surface)
     egif = EgifWildfire.__table__
@@ -513,6 +813,8 @@ def location_audit(surface: str = SURFACE_FOREST,
     )
     if year is not None:
         fires = fires.where(CAMPAIGN == year)
+    if region is not None:
+        fires = fires.where(PROVINCE.in_(region.provinces))
 
     fire = fires.subquery("fire")
     audit = select(
@@ -694,6 +996,14 @@ def parse_arguments(argv: list[str] | None = None) -> argparse.Namespace:
                         help="count only fires that burnt at least this many hectares of "
                              "the chosen surface; by default every fire that reports one "
                              "counts, including a reported zero")
+    parser.add_argument("-r", "--region", metavar="COMUNIDAD",
+                        help="restrict to one comunidad autónoma, e.g. 'Cataluña', "
+                             "'Catalonia', 'Andalucía' or the INE code '09'. Accents and "
+                             "case do not matter, either half of a bilingual name works, "
+                             "and so does a name that identifies exactly one region — "
+                             "'Madrid'. The fires selected are those whose parte is filed "
+                             "to a province of that community, so the whole archive is in "
+                             "scope; it needs the IGN administrative boundaries imported")
     parser.add_argument("--country-source", default=COUNTRY_SOURCE_FILED,
                         choices=COUNTRY_SOURCES,
                         help="how to decide which country a fire counts towards: 'filed' "
@@ -743,7 +1053,8 @@ def parse_arguments(argv: list[str] | None = None) -> argparse.Namespace:
 def compute(session: Session, year: int | None, logger: logging.Logger,
             surface: str = SURFACE_FOREST,
             min_area: float | None = None,
-            country_source: str = COUNTRY_SOURCE_FILED) -> list[Row]:
+            country_source: str = COUNTRY_SOURCE_FILED,
+            region: Region | None = None) -> list[Row]:
     """Run the statement and return the report's rows in order.
 
     Notes
@@ -755,8 +1066,12 @@ def compute(session: Session, year: int | None, logger: logging.Logger,
     Under ``geometry`` a second, cheap statement follows it: :func:`location_audit`
     counts what the first one dropped and why. A report that quietly left out half
     its fires would be worse than one that did not offer the option.
+
+    ``region`` narrows both of them, so the audit keeps accounting for exactly the
+    fires the report is of.
     """
-    with common.Spinner(f"Measuring the reported {surface} area of the EGIF fires", logger):
+    scope = "the EGIF fires" if region is None else f"the EGIF fires of {region.name}"
+    with common.Spinner(f"Measuring the reported {surface} area of {scope}", logger):
         measured = [
             Row(country=record.country, year=record.year,
                 minimum=float(record.minimum),
@@ -764,12 +1079,12 @@ def compute(session: Session, year: int | None, logger: logging.Logger,
                 total=float(record.total),
                 fires=record.fires)
             for record in session.execute(
-                statistics_query(surface, year, min_area, country_source))
+                statistics_query(surface, year, min_area, country_source, region))
         ]
 
     if country_source == COUNTRY_SOURCE_GEOMETRY:
         with common.Spinner("Counting the fires with no usable point", logger):
-            audit = session.execute(location_audit(surface, year, min_area)).one()
+            audit = session.execute(location_audit(surface, year, min_area, region)).one()
         counted = sum(row.fires for row in measured)
         logger.info(
             "Excluded %d of %d fires reporting a %s area: %d publish no point, "
@@ -783,10 +1098,12 @@ def compute(session: Session, year: int | None, logger: logging.Logger,
                 "plausibility box on the UTM easting and northing", audit.outside)
 
     rows = summarise(measured, ordered_countries(session, {row.country for row in measured}))
-    logger.info("Computed %d rows over %d campaign(s) (%s area, country from %s, %s)",
+    logger.info("Computed %d rows over %d campaign(s) (%s area, country from %s, %s, %s)",
                 len(rows), len({row.year for row in rows if not row.is_total}),
                 surface, country_source,
-                "every fire" if min_area is None else f"fires of {min_area:g} ha or more")
+                "every fire" if min_area is None else f"fires of {min_area:g} ha or more",
+                "the whole country" if region is None
+                else f"the fires filed in {region.label}")
     return rows
 
 
@@ -811,7 +1128,8 @@ def write_docx(rows: list[Row], path: Path, year: int | None,
                logger: logging.Logger,
                surface: str = SURFACE_FOREST,
                min_area: float | None = None,
-               country_source: str = COUNTRY_SOURCE_FILED) -> None:
+               country_source: str = COUNTRY_SOURCE_FILED,
+               region: Region | None = None) -> None:
     """Write the report as a Word document.
 
     One table, with the summary row in bold. Numbers get thousands separators here
@@ -822,6 +1140,10 @@ def write_docx(rows: list[Row], path: Path, year: int | None,
     freshly exported campaign, because a table of agricultural hectares and a
     table of forest ones look exactly alike, and a total that is a floor rather
     than a year's burnt area should not have to be remembered by the reader.
+
+    A region goes in the **heading** and not only in the scope line: the ``Country``
+    column still says ``Spain`` on every row, and a table of one community's fires
+    that did not say so on its front page would read as a national one.
     """
     # Imported here rather than at module scope so that --csv keeps working if
     # python-docx is not installed, which matters because it is the only
@@ -831,9 +1153,12 @@ def write_docx(rows: list[Row], path: Path, year: int | None,
     from docx.shared import Pt
 
     document = Document()
-    document.add_heading(f"EGIF wildfire burnt area ({COUNTRY_NAME})", level=1)
+    where = COUNTRY_NAME if region is None else f"{region.label}, {COUNTRY_NAME}"
+    document.add_heading(f"EGIF wildfire burnt area ({where})", level=1)
 
     scope = [f"campaign: {year}" if year is not None else "all campaigns"]
+    if region is not None:
+        scope.append(f"only the fires filed in {region.label}")
     if min_area is not None:
         scope.append(f"only fires of {min_area:g} ha or more")
     if country_source == COUNTRY_SOURCE_GEOMETRY:
@@ -849,6 +1174,16 @@ def write_docx(rows: list[Row], path: Path, year: int | None,
         "reviewed, so a recently exported year is missing whole regions and will grow "
         "when it is re-imported."
     )
+    if region is not None:
+        # The Country column says Spain on every row of this table, so what it is a
+        # table of has to be said in prose.
+        document.add_paragraph(
+            f"These are the fires filed in {region.label} — those whose parte names one "
+            f"of its provinces ({', '.join(region.provinces)}) — and not a national "
+            f"total. The Country column is still {COUNTRY_NAME}, as in every one of "
+            f"these reports. The selection is on the filing and not on the published "
+            f"coordinate, so the fires with no coordinate are in it too."
+        )
     if country_source == COUNTRY_SOURCE_GEOMETRY:
         # Not a footnote: this run left out half the archive, and a reader who does
         # not know that will compare its totals with a filed run's.
@@ -885,18 +1220,27 @@ def write_docx(rows: list[Row], path: Path, year: int | None,
 
 
 def report(args: argparse.Namespace, engine: Engine, logger: logging.Logger) -> list[Row]:
-    """Compute the statistics and write whichever outputs were asked for."""
+    """Compute the statistics and write whichever outputs were asked for.
+
+    The region is resolved first, inside the same session, so that a name nobody
+    recognises fails before any fire is measured — and against the database, so the
+    error can list the communities that really are imported.
+    """
     with Session(engine) as session:
+        region = None if args.region is None else resolve_region(session, args.region)
         rows = compute(session, args.year, logger, args.surface, args.min_area,
-                       args.country_source)
+                       args.country_source, region)
 
     if not rows:
         # An empty report is almost always a campaign with no data, and writing an
         # empty file would hide that. The surface is named because asking for one
         # the export does not fill in is the other likely reason, and so are the
-        # threshold and the point test when either is in force.
+        # threshold, the region and the point test when any is in force.
         extra = "" if args.min_area is None else \
             f" No fire reached the --min-area of {args.min_area:g} ha."
+        if region is not None:
+            extra += (f" The report is of {region.label} alone, and the EGIF exports do "
+                      f"not cover every community in every campaign.")
         if args.country_source == COUNTRY_SOURCE_GEOMETRY:
             extra += (" --country-source geometry also needs the OCHA country boundaries "
                       "imported, and counts only fires with a published ignition point.")
@@ -910,7 +1254,7 @@ def report(args: argparse.Namespace, engine: Engine, logger: logging.Logger) -> 
         write_csv(rows, args.csv, logger)
     if args.docx is not None:
         write_docx(rows, args.docx, args.year, logger, args.surface, args.min_area,
-                   args.country_source)
+                   args.country_source, region)
     return rows
 
 

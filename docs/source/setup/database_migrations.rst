@@ -125,19 +125,36 @@ View                         Flattens                                    Geometr
 ``v_egif_wildfire``          ``wildfire`` + ``egif_wildfire``            ``POINT``, 4326
 ``v_darpa_wildfire_4326``    ``wildfire`` + ``darpa_wildfire``           ``MULTIPOLYGON``, 4326
 ``v_darpa_wildfire_25831``   ``wildfire`` + ``darpa_wildfire``           ``MULTIPOLYGON``, 25831
+``v_rediam_wildfire_4326``   ``wildfire`` + ``rediam_wildfire``          ``MULTIPOLYGON``, 4326
+``v_rediam_wildfire_25830``  ``wildfire`` + ``rediam_wildfire``          ``MULTIPOLYGON``, 25830
+``v_rediam_ignition``        ``ignition`` + ``rediam_ignition``          ``POINT``, 4326
 ===========================  ==========================================  =====================
 
-Portugal and Catalonia each appear twice, because a QGIS layer takes a single geometry
-column and both datasets have two perimeters: the one the provider publishes on its own
-national or regional grid — EPSG:3763 (ETRS89 / PT-TM06) on ``icnf_wildfire``, EPSG:25831
-(ETRS89 / UTM 31N) on ``darpa_wildfire`` — and the EPSG:4326 one the import reprojects
-onto ``wildfire``. All four views name it ``perimeter``, so a style or an expression
-written against one works on the others.
+Portugal, Catalonia and Andalusia each appear twice, because a QGIS layer takes a single
+geometry column and all three datasets have two perimeters: the one the provider publishes
+on its own national or regional grid — EPSG:3763 (ETRS89 / PT-TM06) on ``icnf_wildfire``,
+EPSG:25831 (ETRS89 / UTM 31N) on ``darpa_wildfire``, EPSG:25830 (UTM 30N) on
+``rediam_wildfire`` — and the EPSG:4326 one the import reprojects onto ``wildfire``. All
+six views name it ``perimeter``, so a style or an expression written against one works on
+the others.
 
-``v_darpa_wildfire_*`` also carry ``egif_report_number``, resolved through
-``darpa_wildfire.egif_wildfire_id``. Nothing fills that link in yet — see
-:doc:`../providers` — so today the column is NULL on every row. It is in the view because
-the layer that will show whether the binding worked should not need a migration first.
+.. note::
+
+   ``v_rediam_wildfire_25830`` is **25830 and not the 3042** the published ``.prj``
+   resolves to. They are the same projection; 3042 declares a northing-easting axis order
+   that the published coordinates do not follow. See :doc:`../providers`.
+
+``v_darpa_wildfire_*`` and ``v_rediam_wildfire_*`` also carry ``egif_report_number``,
+resolved through their ``egif_wildfire_id``. Nothing fills that link in for either
+dataset yet — see :doc:`../providers` — so today the column is NULL on every row. It is in
+the views because the layer that will show whether the binding worked should not need a
+migration first.
+
+``v_rediam_ignition`` is the third ignition view. It exists because 201 Andalusian fires
+publish a start point as well as a perimeter, and the two frequently disagree: a single
+layer cannot show both geometries, and a fire's point is not an attribute of its polygon.
+The perimeter views carry the same point as ``ignition_x`` / ``ignition_y``, which is what
+makes it visible in an attribute table.
 
 ``v_egif_wildfire`` is the odd one out: a wildfire view whose geometry is a ``POINT``.
 EGIF publishes no perimeter at all — see :doc:`../providers` — so a ``perimeter`` column

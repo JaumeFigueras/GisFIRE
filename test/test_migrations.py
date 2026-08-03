@@ -46,7 +46,11 @@ VIEWS = {
     "v_egif_wildfire": ("geometry", "POINT", 4326),
     "v_darpa_wildfire_4326": ("perimeter", "MULTIPOLYGON", 4326),
     "v_darpa_wildfire_25831": ("perimeter", "MULTIPOLYGON", 25831),
+    "v_rediam_wildfire_4326": ("perimeter", "MULTIPOLYGON", 4326),
+    "v_rediam_wildfire_25830": ("perimeter", "MULTIPOLYGON", 25830),
+    "v_rediam_ignition": ("geometry", "POINT", 4326),
 }
+
 
 
 @pytest.fixture
@@ -385,3 +389,64 @@ def test_the_match_method_constraint_accepts_every_method(alembic_config):
     engine.dispose()
 
     assert stored == set(MATCH_METHODS)
+
+
+def test_the_rediam_match_method_constraint_accepts_every_method(alembic_config):
+    """The migrations' CHECK list and the model's ``MATCH_METHODS`` agree.
+
+    The Andalusian half of the same gap the test above closes for Catalonia:
+    ``compare_metadata`` does not compare check constraints, so a method added to the
+    model would pass the drift test and be refused by the database at the moment the
+    new rule first fires.
+
+    The list here is six values and not Catalonia's eight, and that is the point of
+    the last assertion: ``date`` and ``date_name`` are the branches the Catalan
+    cascade takes when a code carries no province, every Andalusian code carries one,
+    and a database that accepted them would be accepting a binding this cascade must
+    never write.
+    """
+    from src.providers.andalusia_rediam.wildfire import MATCH_METHOD_CONFIDENCE
+    from src.providers.andalusia_rediam.wildfire import MATCH_METHODS
+
+    config, url = alembic_config
+    upgrade(config, "head")
+
+    engine = create_engine(url)
+    with engine.begin() as connection:
+        provider_id = connection.execute(text(
+            "INSERT INTO data_provider (name, product, full_name) "
+            "VALUES ('REDIAM', 'Perimetros', 'Red de Informacion Ambiental') "
+            "RETURNING id")).scalar()
+        egif_provider = connection.execute(text(
+            "INSERT INTO data_provider (name, product, full_name) "
+            "VALUES ('EGIF', 'EGIF', 'MITECO') RETURNING id")).scalar()
+        egif_parent = connection.execute(text(
+            "INSERT INTO wildfire (type, data_provider_id, start_date_time, time_zone) "
+            "VALUES ('egif_wildfire', :p, '2022-08-01T10:00:00Z', 'Europe/Madrid') "
+            "RETURNING id"), {"p": egif_provider}).scalar()
+        connection.execute(text(
+            "INSERT INTO egif_wildfire (id, report_number, campaign, province_ine_code) "
+            "VALUES (:id, '2022040091', 2022, '04')"), {"id": egif_parent})
+
+        for index, method in enumerate(MATCH_METHODS):
+            parent = connection.execute(text(
+                "INSERT INTO wildfire (type, data_provider_id, start_date_time, time_zone) "
+                "VALUES ('rediam_wildfire', :p, '2022-08-01T00:00:00Z', 'Europe/Madrid') "
+                "RETURNING id"), {"p": provider_id}).scalar()
+            connection.execute(text(
+                "INSERT INTO rediam_wildfire (id, source_layer, code, fire_date, year, "
+                "municipality_name, province_name, part_count, egif_wildfire_id, "
+                "match_method, match_confidence, matched_at) "
+                "VALUES (:id, 'PERIMETROS_COR_2008_2025', :code, '2022-08-01', 2022, "
+                "'DALIAS', 'Almeria', 1, :egif, :method, :confidence, now())"),
+                {"id": parent, "code": f"202204009{index}", "egif": egif_parent,
+                 "method": method, "confidence": MATCH_METHOD_CONFIDENCE[method]})
+
+    with engine.connect() as connection:
+        stored = set(connection.scalars(text(
+            "SELECT match_method FROM rediam_wildfire")))
+    engine.dispose()
+
+    assert stored == set(MATCH_METHODS)
+    # The two Catalan-only rules are refused, not merely unused.
+    assert {"date", "date_name"} & stored == set()

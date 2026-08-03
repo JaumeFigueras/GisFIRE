@@ -34,6 +34,10 @@ Usage
    python3 -m src.apps.statistics.wildfires.spain_egif.wildfire_causes \
        --cause-family intentional --csv arson.csv
 
+   # one autonomous community instead of the whole country
+   python3 -m src.apps.statistics.wildfires.spain_egif.wildfire_causes \
+       --region Catalonia --csv catalonia-lightning.csv
+
 At least one of ``--csv`` and ``--docx`` is required.
 
 The application only reads; it never modifies the database. Settings are read from the
@@ -114,6 +118,41 @@ to count:
    inside, every ``... inside`` column is zero, and a table of zeros looks exactly
    like an answer. The report checks for that case and says so. See
    :doc:`ocha_import_admin_boundaries`.
+
+One autonomous community
+------------------------
+
+``--region`` counts one *comunidad autónoma* instead of the whole country —
+``--region Catalonia``, ``--region Andalucía``, ``--region 09``. It takes the same names,
+codes and spellings as the companion report's option of the same name, resolved by the
+same code: see :ref:`egif-region` for the whole rule and for why the selection is on the
+province the *parte* is filed to rather than on the published coordinate.
+
+.. code-block:: bash
+
+   # lightning fires in Catalonia, campaign by campaign
+   python3 -m src.apps.statistics.wildfires.spain_egif.wildfire_causes \
+       --region Catalonia --csv catalonia-lightning.csv
+
+   # and the same community's arson
+   python3 -m src.apps.statistics.wildfires.spain_egif.wildfire_causes \
+       --region Catalonia --cause-family intentional --csv catalonia-arson.csv
+
+A campaign in which the community filed nothing is **absent** from the report rather than
+present as a row of zeros: a zero row would say the community had a fire-free year, which
+is not the same statement as the export not reaching it.
+
+.. important::
+
+   **The** ``... inside`` **columns still test the point against Spain**, not against the
+   community. That is the question this report always asks — can this fire be placed on
+   the ground at all — and its answer is not a claim that the point lies inside the
+   community the fire was filed in. A fire filed in Girona whose coordinate landed in
+   France is *outside*; one that landed in Aragón is *inside*.
+
+   Asking whether a point falls inside the community it was filed in is a different
+   report, and a useful one, but it is not this one. The ``.docx`` says as much on its
+   front page whenever a region is in force.
 
 One polygon, one campaign at a time
 ------------------------------------

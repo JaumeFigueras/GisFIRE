@@ -234,7 +234,8 @@ def load_staging_table(datasource: str, layer: str, staging_table: str,
                        logger: logging.Logger, geometry_type: str = "MULTIPOLYGON",
                        progress: bool | None = None, target_srs: str = "EPSG:4326",
                        open_options: list[str] | None = None,
-                       append: bool = False) -> None:
+                       append: bool = False, fid_column: str = "fid",
+                       creation_options: list[str] | None = None) -> None:
     """Copy one layer into the staging table with ``ogr2ogr``.
 
     Geometries are promoted to ``geometry_type`` and forced to ``target_srs``,
@@ -258,6 +259,22 @@ def load_staging_table(datasource: str, layer: str, staging_table: str,
     ``open_options`` are GDAL ``-oo`` driver options, needed where the file does
     not describe itself well enough to be read correctly — a shapefile with no
     ``.cpg`` alongside it, whose character set GDAL would otherwise guess wrong.
+
+    ``creation_options`` are further GDAL ``-lco`` layer creation options. The one
+    this project has needed is ``PRECISION=NO``, which stops the PostgreSQL driver
+    turning a shapefile's declared field width into a ``NUMERIC(width, scale)``: the
+    Andalusian 2024 layer declares ``X_INIC`` as ``Real (19.15)``, and a
+    ``numeric(19,15)`` cannot hold the six-digit easting the field actually contains,
+    so the ``COPY`` fails with a numeric field overflow. Like ``fid_column`` they are
+    ignored when appending, the table already existing.
+
+    ``fid_column`` names the serial primary key GDAL creates on the staging table.
+    The default is right everywhere except where the **source publishes an attribute
+    of that name**: the Andalusian combined layer has an ``fid`` of its own, a Real
+    row number, and GDAL then reports ``ERROR 1: Wrong field type for fid`` on every
+    run and quietly numbers the rows itself. Naming the key something else lets the
+    published field load as an ordinary column and the message go away. Nothing reads
+    the key, so any name will do.
 
     A year of GWIS fires takes minutes to load, so ``-progress`` is passed and
     ``ogr2ogr``'s progress bar is let through to the terminal instead of being
@@ -286,7 +303,9 @@ def load_staging_table(datasource: str, layer: str, staging_table: str,
         "-t_srs", target_srs,
     ]
     if not append:
-        command += ["-lco", "GEOMETRY_NAME=geom", "-lco", "FID=fid"]
+        command += ["-lco", "GEOMETRY_NAME=geom", "-lco", f"FID={fid_column}"]
+        for option in creation_options or []:
+            command += ["-lco", option]
     if show_progress:
         command.append("-progress")
     logger.info("Loading %s (layer %s) into %s with ogr2ogr", datasource, layer, staging_table)

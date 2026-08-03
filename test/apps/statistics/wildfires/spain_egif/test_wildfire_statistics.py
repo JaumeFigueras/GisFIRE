@@ -129,8 +129,8 @@ def with_edge_cases(populated, provider_id):
 
 
 def rows_for(session, year=None, surface=app.SURFACE_FOREST, min_area=None,
-             country_source=app.COUNTRY_SOURCE_FILED) -> list[app.Row]:
-    return app.compute(session, year, logger, surface, min_area, country_source)
+             country_source=app.COUNTRY_SOURCE_FILED, region=None) -> list[app.Row]:
+    return app.compute(session, year, logger, surface, min_area, country_source, region)
 
 
 def find(rows: list[app.Row], year: int | None) -> app.Row:
@@ -731,3 +731,302 @@ def test_the_docx_claims_no_such_restriction_by_default(located, tmp_path):
 
     prose = "\n".join(p.text for p in docx.Document(str(target)).paragraphs)
     assert "usable published coordinate" not in prose
+
+
+# --------------------------------------------------------------------------
+# One autonomous community
+# --------------------------------------------------------------------------
+
+#: (INE code, IGN name, province INE codes). Only what the fixture fires need, plus
+#: the two that make the matching rules testable: a bilingual name and two whose
+#: names begin alike, so an ambiguous ``--region`` has something to be ambiguous
+#: between.
+#:
+#: The provinces are the real ones, because the fixture fires are filed under real
+#: INE province codes — 08 Barcelona (Cataluña), 31 Navarra, 28 Madrid, 12 Castellón.
+REGIONS = [
+    ("09", "Cataluña/Catalunya", ["08", "17", "25", "43"]),
+    ("15", "Comunidad Foral de Navarra", ["31"]),
+    ("13", "Comunidad de Madrid", ["28"]),
+    ("10", "Comunitat Valenciana", ["03", "12", "46"]),
+]
+
+#: A box big enough to be a polygon and small enough to be nowhere near a fire: the
+#: region filter never touches geometry, but ``admin_boundary.geometry`` is NOT NULL.
+REGION_GEOMETRY = f"SRID=4326;{MultiPolygon([box(0.0, 40.0, 0.1, 40.1)]).wkt}"
+
+
+@pytest.fixture
+def ign_provider_id(db_session):
+    from src.providers import spain_ign
+
+    provider = DataProvider(name=spain_ign.PROVIDER_NAME,
+                            product=spain_ign.PROVIDER_PRODUCT_TEMPLATE.format(edition="2026"),
+                            full_name=spain_ign.PROVIDER_FULL_NAME, url=spain_ign.PROVIDER_URL)
+    db_session.add(provider)
+    db_session.commit()
+    return provider.id
+
+
+def add_region(session, provider_id, code, name, provinces):
+    """One comunidad autónoma and its provincias, with IGN NATCODEs."""
+    from src.providers import spain_ign
+    from src.providers.spain_ign.admin_boundary import IgnAdminBoundary
+
+    region = IgnAdminBoundary(
+        data_provider_id=provider_id, source_id=f"34{code}0000000",
+        level=app.REGION_LEVEL, name=name, geometry=REGION_GEOMETRY,
+        edition="2026", kind=spain_ign.KIND_COMUNIDAD_AUTONOMA)
+    session.add(region)
+    session.flush()
+    for province in provinces:
+        session.add(IgnAdminBoundary(
+            data_provider_id=provider_id, source_id=f"34{code}{province}00000",
+            level=app.PROVINCE_LEVEL, name=f"Provincia {province}",
+            parent_id=region.id, geometry=REGION_GEOMETRY,
+            edition="2026", kind=spain_ign.KIND_PROVINCIA))
+    session.flush()
+    return region
+
+
+@pytest.fixture
+def regions(populated, ign_provider_id):
+    """``populated`` plus the four IGN communities the fixture fires are filed in."""
+    for code, name, provinces in REGIONS:
+        add_region(populated, ign_provider_id, code, name, provinces)
+    populated.commit()
+    return populated
+
+
+def catalonia(session) -> app.Region:
+    return app.resolve_region(session, "Cataluña")
+
+
+def test_the_region_defaults_to_the_whole_country():
+    assert app.parse_arguments(["--csv", "out.csv"]).region is None
+
+
+def test_the_region_has_a_short_option():
+    assert app.parse_arguments(["--csv", "out.csv", "-r", "Catalonia"]).region == "Catalonia"
+
+
+@pytest.mark.parametrize("wanted", [
+    "Cataluña/Catalunya",   # the published name, whole
+    "Cataluña",             # the Spanish half of it
+    "Catalunya",            # the Catalan half
+    "Catalonia",            # the English name
+    "cataluna",             # no accents, no capitals
+    "  CATALUÑA  ",         # and no tidying up asked of the caller
+    "09",                   # the INE code
+    "9",                    # which need not be padded
+])
+def test_a_region_is_recognised_however_it_is_spelled(regions, wanted):
+    assert app.resolve_region(regions, wanted).code == "09"
+
+
+def test_a_name_that_picks_out_one_region_is_enough(regions):
+    """'Madrid' is not the name of a community; 'Comunidad de Madrid' is."""
+    assert app.resolve_region(regions, "Madrid").code == "13"
+
+
+def test_a_name_several_regions_share_is_refused(regions):
+    """Rather than one of them being guessed at: 'Comunidad' is three of the four."""
+    with pytest.raises(RuntimeError, match="matches several"):
+        app.resolve_region(regions, "Comunidad")
+
+
+def test_an_exact_name_beats_a_longer_one_containing_it(regions, ign_provider_id):
+    """'Aragón' must not be dragged away by a region that merely contains the word."""
+    add_region(regions, ign_provider_id, "02", "Aragón", ["22", "44", "50"])
+    add_region(regions, ign_provider_id, "20", "Reino de Aragón y algo más", ["99"])
+    regions.commit()
+
+    assert app.resolve_region(regions, "Aragón").code == "02"
+
+
+def test_an_unknown_region_lists_the_ones_imported(regions):
+    with pytest.raises(RuntimeError, match="No comunidad autónoma matches") as error:
+        app.resolve_region(regions, "Atlantis")
+
+    assert "Cataluña/Catalunya (Catalonia)" in str(error.value)
+
+
+def test_a_region_needs_the_ign_boundaries_imported(populated):
+    """With none imported the error names the application that imports them."""
+    with pytest.raises(RuntimeError, match="import_admin_boundaries"):
+        app.resolve_region(populated, "Catalonia")
+
+
+def test_a_region_with_no_provinces_is_refused(populated, ign_provider_id):
+    """An EGIF fire is filed to a province, so a community alone selects nothing."""
+    add_region(populated, ign_provider_id, "09", "Cataluña/Catalunya", [])
+    populated.commit()
+
+    with pytest.raises(RuntimeError, match="none of its provincias"):
+        app.resolve_region(populated, "Catalonia")
+
+
+def test_only_the_ign_publishes_a_spanish_community(populated, ign_provider_id):
+    """Level 1 is some provider's first division below the country, not only Spain's.
+
+    The Portuguese CAOP *distritos* are at level 1 too, and one of them must never
+    turn up as an answer to ``--region``. Stood in for here by an OCHA row at level 1,
+    which is the same shape of mistake: a boundary of another provider at that level.
+    """
+    ocha_provider = DataProvider(name=ocha.PROVIDER_NAME, product=ocha.PROVIDER_PRODUCT,
+                                 full_name=ocha.PROVIDER_FULL_NAME, url=ocha.PROVIDER_URL)
+    populated.add(ocha_provider)
+    populated.flush()
+    populated.add(OchaAdminBoundary(
+        data_provider_id=ocha_provider.id, source_id="PT-BRG", level=app.REGION_LEVEL,
+        name="Braga", geometry=REGION_GEOMETRY,
+        source="PT", iso_code=1, iso_2="PT", iso_3="PRT", iso_name="Portugal",
+        iso_3_group="PRT", region1_code=1, region1_name="r1", region2_code=2,
+        region2_name="r2", region3_code=3, region3_name="r3", status_code=1,
+        status_name="State", valid_date=datetime.date(2025, 1, 1),
+        update_date=datetime.date(2025, 1, 1), land_source="osm", view="intl"))
+    populated.commit()
+
+    assert app.available_regions(populated) == []
+
+
+def test_a_region_reports_only_the_fires_filed_in_it(regions):
+    """The 2023 fires are province 08, Barcelona; the 2022 one is 31, Navarra."""
+    rows = rows_for(regions, region=catalonia(regions))
+
+    assert [row.year_label for row in rows] == ["2023", "Total"]
+    assert find(rows, 2023).fires == 3
+    assert find(rows, None).total == pytest.approx(
+        forest("2023080001") + forest("2023080002") + forest("2023080003"))
+
+
+def test_another_region_reports_its_own(regions):
+    rows = rows_for(regions, region=app.resolve_region(regions, "Navarre"))
+
+    assert [row.year_label for row in rows] == ["2022", "Total"]
+    assert find(rows, 2022).fires == 1
+    assert find(rows, 2022).total == pytest.approx(forest("2022310001"))
+
+
+def test_no_region_reports_the_whole_country(regions):
+    """The default has to leave the report exactly as it was."""
+    assert rows_for(regions, region=None) == rows_for(regions)
+
+
+def test_the_regions_add_up_to_the_country(regions):
+    """Every fixture fire is filed in one of the four, and none in two."""
+    whole = find(rows_for(regions), None)
+    parts = [find(rows_for(regions, region=app.resolve_region(regions, code)), None)
+             for code, *_ in REGIONS
+             if rows_for(regions, region=app.resolve_region(regions, code))]
+
+    assert sum(part.fires for part in parts) == whole.fires
+    assert sum(part.total for part in parts) == pytest.approx(whole.total)
+
+
+def test_the_region_and_a_campaign_combine(regions):
+    assert rows_for(regions, year=2022, region=catalonia(regions)) == []
+    assert [row.year_label for row in rows_for(regions, year=2023,
+                                               region=catalonia(regions))] == \
+           ["2023", "Total"]
+
+
+def test_the_region_and_a_threshold_combine(regions):
+    """2023's forest totals are 3, 30 and 300 ha; keep the largest two."""
+    rows = rows_for(regions, min_area=10.0, region=catalonia(regions))
+
+    assert find(rows, 2023).fires == 2
+    assert find(rows, 2023).minimum == pytest.approx(forest("2023080001"))
+
+
+def test_the_region_and_a_surface_combine(regions):
+    rows = rows_for(regions, surface=app.SURFACE_AGRICULTURAL, region=catalonia(regions))
+
+    assert find(rows, 2023).fires == 3
+    assert find(rows, 2023).total == pytest.approx(5.0 + 0.0 + 50.0)
+
+
+def test_a_region_with_no_fires_yields_nothing(regions, ign_provider_id):
+    add_region(regions, ign_provider_id, "01", "Andalucía", ["04", "41"])
+    regions.commit()
+
+    assert rows_for(regions, region=app.resolve_region(regions, "Andalusia")) == []
+
+
+def test_an_empty_region_report_names_the_region(regions, tmp_path, ign_provider_id):
+    add_region(regions, ign_provider_id, "01", "Andalucía", ["04", "41"])
+    regions.commit()
+    args = app.parse_arguments(["--region", "Andalusia", "--csv", str(tmp_path / "a.csv")])
+
+    with pytest.raises(RuntimeError, match="Andalucía"):
+        app.report(args, regions.get_bind(), logger)
+    assert not (tmp_path / "a.csv").exists()
+
+
+def test_the_region_is_a_filter_on_the_filing_and_not_on_the_point(located, ign_provider_id):
+    """Half the archive publishes no coordinate, and those fires are in the report.
+
+    The four ``located`` fires are all filed in Madrid, one of them with no point at
+    all and two with a point outside Spain. Under the default they all count, because
+    what selects them is the province on the parte.
+    """
+    add_region(located, ign_provider_id, "13", "Comunidad de Madrid", ["28"])
+    located.commit()
+
+    rows = rows_for(located, region=app.resolve_region(located, "Madrid"))
+    assert find(rows, 2015).fires == len(LOCATED)
+
+
+def test_the_region_narrows_the_geometry_run_too(located, ign_provider_id):
+    """And the audit with it, so its numbers still account for the report's fires."""
+    add_region(located, ign_provider_id, "13", "Comunidad de Madrid", ["28"])
+    add_region(located, ign_provider_id, "09", "Cataluña/Catalunya", ["08"])
+    located.commit()
+    madrid = app.resolve_region(located, "Madrid")
+
+    rows = rows_for(located, country_source=app.COUNTRY_SOURCE_GEOMETRY, region=madrid)
+    audit = located.execute(app.location_audit(region=madrid)).one()
+
+    assert find_country(rows, "Spain", 2015).fires == 1
+    assert (audit.no_point, audit.outside) == (1, 1)
+    # And a community none of them is filed in gets none of them, geometry or not.
+    assert rows_for(located, country_source=app.COUNTRY_SOURCE_GEOMETRY,
+                    region=app.resolve_region(located, "Catalonia")) == []
+
+
+def test_the_csv_keeps_its_shape_for_a_region(regions, tmp_path):
+    """The Country column still says Spain, so the file can still be concatenated."""
+    target = tmp_path / "catalonia.csv"
+    app.write_csv(rows_for(regions, region=catalonia(regions)), target, logger)
+
+    with target.open(encoding="utf-8") as handle:
+        table = list(csv.reader(handle))
+
+    assert table[0] == list(app.COLUMNS)
+    assert {line[0] for line in table[1:]} == {app.COUNTRY_NAME}
+
+
+def test_the_docx_says_which_community_it_is_of(regions, tmp_path):
+    """Because the Country column says Spain on every row of it."""
+    docx = pytest.importorskip("docx")
+    target = tmp_path / "catalonia.docx"
+    region = catalonia(regions)
+    app.write_docx(rows_for(regions, region=region), target, None, logger, region=region)
+
+    document = docx.Document(str(target))
+    headings = [p.text for p in document.paragraphs if p.style.name.startswith("Heading")]
+    prose = "\n".join(p.text for p in document.paragraphs)
+
+    assert any("Cataluña/Catalunya" in heading for heading in headings)
+    assert "not a national total" in prose
+    # The provinces the selection was actually made on, not only the region's name.
+    assert "08, 17, 25, 43" in prose
+
+
+def test_the_docx_claims_no_region_when_there_is_none(regions, tmp_path):
+    docx = pytest.importorskip("docx")
+    target = tmp_path / "spain.docx"
+    app.write_docx(rows_for(regions), target, None, logger)
+
+    prose = "\n".join(p.text for p in docx.Document(str(target)).paragraphs)
+    assert "not a national total" not in prose

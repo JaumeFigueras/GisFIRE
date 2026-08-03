@@ -28,6 +28,7 @@ under ``src/apps/imports/``::
    src/apps/imports/wildfires/portugal_icnf/import_wildfires.py
    src/apps/imports/wildfires/spain_egif/import_wildfires.py
    src/apps/imports/wildfires/catalonia_darpa/import_wildfires.py
+   src/apps/imports/wildfires/andalusia_rediam/import_wildfires.py
 
 so that a second source for the same kind of data — OSM for the administrative levels
 below the country, another agency's fire perimeters — sits beside the first rather than
@@ -108,6 +109,16 @@ Data import
     EPSG:25831 geometry as well as the EPSG:4326 one, and passes no ``ENCODING`` — the
     layers are a mix of two character sets and each one says which it is.
 
+:doc:`applications/rediam_import_wildfires`
+    Imports the Andalusian burnt area perimeters — 2008 onwards — as GisFIRE's second
+    *regional* perimeter source. Reads the combined layer for the perimeters and the four
+    yearly layers that publish ``X_INIC``/``Y_INIC`` for the ignition points, so a fire
+    gets both observations where the service published both. Dissolves the 55 codes
+    published twice into one fire each, keeps the published EPSG:25830 geometry as well as
+    the EPSG:4326 one, and asserts that CRS rather than the EPSG:3042 the ``.prj`` resolves
+    to — same projection, opposite axis order. Replaces the **years** it reads rather than
+    the layer, because the combined file is renamed every publication.
+
 :doc:`applications/icnf_resync_wildfires`
     Goes back to the ICNF's WFS for the times the shapefile export truncated — a
     shapefile's DBF has no datetime type, so every published instant arrived as a bare
@@ -129,6 +140,7 @@ inference rather than transcription, it can be wrong, and it therefore records h
 was arrived at. They live under ``src/apps/bindings/``, grouped like the importers::
 
    src/apps/bindings/wildfires/catalonia_darpa/bind_egif_wildfires.py
+   src/apps/bindings/wildfires/andalusia_rediam/bind_egif_wildfires.py
 
 :doc:`applications/darpa_bind_egif_wildfires`
     Links each Catalan perimeter to the Spanish *parte* for the same fire — the shape
@@ -139,6 +151,16 @@ was arrived at. They live under ``src/apps/bindings/``, grouped like the importe
     itself. A perimeter is bound only when exactly one *parte* survives, and every
     binding records which rule produced it, because an identifier match and a name
     match are not the same claim.
+
+:doc:`applications/rediam_bind_egif_wildfires`
+    The same application over the Andalusian perimeters, and the easier half of the
+    job: ``CODIGO`` **is** the EGIF ``report_number`` from the first year, so 749 of
+    the 759 bindings rest on an identifier and only ten on a date and a name. Two of
+    the Catalan rules are absent — every Andalusian code carries a province, so nothing
+    is ever bound on a date alone — and one rule differs: where a guess collides with an
+    identifier match on the same *parte*, the identifier wins rather than both being
+    dropped. 759 of 907 perimeters are bound; 133 of the rest are 2024 and 2025, which
+    the EGIF exports do not reach.
 
 Statistics
 ----------
@@ -152,6 +174,7 @@ as the importers::
    src/apps/statistics/wildfires/portugal_icnf/wildfire_statistics.py
    src/apps/statistics/wildfires/spain_egif/wildfire_statistics.py
    src/apps/statistics/wildfires/catalonia_darpa/wildfire_statistics.py
+   src/apps/statistics/wildfires/andalusia_rediam/wildfire_statistics.py
    src/apps/statistics/wildfires/portugal_icnf/wildfire_causes.py
    src/apps/statistics/wildfires/spain_egif/wildfire_causes.py
 
@@ -192,6 +215,14 @@ as the importers::
     published identifier. No ``--country`` and no ``--country-source``: the department
     publishes Catalonia and nothing else, so nothing is tested against a boundary.
 
+:doc:`applications/rediam_wildfire_statistics`
+    The same report over the Andalusian REDIAM perimeters, with the same two EGIF-match
+    columns as the Catalan one — and one option no other report can offer: this is the
+    only dataset with **both** a perimeter and a published burnt area, so ``--surface``
+    reports either the measured polygon or the hectares the service publishes (wooded,
+    scrub, grassland, or the three added). Over the archive the two differ by 7.8%, and
+    neither is a correction of the other. No ``--country`` and no ``--country-source``.
+
 :doc:`applications/icnf_wildfire_causes`
     The companion of the ICNF report, over the same fires under the same rule, counting
     instead of measuring: how many fires there were, how many carry a cause at all, and
@@ -226,11 +257,14 @@ as the importers::
    applications/icnf_resync_wildfires
    applications/egif_import_wildfires
    applications/darpa_import_wildfires
+   applications/rediam_import_wildfires
    applications/darpa_bind_egif_wildfires
+   applications/rediam_bind_egif_wildfires
    applications/gwis_wildfire_statistics
    applications/gfa_wildfire_statistics
    applications/icnf_wildfire_statistics
    applications/egif_wildfire_statistics
    applications/darpa_wildfire_statistics
+   applications/rediam_wildfire_statistics
    applications/icnf_wildfire_causes
    applications/egif_wildfire_causes

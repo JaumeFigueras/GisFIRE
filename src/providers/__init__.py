@@ -25,6 +25,9 @@ from src.providers.spain_egif.ignition import EgifIgnition  # noqa: E402,F401
 from src.providers.spain_egif.wildfire import EgifWildfire  # noqa: E402,F401
 from src.providers.spain_egif.wildfire_report import EgifWildfireReport  # noqa: E402,F401
 from src.providers.catalonia_darpa.wildfire import DarpaWildfire  # noqa: E402,F401
+# Likewise RediamWildfire, which points at EgifWildfire as well.
+from src.providers.andalusia_rediam.ignition import RediamIgnition  # noqa: E402,F401
+from src.providers.andalusia_rediam.wildfire import RediamWildfire  # noqa: E402,F401
 from src.providers.gfa.ignition import GfaIgnition  # noqa: E402,F401
 from src.providers.gfa.wildfire import GfaWildfire  # noqa: E402,F401
 from src.providers.gwis.wildfire import GwisWildfire  # noqa: E402,F401

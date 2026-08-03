@@ -20,6 +20,11 @@ family of causes::
     python3 -m src.apps.statistics.wildfires.spain_egif.wildfire_causes \\
         --cause-family intentional --csv arson.csv
 
+…or count one autonomous community instead of the whole country::
+
+    python3 -m src.apps.statistics.wildfires.spain_egif.wildfire_causes \\
+        --region Catalonia --csv catalonia-lightning.csv
+
 At least one of ``--csv`` and ``--docx`` is required.
 
 The companion of
@@ -121,6 +126,24 @@ is never moved into France's total.
    be inside, every ``... inside`` column is zero, and the report says so at
    ``WARNING`` rather than letting a table of zeros pass for an answer.
 
+One autonomous community
+------------------------
+
+``--region`` counts one *comunidad autónoma* instead of the whole country —
+``--region Catalonia``, ``--region Andalucía``, ``--region 09`` — and takes the same
+names, codes and spellings as the companion report's option of the same name, which
+is where the rule is set out in full. It selects on the province the *parte* is filed
+to, so the whole archive is in scope rather than the located half, and it needs the
+IGN administrative boundaries imported.
+
+.. note::
+
+   The ``... inside`` columns still test the published point against **Spain**, not
+   against the community. That is the same question this report always asks — can
+   this fire be placed on the ground at all — and the answer is not a claim that the
+   point is inside the community it was filed in. Asking *that* is a different
+   report; the ``.docx`` says so on its front page whenever a region is in force.
+
 Which year a fire counts towards
 --------------------------------
 
@@ -192,6 +215,8 @@ from src.apps.imports import common
 from src.apps.statistics.wildfires.spain_egif.wildfire_statistics import COUNTRY_LEVEL
 from src.apps.statistics.wildfires.spain_egif.wildfire_statistics import COUNTRY_NAME
 from src.apps.statistics.wildfires.spain_egif.wildfire_statistics import TOTAL_LABEL
+from src.apps.statistics.wildfires.spain_egif.wildfire_statistics import Region
+from src.apps.statistics.wildfires.spain_egif.wildfire_statistics import resolve_region
 from src.providers.spain_egif import CAUSE_INTENTIONAL
 from src.providers.spain_egif import CAUSE_LIGHTNING
 from src.providers.spain_egif import CAUSE_REKINDLE
@@ -289,6 +314,23 @@ def cause_family(family: str) -> Family:
         ) from None
 
 
+#: The ``--region`` filter, as one predicate: the province the *parte* is filed to.
+#:
+#: Bound to ``NULL`` when no region was given, where the first branch is true and the
+#: predicate selects everything — so the statement is the same either way and the
+#: whole-country run pays a constant-folded ``NULL IS NULL`` for it.
+#:
+#: The cast is required and not decoration: the parameter is ``NULL`` on most runs,
+#: and PostgreSQL cannot infer the type of a bare ``NULL`` parameter — it would
+#: refuse the statement rather than assume ``text[]``.
+#:
+#: On the filing and not on the geometry, which is the whole reason ``--region``
+#: reaches the entire archive: ``province_ine_code`` is ``NOT NULL`` on every fire,
+#: while half of them publish no coordinate at all. See
+#: :func:`~src.apps.statistics.wildfires.spain_egif.wildfire_statistics.resolve_region`.
+PROVINCES_SQL = """(CAST(:provinces AS text[]) IS NULL
+       OR egif.province_ine_code = ANY(CAST(:provinces AS text[])))"""
+
 #: Spain's outline, as one row.
 #:
 #: The whole of the geometry this report needs. The question each fire asks is "is
@@ -330,6 +372,12 @@ SPAIN_SQL = """
 #:
 #: ``no_point`` costs nothing — it is a null test on a column already in hand — and
 #: it is the first thing to look at when ``inside`` is far below ``fires``.
+#:
+#: :data:`PROVINCES_SQL` is what ``--region`` narrows it with, and it is part of the
+#: statement whether or not a region was given: a run over the whole country binds
+#: ``NULL`` there and the predicate is true of every row. One statement rather than
+#: two spellings of it means the region can never change anything else about the
+#: report by accident.
 COUNTS_SQL = """
 WITH spain AS MATERIALIZED (""" + SPAIN_SQL + """)
 SELECT
@@ -351,12 +399,20 @@ FROM (
     LEFT JOIN ignition ON ignition.id = egif.ignition_id
     LEFT JOIN spain ON TRUE
     WHERE egif.campaign = :year
+      AND """ + PROVINCES_SQL + """
 ) AS fire
 """
 
-#: Every campaign the archive holds, oldest first.
+#: Every campaign the archive holds, oldest first, in the region if there is one.
+#:
+#: Narrowed by the same predicate as the counts, so that a campaign in which the
+#: community filed nothing is absent from the report rather than present as a row of
+#: zeros. A zero row would be a claim that the community had a fire-free year, which
+#: is a different statement from the export not reaching it.
 YEARS_SQL = """
-SELECT DISTINCT campaign FROM egif_wildfire ORDER BY campaign
+SELECT DISTINCT egif.campaign FROM egif_wildfire AS egif
+WHERE """ + PROVINCES_SQL + """
+ORDER BY egif.campaign
 """
 
 #: Whether Spain's outline is there to be tested against at all.
@@ -368,7 +424,7 @@ WHERE boundary.level = :country_level AND boundary.name = :country_name
 """
 
 
-def counts_query(year: int, family: str = DEFAULT_FAMILY):
+def counts_query(year: int, family: str = DEFAULT_FAMILY, region: Region | None = None):
     """The statement for one campaign, with its parameters bound.
 
     Parameters
@@ -377,6 +433,9 @@ def counts_query(year: int, family: str = DEFAULT_FAMILY):
         The campaign to count.
     family : str
         One of :data:`CAUSE_FAMILIES`.
+    region : Region, optional
+        Count only the fires filed in this *comunidad autónoma*. ``None``, the
+        default, counts the whole country.
 
     Returns
     -------
@@ -389,12 +448,15 @@ def counts_query(year: int, family: str = DEFAULT_FAMILY):
         "family": cause_family(family).digit,
         "country_level": COUNTRY_LEVEL,
         "country_name": COUNTRY_NAME,
+        "provinces": None if region is None else list(region.provinces),
     }
 
 
-def years_query():
-    """Every campaign in the archive, oldest first."""
-    return text(YEARS_SQL)
+def years_query(region: Region | None = None):
+    """Every campaign in the archive, oldest first, in the region if there is one."""
+    return text(YEARS_SQL), {
+        "provinces": None if region is None else list(region.provinces),
+    }
 
 
 def country_geometry_query():
@@ -560,6 +622,14 @@ def parse_arguments(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("-y", "--year", type=int,
                         help="restrict to one campaign, e.g. 2023; this is the filed "
                              "Campania, not the year of the detection date")
+    parser.add_argument("-r", "--region", metavar="COMUNIDAD",
+                        help="restrict to one comunidad autónoma, e.g. 'Cataluña', "
+                             "'Catalonia', 'Andalucía' or the INE code '09'. Accents and "
+                             "case do not matter, either half of a bilingual name works, "
+                             "and so does a name that identifies exactly one region — "
+                             "'Madrid'. The fires counted are those whose parte is filed "
+                             "to a province of that community, so the whole archive is in "
+                             "scope; it needs the IGN administrative boundaries imported")
     parser.add_argument("--cause-family", default=DEFAULT_FAMILY, choices=list(CAUSE_FAMILIES),
                         help="which family of idcausa to count, by the leading digit of "
                              "the code: 'lightning' (default) is the 100 family, Rayo. The "
@@ -617,7 +687,7 @@ def parse_arguments(argv: list[str] | None = None) -> argparse.Namespace:
 
 
 def compute(session: Session, year: int | None, logger: logging.Logger,
-            family: str = DEFAULT_FAMILY) -> list[Row]:
+            family: str = DEFAULT_FAMILY, region: Region | None = None) -> list[Row]:
     """Count the fires a campaign at a time, returning the report's rows in order.
 
     The eight steps of the report, done once per campaign and then summed:
@@ -649,19 +719,20 @@ def compute(session: Session, year: int | None, logger: logging.Logger,
     250 and is why it once took hours.
     """
     label = cause_family(family).label
+    where = "" if region is None else f" of {region.name}"
 
     if year is not None:
         years = [year]
     else:
-        with common.Spinner("Finding the campaigns the EGIF fires cover", logger):
-            years = list(session.scalars(years_query()))
+        with common.Spinner(f"Finding the campaigns the EGIF fires{where} cover", logger):
+            years = list(session.scalars(*years_query(region)))
 
     measured: list[Row] = []
     no_point = 0
     for index, campaign in enumerate(years, start=1):
-        with common.Spinner(f"Counting the EGIF fires by cause "
+        with common.Spinner(f"Counting the EGIF fires{where} by cause "
                             f"({campaign}: {index} of {len(years)})", logger):
-            counted = session.execute(*counts_query(campaign, family)).one()
+            counted = session.execute(*counts_query(campaign, family, region)).one()
         if not counted.fires:
             continue
         no_point += counted.no_point
@@ -703,8 +774,10 @@ def compute(session: Session, year: int | None, logger: logging.Logger,
                 "inside one and every '... inside' column is zero: import the OCHA "
                 "country boundaries before reading them", COUNTRY_NAME)
 
-    logger.info("Counted %d rows over %d campaign(s) (%s fires)",
-                len(rows), len(measured), label)
+    logger.info("Counted %d rows over %d campaign(s) (%s fires, %s)",
+                len(rows), len(measured), label,
+                "the whole country" if region is None
+                else f"the fires filed in {region.label}")
     return rows
 
 
@@ -730,7 +803,8 @@ def write_csv(rows: list[Row], path: Path, logger: logging.Logger,
 
 
 def write_docx(rows: list[Row], path: Path, year: int | None,
-               logger: logging.Logger, family: str = DEFAULT_FAMILY) -> None:
+               logger: logging.Logger, family: str = DEFAULT_FAMILY,
+               region: Region | None = None) -> None:
     """Write the report as a Word document.
 
     One table, with the summary row in bold, on a **landscape** page: eleven
@@ -761,16 +835,30 @@ def write_docx(rows: list[Row], path: Path, year: int | None,
     section.orientation = WD_ORIENT.LANDSCAPE
     section.page_width, section.page_height = section.page_height, section.page_width
 
+    where = COUNTRY_NAME if region is None else f"{region.label}, {COUNTRY_NAME}"
     document.add_heading(
-        f"EGIF wildfire counts — {kind.label} causes ({COUNTRY_NAME})", level=1)
+        f"EGIF wildfire counts — {kind.label} causes ({where})", level=1)
 
-    scope = f"campaign: {year}" if year is not None else "all campaigns"
+    scope = [f"campaign: {year}" if year is not None else "all campaigns"]
+    if region is not None:
+        scope.append(f"only the fires filed in {region.label}")
     document.add_paragraph(
         f"Counts of EGIF wildfires whose idcausa is of the {kind.digit} family "
         f"({kind.spanish} — {kind.label}). Every filed fire is counted, whether or not "
         f"its report form gives a burnt area and wherever its coordinate is. Years are "
-        f"the filed Campania. Scope: {scope}."
+        f"the filed Campania. Scope: {'; '.join(scope)}."
     )
+    if region is not None:
+        # The Country column says Spain on every row of this table, so what it is a
+        # table of has to be said in prose.
+        document.add_paragraph(
+            f"These are the fires filed in {region.label} — those whose parte names one "
+            f"of its provinces ({', '.join(region.provinces)}) — and not a national "
+            f"total. The selection is on the filing and not on the published coordinate, "
+            f"so the fires with no coordinate are in it too; note that the '... inside' "
+            f"columns below still test the point against {COUNTRY_NAME}, not against the "
+            f"community."
+        )
     document.add_paragraph(
         "The percentage is of the classified fires and not of all of them, and is left "
         "blank where nothing was classified."
@@ -808,25 +896,35 @@ def write_docx(rows: list[Row], path: Path, year: int | None,
 
 
 def report(args: argparse.Namespace, engine: Engine, logger: logging.Logger) -> list[Row]:
-    """Count the fires and write whichever outputs were asked for."""
+    """Count the fires and write whichever outputs were asked for.
+
+    The region is resolved first, inside the same session, so that a name nobody
+    recognises fails before any fire is counted — and against the database, so the
+    error can list the communities that really are imported.
+    """
     with Session(engine) as session:
-        rows = compute(session, args.year, logger, args.cause_family)
+        region = None if args.region is None else resolve_region(session, args.region)
+        rows = compute(session, args.year, logger, args.cause_family, region)
 
     if not rows:
         # An empty report is almost always a campaign with no data, and writing an
         # empty file would hide that. Note that a campaign with no fire of the
         # family asked for is not empty — it is a row of zeros, which is a
         # different thing and is reported as one.
+        extra = "" if region is None else (
+            f" The report is of {region.label} alone, and the EGIF exports do not cover "
+            f"every community in every campaign."
+        )
         raise RuntimeError(
             "No wildfires matched. Check --year, and that the EGIF fires are imported — "
             "every filed fire is counted here, so an empty report means there are none "
-            "in scope at all."
+            "in scope at all." + extra
         )
 
     if args.csv is not None:
         write_csv(rows, args.csv, logger, args.cause_family)
     if args.docx is not None:
-        write_docx(rows, args.docx, args.year, logger, args.cause_family)
+        write_docx(rows, args.docx, args.year, logger, args.cause_family, region)
     return rows
 
 

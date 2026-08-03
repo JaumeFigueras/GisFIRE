@@ -361,6 +361,99 @@ The file names are not regular, and the year comes from them
    which is one more thing the link makes reachable — and, from 1998 on, the last
    tiebreak the binding has.
 
+REDIAM
+------
+
+The `Red de Información Ambiental de Andalucía <https://portalrediam.cica.es>`_ publishes
+the perimeters of the forest fires of Andalusia from 2008 on, in ETRS89 / UTM 30N — as one
+shapefile per year **and** one shapefile holding the whole series.
+
+The **second regional perimeter source**, and the complement of :doc:`providers/egif_wildfire`
+in the same way :doc:`providers/darpa_wildfire` is. Read that section first: the argument
+for having regional perimeters at all is made there and is not repeated here.
+
+:doc:`providers/rediam_provider`
+    The dataset itself: the combined layer and the yearly ones, the two shapes of
+    ``CODIGO``, the three published burnt areas, the duplicated records, and the CRS.
+
+:doc:`providers/rediam_wildfire`
+    The perimeter model. The date and the polygon are already the generic model's, so the
+    subclass adds the published code and date, the municipality and province, the three
+    burnt areas, how many features the fire was published as, the perimeter on the
+    Andalusian grid, the link to the published ignition point and the link to the EGIF
+    *parte*. Imported by :doc:`applications/rediam_import_wildfires`.
+
+:doc:`providers/rediam_ignition`
+    Where the fire started, for the 201 fires of 2021-2024 that publish a coordinate.
+
+Five things about this dataset are worth knowing before using it. All five were checked
+against the published files, 962 features in the combined layer:
+
+``CODIGO`` **is** the EGIF report number
+    Not "is shaped like one": all 962 features decode, always to an Andalusian INE
+    province and always to the year of their own ``FECHA_INC``, and the 907 fires have 907
+    distinct report numbers. Two published shapes — ten bare digits to 2024,
+    ``IIFF`` plus ten digits in 2025 — and six 2019 codes that write the sequence with
+    three digits. :func:`~src.providers.andalusia_rediam.egif_report_number` reads all
+    three.
+
+    This is the sharpest contrast with Catalonia, whose code took six forms over forty
+    years and is an identifier only from 1997.
+
+962 features are 907 fires
+    55 codes are published twice, 2 in 2024 and 53 in 2025. In 54 of the 55 the two rows
+    are the same fire with the same footprint, differing only in the case of the names;
+    in the remaining one — ``IIFF2025210122`` — they are two different mappings, 363.8 ha
+    and 517.4 ha, which dissolve into 527.5 ha. Two pairs also disagree about the
+    published burnt areas. The import dissolves on ``(code, date)``, keeps the count in
+    :attr:`~src.providers.andalusia_rediam.wildfire.RediamWildfire.part_count` and reports
+    the disagreements.
+
+There *is* a burnt area, and it is not the perimeter
+    ``SUP_ARBOLA``, ``SUP_MATORR`` and ``SUP_PASTIZ`` — wooded, scrub and grassland
+    hectares — on every feature of every year. Over the 907 fires they sum to 152,696 ha
+    against 165,582 ha of mapped perimeter, which is what one expects of three vegetation
+    classes against an outline that also encloses what is none of them. Both are kept and
+    neither is reconciled with the other.
+
+An ignition point, for four years
+    ``X_INIC`` and ``Y_INIC`` are published in the yearly layers of 2021-2024 and nowhere
+    else — not in the combined layer, not in 2025. 201 fires of 907 have one, and **88 of
+    the 201 fall inside their own perimeter**; the rest are outside by a metre to three
+    kilometres, one of them by 19.5 km. Two observations, stored as two rows, neither
+    corrected.
+
+.. warning::
+
+   **The published ``.prj`` resolves to EPSG:3042, and the geometry is stored as
+   EPSG:25830.** They are the same projection — ETRS89 / UTM zone 30N — but 3042 declares
+   a *northing-easting* axis order, while the coordinates in the files are
+   easting-northing, as GDAL itself reports (``Data axis to CRS axis mapping: 2,1``).
+
+   Storing 3042 would store a declaration the geometry does not obey and invite PROJ to
+   swap the axes on the next transform, so the import asserts 25830. The fixture in the
+   import's tests writes the published ``.prj`` verbatim, so that this is checked rather
+   than assumed.
+
+.. note::
+
+   :attr:`~src.providers.andalusia_rediam.wildfire.RediamWildfire.egif_wildfire_id` is the
+   link to the Spanish *parte* for the same fire, and the import **never fills it in** —
+   exactly as for Catalonia, and for the same reason: the binding is a later application
+   and an ``UPDATE`` rather than a migration.
+
+   ``match_method``, ``match_confidence`` and ``matched_at`` come with it, and
+   :doc:`applications/rediam_bind_egif_wildfires` is what writes all four.
+   :data:`~src.providers.andalusia_rediam.wildfire.MATCH_METHODS` is the vocabulary, and
+   a check constraint enforces it — added in a revision of its own once the rules were
+   worked out, rather than guessed at when the table was created.
+
+   **Six methods, not the Catalan eight.** ``date`` and ``date_name`` are the branches
+   that cascade takes when a code carries no province, and every Andalusian code carries
+   one, so a fire whose code did not decode is left unbound rather than bound on a date
+   alone. 759 of the 907 perimeters are bound and 749 of those on the published
+   identifier — 98.7%, against Catalonia's 77%.
+
 OCHA
 ----
 
@@ -581,4 +674,7 @@ NUTS refines the administrative tree instead of crossing it
    providers/icnf_fire_cause
    providers/ign_provider
    providers/ign_admin_boundary
+   providers/rediam_provider
+   providers/rediam_wildfire
+   providers/rediam_ignition
    providers/ocha_admin_boundary
