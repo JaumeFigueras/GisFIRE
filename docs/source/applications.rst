@@ -27,6 +27,7 @@ under ``src/apps/imports/``::
    src/apps/imports/wildfires/gfa/import_wildfires.py
    src/apps/imports/wildfires/portugal_icnf/import_wildfires.py
    src/apps/imports/wildfires/spain_egif/import_wildfires.py
+   src/apps/imports/wildfires/catalonia_darpa/import_wildfires.py
 
 so that a second source for the same kind of data — OSM for the administrative levels
 below the country, another agency's fire perimeters — sits beside the first rather than
@@ -98,6 +99,15 @@ Data import
     holdover interval that makes the lightning work possible. Each step writes only the
     columns its own format publishes, so neither undoes the other. Needs no ``ogr2ogr``.
 
+:doc:`applications/darpa_import_wildfires`
+    Imports the Catalan burnt area perimeters — thirty-nine shapefiles covering 1986 to
+    2024 — as GisFIRE's first *regional* perimeter source, which exists because EGIF has
+    none. Three of the layers were vectorised from a raster and never dissolved, so the
+    import groups fragments into one fire per published ``(code, date)``: 4,533 burnt
+    features are 860 fires, and one of 1994's is 1,309 polygons. Keeps the published
+    EPSG:25831 geometry as well as the EPSG:4326 one, and passes no ``ENCODING`` — the
+    layers are a mix of two character sets and each one says which it is.
+
 :doc:`applications/icnf_resync_wildfires`
     Goes back to the ICNF's WFS for the times the shapefile export truncated — a
     shapefile's DBF has no datetime type, so every published instant arrived as a bare
@@ -110,6 +120,26 @@ Data import
    resolved *at import time* and cannot be filled in afterwards without re-importing.
    Import those two first.
 
+Bindings
+--------
+
+A binding decides that a row of one provider's data and a row of another's describe
+the same real event. That is a different kind of statement from an import: it is
+inference rather than transcription, it can be wrong, and it therefore records how it
+was arrived at. They live under ``src/apps/bindings/``, grouped like the importers::
+
+   src/apps/bindings/wildfires/catalonia_darpa/bind_egif_wildfires.py
+
+:doc:`applications/darpa_bind_egif_wildfires`
+    Links each Catalan perimeter to the Spanish *parte* for the same fire — the shape
+    to the cause, the burnt area and the ignition point, which is the pairing neither
+    dataset can supply on its own. From 1997 the Catalan ``CODI_FINAL`` **is** the EGIF
+    ``report_number``, which settles 480 of the 860 outright; before that it falls back
+    to the date narrowed by province, municipality name and finally the perimeter
+    itself. A perimeter is bound only when exactly one *parte* survives, and every
+    binding records which rule produced it, because an identifier match and a name
+    match are not the same claim.
+
 Statistics
 ----------
 
@@ -121,6 +151,7 @@ as the importers::
    src/apps/statistics/wildfires/gfa/wildfire_statistics.py
    src/apps/statistics/wildfires/portugal_icnf/wildfire_statistics.py
    src/apps/statistics/wildfires/spain_egif/wildfire_statistics.py
+   src/apps/statistics/wildfires/catalonia_darpa/wildfire_statistics.py
    src/apps/statistics/wildfires/portugal_icnf/wildfire_causes.py
    src/apps/statistics/wildfires/spain_egif/wildfire_causes.py
 
@@ -151,6 +182,15 @@ as the importers::
     in. Groups on the filed ``Campania``. Its ``--country-source`` tests the published
     ignition point rather than a perimeter, which is how a coordinate that landed in the
     sea gets caught.
+
+:doc:`applications/darpa_wildfire_statistics`
+    The same report over the Catalan DARPA burnt area perimeters, and the complement of
+    the EGIF one: these hectares are **measured**, because this dataset publishes a shape
+    and no burnt area at all. Adds two columns the other four do not have — how many of
+    each year's fires are bound to the EGIF *parte* for the same fire, and that as a
+    percentage — with ``--min-confidence`` to count only the bindings resting on the
+    published identifier. No ``--country`` and no ``--country-source``: the department
+    publishes Catalonia and nothing else, so nothing is tested against a boundary.
 
 :doc:`applications/icnf_wildfire_causes`
     The companion of the ICNF report, over the same fires under the same rule, counting
@@ -185,9 +225,12 @@ as the importers::
    applications/icnf_import_wildfires
    applications/icnf_resync_wildfires
    applications/egif_import_wildfires
+   applications/darpa_import_wildfires
+   applications/darpa_bind_egif_wildfires
    applications/gwis_wildfire_statistics
    applications/gfa_wildfire_statistics
    applications/icnf_wildfire_statistics
    applications/egif_wildfire_statistics
+   applications/darpa_wildfire_statistics
    applications/icnf_wildfire_causes
    applications/egif_wildfire_causes

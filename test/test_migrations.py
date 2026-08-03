@@ -44,6 +44,8 @@ VIEWS = {
     # A POINT on a wildfire view, alone among them: EGIF publishes no perimeter,
     # so the fire is mapped at the point it started. See revision 9a3d61c07e84.
     "v_egif_wildfire": ("geometry", "POINT", 4326),
+    "v_darpa_wildfire_4326": ("perimeter", "MULTIPOLYGON", 4326),
+    "v_darpa_wildfire_25831": ("perimeter", "MULTIPOLYGON", 25831),
 }
 
 
@@ -330,3 +332,56 @@ def test_migrations_downgrade_to_base(alembic_config):
     assert "wildfire" not in tables
     assert "gwis_wildfire" not in tables
     assert views & set(VIEWS) == set()
+
+
+def test_the_match_method_constraint_accepts_every_method(alembic_config):
+    """The migrations' CHECK list and the model's ``MATCH_METHODS`` agree.
+
+    ``compare_metadata`` does not compare check constraints, so the drift test above
+    passes happily while a method added to the model is refused by the database the
+    migrations built — which is a failure that only shows up in a real run, at the
+    moment the new rule first fires. This closes that gap by inserting one fire per
+    method and letting the constraint judge.
+    """
+    from src.providers.catalonia_darpa.wildfire import MATCH_METHOD_CONFIDENCE
+    from src.providers.catalonia_darpa.wildfire import MATCH_METHODS
+
+    config, url = alembic_config
+    upgrade(config, "head")
+
+    engine = create_engine(url)
+    with engine.begin() as connection:
+        provider_id = connection.execute(text(
+            "INSERT INTO data_provider (name, product, full_name) "
+            "VALUES ('DARPA', 'Perimetres', 'Departament') RETURNING id")).scalar()
+        egif_provider = connection.execute(text(
+            "INSERT INTO data_provider (name, product, full_name) "
+            "VALUES ('EGIF', 'EGIF', 'MITECO') RETURNING id")).scalar()
+        egif_parent = connection.execute(text(
+            "INSERT INTO wildfire (type, data_provider_id, start_date_time, time_zone) "
+            "VALUES ('egif_wildfire', :p, '1994-08-11T10:00:00Z', 'Europe/Madrid') "
+            "RETURNING id"), {"p": egif_provider}).scalar()
+        connection.execute(text(
+            "INSERT INTO egif_wildfire (id, report_number, campaign, province_ine_code) "
+            "VALUES (:id, '1994080496', 1994, '08')"), {"id": egif_parent})
+
+        for index, method in enumerate(MATCH_METHODS):
+            parent = connection.execute(text(
+                "INSERT INTO wildfire (type, data_provider_id, start_date_time, time_zone) "
+                "VALUES ('darpa_wildfire', :p, '1994-08-11T00:00:00Z', 'Europe/Madrid') "
+                "RETURNING id"), {"p": provider_id}).scalar()
+            connection.execute(text(
+                "INSERT INTO darpa_wildfire (id, source_layer, code, fire_date, year, "
+                "municipality_name, part_count, egif_wildfire_id, match_method, "
+                "match_confidence, matched_at) "
+                "VALUES (:id, 'incendis1994', :code, '1994-08-11', 1994, 'Subirats', 1, "
+                ":egif, :method, :confidence, now())"),
+                {"id": parent, "code": f"89449{index}", "egif": egif_parent,
+                 "method": method, "confidence": MATCH_METHOD_CONFIDENCE[method]})
+
+    with engine.connect() as connection:
+        stored = set(connection.scalars(text(
+            "SELECT match_method FROM darpa_wildfire")))
+    engine.dispose()
+
+    assert stored == set(MATCH_METHODS)

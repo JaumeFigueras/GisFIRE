@@ -26,6 +26,8 @@ import pytest
 from shapely.geometry import MultiPolygon
 from shapely.geometry import box
 
+from sqlalchemy import select
+
 from src.apps.statistics.wildfires.spain_egif import wildfire_causes as app
 from src.apps.statistics.wildfires.spain_egif import wildfire_statistics as stats_app
 from src.data_model.data_provider import DataProvider
@@ -475,44 +477,58 @@ def test_a_fire_whose_point_is_in_france_is_still_a_spanish_fire(populated):
     assert year_2022.inside_matching == 0, "but not inside Spain"
 
 
-def test_the_audit_separates_the_three_ways_of_being_outside(populated):
-    """They mean entirely different things, so the report never adds them up."""
-    groups = [
-        app.Group(country=record.country, year=record.year, has_point=record.has_point,
-                  placement=record.placement, fires=record.fires,
-                  classified=record.classified, matching=record.matching)
-        for record in populated.execute(app.counts_query())
-    ]
-    where = app.placements(groups)
-
-    assert where.inside == 7
-    assert where.no_point == 1
-    assert where.no_country == 1
-    assert where.elsewhere == (("France", 1),)
+def test_the_inside_counts_never_exceed_the_whole(populated):
+    """Steps 5-7 count a subset of the fires steps 1-3 count."""
+    for row in rows_for(populated):
+        assert row.inside_fires <= row.fires, row.year_label
+        assert row.inside_classified <= row.classified, row.year_label
+        assert row.inside_matching <= row.matching, row.year_label
 
 
-def test_the_audit_accounts_for_every_fire(populated):
-    groups = [
-        app.Group(country=record.country, year=record.year, has_point=record.has_point,
-                  placement=record.placement, fires=record.fires,
-                  classified=record.classified, matching=record.matching)
-        for record in populated.execute(app.counts_query())
-    ]
-    where = app.placements(groups)
+def test_only_spain_decides_what_is_inside(populated, db_session):
+    """The report asks one question of one polygon: is the point inside Spain.
 
-    assert where.inside + where.outside == len(FIRES)
+    This is the regression guard for the reason this report once took seventeen
+    hours. It used to ask *which* of the world's countries contained each point —
+    a lateral over every level-0 boundary, sorted, once per fire. Adding more
+    countries made it slower and could change the answer; now it can do neither.
+
+    France already overlaps nothing here, so a third country is added covering the
+    whole of Catalonia — under the old rule that is another polygon to test and
+    another candidate to sort; under this one it is not consulted at all.
+    """
+    before = [(row.year, row.inside_fires) for row in rows_for(populated)]
+
+    provider_id = populated.scalar(
+        select(DataProvider.id).where(DataProvider.name == ocha.PROVIDER_NAME))
+    populated.add(OchaAdminBoundary(
+        data_provider_id=provider_id, source_id="XXX", level=0, name="Atlantis",
+        geometry=f"SRID=4326;{MultiPolygon([box(-10.0, 35.0, 5.0, 44.0)]).wkt}",
+        source="XXX", iso_code=2, iso_2="XX", iso_3="XXX", iso_name="Atlantis",
+        iso_3_group="XXX", region1_code=1, region1_name="r1", region2_code=2,
+        region2_name="r2", region3_code=3, region3_name="r3", status_code=1,
+        status_name="State", valid_date=datetime.date(2025, 1, 1),
+        update_date=datetime.date(2025, 1, 1), land_source="osm", view="intl"))
+    populated.commit()
+
+    assert [(row.year, row.inside_fires) for row in rows_for(populated)] == before
 
 
-def test_the_run_says_where_the_points_that_are_not_inside_went(populated, caplog):
+def test_the_run_says_how_many_points_are_inside_and_how_many_are_missing(
+        populated, caplog):
+    """The two numbers that explain a gap between steps 1 and 5.
+
+    A fire is outside because it published no coordinate — half the archive — or
+    because the coordinate it published is not in Spain. The first is free to count
+    and is the usual answer, so it is the one reported.
+    """
     with caplog.at_level(logging.INFO):
         rows_for(populated)
 
     messages = "\n".join(record.getMessage() for record in caplog.records)
-    assert "1 publish no point" in messages
-    assert "1 publish a point in no country" in messages
-    assert "inside Spain" in messages
-    # And the border crossing is named rather than lumped in with the sea.
-    assert "coordinate inside France" in messages
+    assert "have a point inside Spain" in messages
+    assert "publish no point at all" in messages
+    assert "1 publish no point at all" in messages
 
 
 def test_a_run_with_no_boundaries_imported_says_so(without_boundaries, caplog):
@@ -659,29 +675,47 @@ def test_a_missing_output_directory_is_created(populated, tmp_path):
 # One statement
 # --------------------------------------------------------------------------
 
-def test_the_whole_report_is_one_statement(populated, monkeypatch):
-    """Both blocks, the Total row and the audit come out of a single pass."""
-    built: list[int | None] = []
+def test_each_campaign_is_counted_by_one_statement(populated, monkeypatch):
+    """Eight numbers per campaign, from one pass over that campaign's fires.
+
+    Six aggregates over the same rows; splitting them into six statements would
+    read the same fires six times, and reading them once per campaign is what keeps
+    a run over 586,157 fires bounded and able to say where it is.
+    """
+    counted: list[int] = []
     original = app.counts_query
 
-    def spy(year=None, *arguments, **keywords):
-        built.append(year)
+    def spy(year, *arguments, **keywords):
+        counted.append(year)
         return original(year, *arguments, **keywords)
 
     monkeypatch.setattr(app, "counts_query", spy)
     rows = rows_for(populated)
 
-    assert built == [None]
-    assert len(rows) == 4
+    assert counted == sorted(counted), "oldest campaign first"
+    assert counted == [2019, 2022, 2023]
+    assert [row.year for row in rows if not row.is_total] == [2023, 2022, 2019]
 
 
-def test_the_placement_audit_needs_no_query_of_its_own(populated, monkeypatch):
-    """It is arithmetic over the groups, so it cannot disagree with the table."""
-    monkeypatch.setattr(
-        app, "fire_details",
-        lambda *arguments, **keywords: pytest.fail("the fires were read a second time"))
-    groups = [app.Group("Spain", 2023, True, "Spain", 3, 2, 1),
-              app.Group("Spain", 2023, False, None, 1, 1, 1)]
+def test_a_narrowed_campaign_lists_no_years(populated, monkeypatch):
+    """--year 2023 asks about 2023 and nothing else."""
+    monkeypatch.setattr(app, "years_query",
+                        lambda: pytest.fail("the campaigns were listed for a run of one"))
+    counted: list[int] = []
+    original = app.counts_query
+    monkeypatch.setattr(app, "counts_query",
+                        lambda year, *a, **k: (counted.append(year), original(year, *a, **k))[1])
 
-    where = app.placements(groups)
-    assert (where.inside, where.no_point, where.outside) == (3, 1, 1)
+    assert find(rows_for(populated, year=2023), 2023).fires == 5
+    assert counted == [2023]
+
+
+def test_the_statement_selects_the_country_by_name(populated):
+    """Structural guard on the property the whole fix rests on.
+
+    The boundary lookup is filtered to one country, so exactly one polygon is ever
+    tested. A change that dropped this filter would still pass every count above —
+    the answers would be the same — and would quietly restore the seventeen hours.
+    """
+    assert "boundary.name = :country_name" in app.COUNTS_SQL
+    assert "ORDER BY" not in app.COUNTS_SQL.upper()

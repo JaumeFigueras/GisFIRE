@@ -92,26 +92,28 @@ a ``--country-source`` precisely because there the test *removes* fires, and
 switching it on silently halves the archive; here both answers are in the same row
 and neither hides the other.
 
-A fire is *outside* for three quite different reasons, and the log separates them
-rather than adding them up:
+A fire is *outside* for two quite different reasons. The report counts the one that
+is free to count and does not go looking for the other:
 
 *no point published*
-    An ordinary property of the archive, and the big number: **293,710 of the
-    586,157 fires of 1982-2023 publish no coordinate at all**, every fire before
-    1998 among them. It says nothing whatsoever about the fires that do have one.
-*a point in no country*
-    A coordinate in the sea — the data fault the plausibility box lets through.
-    This is the number to watch.
-*a point in another country*
-    A coordinate over the French or Portuguese border. Reported by name in the log,
-    because a handful is a rounding error and a systematic drift is a bug in a
-    province's zone fallback.
+    An ordinary property of the archive, and the big number: **294,052 of the
+    586,157 fires publish no coordinate at all**, every fire before 1998 among them.
+    It says nothing whatsoever about the fires that do have one, and it is a null
+    test on a column already in hand, so the log always reports it.
+*a point that is not in Spain*
+    A coordinate in the sea, or over the French or Portuguese border — the data
+    fault the plausibility box lets through. It is the difference between the two
+    numbers above and needs no extra work to see.
 
-The fire is still Spanish in every case: it is a Spanish *parte*, so the
-``Country`` column is the constant :data:`~...wildfire_statistics.COUNTRY_NAME` on
-every row and a fire is never moved into France's total. This report is about one
-country's statistic, and "which country contains the point" is a question about the
-coordinate rather than about the fire.
+**Which** other country such a point falls in is deliberately not asked. It is a
+different question — "where is this coordinate" rather than "is this fire in
+Spain" — and answering it means testing every point against every country in the
+world instead of against one polygon. That is what this report used to do, and it
+is why it took hours; see *One polygon* below.
+
+The fire is Spanish either way: it is a Spanish *parte*, so the ``Country`` column
+is the constant :data:`~...wildfire_statistics.COUNTRY_NAME` on every row and a fire
+is never moved into France's total.
 
 .. note::
 
@@ -127,13 +129,36 @@ Which year a fire counts towards
 what a published yearly total is a total of, it is ``NOT NULL`` and indexed, and it
 needs no timezone applied to it.
 
-One statement
--------------
+One polygon, one campaign at a time
+-----------------------------------
 
-One, for the whole report, exactly as the companion. The grouping is by campaign
-**and placement**, so the two blocks of counts, the ``Total`` row and the whole
-outside-the-border audit all come out of a single pass — which means the
-point-in-polygon test is paid once per fire rather than once per number.
+The report is eight numbers per campaign — the three counts, the three counts
+inside, and the two percentages — and it is computed exactly that way: one
+statement per campaign, then the ``Total`` row by addition.
+
+Six aggregates over the same rows come out of that one statement together, because
+splitting them would read the same fires six times. A campaign at a time, rather
+than all at once, because it bounds what any statement holds and because a run over
+586,157 fires has to be able to say which year it is on.
+
+.. warning::
+
+   **The geometry is one ``ST_Contains`` per fire against one prepared polygon**,
+   and it has to stay that way.
+
+   This report once asked, for every fire, *which* of the world's countries
+   contained its point — a lateral over every level-0 boundary, ordered so that
+   Spain would win a tie, taking the first. That is 318 polygon tests per fire
+   instead of one, and the ``ORDER BY`` meant the ``LIMIT 1`` could not stop early.
+   Measured on the real archive it cost **0.6 seconds per located fire**: 200 fires
+   in 120 seconds, which over the 292,105 fires that publish a point is about
+   **49 hours**. The whole report now takes **17 seconds**.
+
+   The fix was not a faster query but a smaller question. ``Is this point in
+   Spain?`` needs Spain's polygon and nothing else, and
+   :data:`SPAIN_SQL` fetches exactly that one row. A test asserts that the statement
+   still selects the country by name, because a change that dropped the filter would
+   give the same answers and quietly restore the hours.
 
 Shared with the companion report
 --------------------------------
@@ -153,37 +178,25 @@ import logging
 import os
 import sys
 
-from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 
 from sqlalchemy import Engine
-from sqlalchemy import Select
-from sqlalchemy import Subquery
 from sqlalchemy import create_engine
-from sqlalchemy import func
-from sqlalchemy import literal
-from sqlalchemy import select
-from sqlalchemy import true
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 import src.settings  # noqa: F401  (imported for the side effect of loading .env)
 
 from src.apps.imports import common
-from src.apps.statistics.wildfires.spain_egif.wildfire_statistics import CAMPAIGN
 from src.apps.statistics.wildfires.spain_egif.wildfire_statistics import COUNTRY_LEVEL
 from src.apps.statistics.wildfires.spain_egif.wildfire_statistics import COUNTRY_NAME
 from src.apps.statistics.wildfires.spain_egif.wildfire_statistics import TOTAL_LABEL
-from src.apps.statistics.wildfires.spain_egif.wildfire_statistics import ordered_countries
-from src.data_model.geography.admin_boundary import AdminBoundary
-from src.data_model.ignition import Ignition
-from src.providers.ocha.admin_boundary import OchaAdminBoundary
 from src.providers.spain_egif import CAUSE_INTENTIONAL
 from src.providers.spain_egif import CAUSE_LIGHTNING
 from src.providers.spain_egif import CAUSE_REKINDLE
 from src.providers.spain_egif import CAUSE_UNKNOWN
-from src.providers.spain_egif.fire_cause import EgifFireCause
-from src.providers.spain_egif.wildfire import EgifWildfire
+
 
 
 @dataclass(frozen=True)
@@ -276,201 +289,126 @@ def cause_family(family: str) -> Family:
         ) from None
 
 
-def fire_details(year: int | None = None) -> Subquery:
-    """One row per EGIF fire: its campaign, its cause and where its point is.
+#: Spain's outline, as one row.
+#:
+#: The whole of the geometry this report needs. The question each fire asks is "is
+#: this point inside Spain", which is **one** polygon test — not "which of the
+#: world's countries contains this point", which is 250 of them.
+#:
+#: Fetched once per statement and cross-joined, so PostGIS prepares the polygon
+#: once and reuses it for every point in the campaign rather than rebuilding it per
+#: row.
+SPAIN_SQL = """
+    SELECT boundary.geometry AS geometry
+    FROM admin_boundary AS boundary
+    JOIN ocha_admin_boundary AS ocha ON ocha.id = boundary.id
+    WHERE boundary.level = :country_level
+      AND boundary.name = :country_name
+    LIMIT 1
+"""
+
+#: The eight numbers, for one campaign, in one statement.
+#:
+#: Steps 1-3 are the three counts over every fire the campaign filed; steps 5-7 are
+#: the same three restricted to the fires whose published point is inside Spain. The
+#: percentages (steps 4 and 8) are arithmetic and are :class:`Row`'s work — SQL that
+#: returned them would only have to be divided again for the ``Total`` row.
+#:
+#: One pass over one campaign, and one polygon test per fire that has a point:
+#:
+#: * ``egif_wildfire`` is filtered by ``campaign`` first, which is indexed;
+#: * ``egif_fire_cause`` is joined for the code alone, and outer, because an
+#:   unclassified fire is still a fire;
+#: * ``ignition`` is joined outer for the same reason — half the archive publishes
+#:   no coordinate, and those fires belong in steps 1-3;
+#: * ``spain`` is one row, cross-joined, so ``ST_Contains`` is called once per fire
+#:   against a polygon PostGIS has already prepared.
+#:
+#: ``count(cause_id)`` and not ``count(*)`` for the classified counts: counting a
+#: nullable column counts the rows where it is filled in, which is the definition of
+#: classified here.
+#:
+#: ``no_point`` costs nothing — it is a null test on a column already in hand — and
+#: it is the first thing to look at when ``inside`` is far below ``fires``.
+COUNTS_SQL = """
+WITH spain AS MATERIALIZED (""" + SPAIN_SQL + """)
+SELECT
+    count(*) AS fires,
+    count(fire.cause_id) AS classified,
+    count(*) FILTER (WHERE fire.family = :family) AS matching,
+    count(*) FILTER (WHERE fire.inside) AS inside_fires,
+    count(fire.cause_id) FILTER (WHERE fire.inside) AS inside_classified,
+    count(*) FILTER (WHERE fire.inside AND fire.family = :family) AS inside_matching,
+    count(*) FILTER (WHERE fire.ignition_id IS NULL) AS no_point
+FROM (
+    SELECT egif.cause_id AS cause_id,
+           egif.ignition_id AS ignition_id,
+           substr(cause.code, 1, 1) AS family,
+           (ignition.geometry IS NOT NULL
+            AND ST_Contains(spain.geometry, ignition.geometry)) AS inside
+    FROM egif_wildfire AS egif
+    LEFT JOIN egif_fire_cause AS cause ON cause.id = egif.cause_id
+    LEFT JOIN ignition ON ignition.id = egif.ignition_id
+    LEFT JOIN spain ON TRUE
+    WHERE egif.campaign = :year
+) AS fire
+"""
+
+#: Every campaign the archive holds, oldest first.
+YEARS_SQL = """
+SELECT DISTINCT campaign FROM egif_wildfire ORDER BY campaign
+"""
+
+#: Whether Spain's outline is there to be tested against at all.
+COUNTRY_GEOMETRY_SQL = """
+SELECT count(*)
+FROM admin_boundary AS boundary
+JOIN ocha_admin_boundary AS ocha ON ocha.id = boundary.id
+WHERE boundary.level = :country_level AND boundary.name = :country_name
+"""
+
+
+def counts_query(year: int, family: str = DEFAULT_FAMILY):
+    """The statement for one campaign, with its parameters bound.
 
     Parameters
     ----------
-    year : int, optional
-        Restrict to one campaign. ``None``, the default, covers every campaign.
-
-    Returns
-    -------
-    Subquery
-        Columns ``country, year, cause_id, code, has_point, placement``. The
-        counting is :func:`counts_query`'s work; this is only the per-fire fact
-        table both blocks of the report are aggregated from.
-
-    Notes
-    -----
-    **Every join here is outer, and each of the three has to be.** The join to
-    ``egif_fire_cause`` would otherwise drop the unclassified fires, the join to
-    ``ignition`` the fires that publish no coordinate — half the archive — and the
-    lateral the fires whose coordinate is inside no country. All three belong in the
-    first block of counts; what they are missing is exactly what the second block
-    and the log audit are for.
-
-    ``placement`` is the name of the country whose polygon contains the point, or
-    ``NULL`` where there is no point or no such country. It is a name and not a
-    boolean because the three ways of being outside mean entirely different things —
-    see the module docstring — and a boolean would flatten them into one.
-
-    ``ORDER BY (name = COUNTRY_NAME) DESC LIMIT 1`` inside the lateral: a point on a
-    shared border can satisfy ``ST_Contains`` for two countries, and one fire must
-    not become two rows. Sorting Spain first means such a point is called *inside*
-    rather than reported as a border crossing, which is the reading that does not
-    invent a foreign fire out of a rounding error in a polygon.
-
-    The join to ``ocha_admin_boundary`` keeps the test against the OCHA country
-    outlines rather than against every level-0 boundary any provider has loaded.
-    """
-    egif = EgifWildfire.__table__
-    cause = EgifFireCause.__table__
-    ignition = Ignition.__table__
-    ocha_boundary = OchaAdminBoundary.__table__
-
-    containing = (
-        select(AdminBoundary.name.label("name"))
-        .select_from(AdminBoundary)
-        .join(ocha_boundary, ocha_boundary.c.id == AdminBoundary.id)
-        .where(AdminBoundary.level == COUNTRY_LEVEL)
-        .where(func.ST_Contains(AdminBoundary.geometry, ignition.c.geometry))
-        .order_by((AdminBoundary.name == COUNTRY_NAME).desc())
-        .limit(1)
-        .lateral("containing")
-    )
-
-    fires = (
-        select(
-            literal(COUNTRY_NAME).label("country"),
-            CAMPAIGN.label("year"),
-            egif.c.cause_id.label("cause_id"),
-            cause.c.code.label("code"),
-            egif.c.ignition_id.is_not(None).label("has_point"),
-            containing.c.name.label("placement"),
-        )
-        .select_from(egif)
-        .outerjoin(cause, cause.c.id == egif.c.cause_id)
-        .outerjoin(ignition, ignition.c.id == egif.c.ignition_id)
-        .outerjoin(containing, true())
-    )
-    if year is not None:
-        fires = fires.where(CAMPAIGN == year)
-    return fires.subquery("fire")
-
-
-def counts_query(year: int | None = None, family: str = DEFAULT_FAMILY) -> Select:
-    """Build the counting query: three counts per campaign and placement.
-
-    Parameters
-    ----------
-    year : int, optional
-        Restrict to one campaign.
+    year : int
+        The campaign to count.
     family : str
         One of :data:`CAUSE_FAMILIES`.
 
     Returns
     -------
-    Select
-        A query yielding ``country, year, has_point, placement, fires, classified,
-        matching``, newest campaign first. Both blocks of the report, the ``Total``
-        row and the audit are folded out of this by :func:`summarise` and
-        :func:`placements`.
-
-    Notes
-    -----
-    Grouping by the placement as well as the campaign is what makes this **one
-    statement**. The ``... inside`` columns are the group whose placement is Spain,
-    the audit is the groups that are not, and neither needs a second pass — which
-    matters because the point-in-polygon test is the only expensive thing here and
-    is thereby paid once per fire rather than once per number.
-
-    ``count(cause_id)`` and not ``count(*)`` for the classified column: counting a
-    nullable column counts the rows where it is filled in, which is the definition
-    of classified. EGIF's Excel export classifies every fire, so the two are usually
-    equal — but an XML import into a database whose cause catalogue was never
-    seeded cannot resolve one, and that is a case worth being able to see.
-
-    The family is matched on the first character of the published ``idcausa``. See
-    the module docstring: the code is hierarchical and the catalogue is versioned,
-    so a subcode a later edition adds is counted without a second edit here.
+    tuple
+        The SQL text object and the parameter dictionary, ready for
+        ``session.execute(*counts_query(...))``.
     """
-    fire = fire_details(year)
-    matches = func.substr(fire.c.code, 1, 1) == cause_family(family).digit
-
-    return (
-        select(
-            fire.c.country,
-            fire.c.year,
-            fire.c.has_point,
-            fire.c.placement,
-            func.count().label("fires"),
-            func.count(fire.c.cause_id).label("classified"),
-            func.count().filter(matches).label("matching"),
-        )
-        .group_by(fire.c.country, fire.c.year, fire.c.has_point, fire.c.placement)
-        .order_by(fire.c.year.desc())
-    )
+    return text(COUNTS_SQL), {
+        "year": year,
+        "family": cause_family(family).digit,
+        "country_level": COUNTRY_LEVEL,
+        "country_name": COUNTRY_NAME,
+    }
 
 
-def country_geometry_query() -> Select:
-    """Count the OCHA country polygons a fire could be found inside of.
+def years_query():
+    """Every campaign in the archive, oldest first."""
+    return text(YEARS_SQL)
 
-    Returns
-    -------
-    Select
-        A query yielding a single number: how many level-0 OCHA boundaries are named
-        :data:`~...wildfire_statistics.COUNTRY_NAME`.
 
-    Notes
-    -----
-    Asked only when the report found no fire inside the country at all, which has
-    two possible meanings: every published coordinate really is outside — which
-    would be extraordinary — or the boundaries were never imported. The second is
-    overwhelmingly likelier and produces a table of zeros that looks exactly like an
-    answer, so it is worth one cheap statement to tell them apart.
+def country_geometry_query():
+    """How many level-0 OCHA boundaries are named :data:`COUNTRY_NAME`.
+
+    Asked once per run. With no boundaries imported there is nothing to be inside
+    of, every ``... inside`` column is zero, and a table of zeros looks exactly like
+    an answer — so it is worth one cheap statement to tell that apart from an
+    archive whose coordinates really are all outside the country.
     """
-    ocha_boundary = OchaAdminBoundary.__table__
-    return (
-        select(func.count())
-        .select_from(AdminBoundary)
-        .join(ocha_boundary, ocha_boundary.c.id == AdminBoundary.id)
-        .where(AdminBoundary.level == COUNTRY_LEVEL)
-        .where(AdminBoundary.name == COUNTRY_NAME)
-    )
-
-
-@dataclass(frozen=True)
-class Group:
-    """The fires of one campaign that share a placement, as the statement grouped them.
-
-    Attributes
-    ----------
-    country : str
-        The country the fires are filed in, always
-        :data:`~...wildfire_statistics.COUNTRY_NAME`.
-    year : int
-        The filed campaign.
-    has_point : bool
-        Whether these fires publish an ignition coordinate at all.
-    placement : str or None
-        Name of the country whose polygon contains that coordinate, or ``None``
-        where there is no coordinate or no such country.
-    fires, classified, matching : int
-        How many fires, how many of them carry a cause, and how many of those are
-        of the family asked for.
-
-    Notes
-    -----
-    An intermediate rather than a line of the report: :func:`summarise` folds these
-    into :class:`Row`\\ s and :func:`placements` reads the audit off the same list.
-    The pair ``(has_point, placement)`` takes exactly four values in practice —
-    ``(False, None)``, ``(True, None)``, ``(True, 'Spain')`` and ``(True, <a
-    neighbour>)`` — which is why grouping on it is cheap.
-    """
-
-    country: str
-    year: int
-    has_point: bool
-    placement: str | None
-    fires: int
-    classified: int
-    matching: int
-
-    @property
-    def is_inside(self) -> bool:
-        """Whether these fires' points fall inside the country they are filed in."""
-        return self.placement == COUNTRY_NAME
+    return text(COUNTRY_GEOMETRY_SQL), {
+        "country_level": COUNTRY_LEVEL,
+        "country_name": COUNTRY_NAME,
+    }
 
 
 def share(part: int, whole: int) -> float | None:
@@ -585,110 +523,26 @@ class Row:
         )
 
 
-def fold(groups: list[Group], country: str, year: int | None) -> Row:
-    """One row from the groups it is made of: the counts added up.
+def total(rows: list[Row], country: str) -> Row:
+    """The summary row: every count added up over the campaigns.
 
-    Notes
-    -----
-    Counts decompose over a partition of the fires, so a ``Total`` row folded from
-    every campaign's groups is what a single pass over the same fires would have
-    returned, and no fire is counted twice or left out.
+    Counts decompose over a partition of the fires, so this is what a single pass
+    over all of them would have returned, and no fire is counted twice or left out.
 
-    The percentages are deliberately **not** folded: they are recomputed by
-    :class:`Row` from the summed counts, which is the ratio of the totals rather
-    than the mean of the ratios. A campaign with eleven classified fires and one
-    with eleven thousand must not weigh the same in the answer.
+    The percentages are deliberately **not** averaged. :class:`Row` recomputes them
+    from the summed counts, which is the ratio of the totals rather than the mean of
+    the ratios — a campaign with eleven classified fires and one with eleven
+    thousand must not weigh the same in the answer.
     """
-    inside = [group for group in groups if group.is_inside]
     return Row(
         country=country,
-        year=year,
-        fires=sum(group.fires for group in groups),
-        classified=sum(group.classified for group in groups),
-        matching=sum(group.matching for group in groups),
-        inside_fires=sum(group.fires for group in inside),
-        inside_classified=sum(group.classified for group in inside),
-        inside_matching=sum(group.matching for group in inside),
-    )
-
-
-def summarise(groups: list[Group], countries: list[str]) -> list[Row]:
-    """Build the report from the groups counted: the summary rows, in order.
-
-    Returns
-    -------
-    list of Row
-        Each country, its campaigns newest first and its summary row last. Empty if
-        nothing was counted — a report of no fires has no total either.
-    """
-    report: list[Row] = []
-    for name in countries:
-        mine = [group for group in groups if group.country == name]
-        if not mine:
-            continue
-        for year in sorted({group.year for group in mine}, reverse=True):
-            report.append(fold([group for group in mine if group.year == year], name, year))
-        report.append(fold(mine, name, None))
-    return report
-
-
-@dataclass(frozen=True)
-class Placement:
-    """Where the fires' published coordinates turned out to be.
-
-    Attributes
-    ----------
-    inside : int
-        Points inside the country the fires are filed in.
-    no_point : int
-        Fires publishing no coordinate at all. Half the 1982-2023 archive, and an
-        ordinary property of it rather than a fault.
-    no_country : int
-        Points inside no country's polygon — a coordinate in the sea, which is what
-        the import's plausibility box on the UTM easting and northing lets through.
-    elsewhere : tuple
-        ``(country, fires)`` pairs for the points that landed over a border, sorted
-        by name.
-
-    Notes
-    -----
-    The four are counted apart and **never added up into a single "excluded"**,
-    because they mean entirely different things about the data: the first is the
-    answer, the second is the archive, the third is a data fault and the fourth is
-    either a rounding error at the border or a systematically wrong UTM zone.
-    """
-
-    inside: int
-    no_point: int
-    no_country: int
-    elsewhere: tuple[tuple[str, int], ...]
-
-    @property
-    def outside(self) -> int:
-        """Every fire not found inside the country, however it failed to be."""
-        return self.no_point + self.no_country + sum(count for _, count in self.elsewhere)
-
-
-def placements(groups: list[Group]) -> Placement:
-    """Read the placement audit off the groups the report was folded from.
-
-    Notes
-    -----
-    No query of its own: the grouping :func:`counts_query` already does carries
-    every distinction this needs, so the audit costs nothing beyond the arithmetic
-    and cannot disagree with the table it accompanies.
-    """
-    elsewhere: Counter[str] = Counter()
-    for group in groups:
-        if group.placement is not None and not group.is_inside:
-            elsewhere[group.placement] += group.fires
-
-    return Placement(
-        inside=sum(group.fires for group in groups if group.is_inside),
-        no_point=sum(group.fires for group in groups if not group.has_point),
-        no_country=sum(group.fires for group in groups
-                       if group.has_point and group.placement is None),
-        elsewhere=tuple(sorted(elsewhere.items())),
+        year=None,
+        fires=sum(row.fires for row in rows),
+        classified=sum(row.classified for row in rows),
+        matching=sum(row.matching for row in rows),
+        inside_fires=sum(row.inside_fires for row in rows),
+        inside_classified=sum(row.inside_classified for row in rows),
+        inside_matching=sum(row.inside_matching for row in rows),
     )
 
 
@@ -764,35 +618,72 @@ def parse_arguments(argv: list[str] | None = None) -> argparse.Namespace:
 
 def compute(session: Session, year: int | None, logger: logging.Logger,
             family: str = DEFAULT_FAMILY) -> list[Row]:
-    """Run the statement and return the report's rows in order.
+    """Count the fires a campaign at a time, returning the report's rows in order.
+
+    The eight steps of the report, done once per campaign and then summed:
+
+    1. how many fires the campaign filed;
+    2. how many of them carry a cause;
+    3. how many of those are of the family asked for;
+    4. the percentage, which is :class:`Row`'s;
+    5. how many of the fires have a published point inside Spain;
+    6. how many of *those* carry a cause;
+    7. how many of those are of the family;
+    8. the percentage again.
+
+    One statement per campaign — steps 1-3 and 5-7 come out of it together, because
+    they are six aggregates over the same rows and splitting them into six
+    statements would read the same fires six times.
 
     Notes
     -----
-    One statement, under one spinner — see the module docstring. The ``Total`` row,
-    the ``... inside`` columns and the placement audit are all arithmetic over its
-    result rather than further queries.
+    A campaign at a time, under a spinner naming it, for two reasons. It bounds what
+    any one statement holds, which is the rule every other wildfire report here
+    follows; and it means a long run says which year it is on rather than sitting
+    silent, which is what a report over 586,157 fires has to do.
 
-    The one thing that can need a second, tiny statement is the case of nothing
-    being found inside the country at all: :func:`country_geometry_query` tells a
-    genuinely extraordinary archive apart from the far likelier missing import.
+    The geometry is the only part that could be expensive, and it is one
+    ``ST_Contains`` per fire against **one** prepared polygon — see
+    :data:`SPAIN_SQL`. Asking instead which of the world's countries contains each
+    point, which is what this report used to do, is the same question multiplied by
+    250 and is why it once took hours.
     """
     label = cause_family(family).label
-    with common.Spinner("Counting the EGIF fires by cause and placing their points",
-                        logger):
-        groups = [
-            Group(country=record.country, year=record.year,
-                  has_point=record.has_point, placement=record.placement,
-                  fires=record.fires, classified=record.classified,
-                  matching=record.matching)
-            for record in session.execute(counts_query(year, family))
-        ]
 
-    rows = summarise(groups, ordered_countries(session, {group.country for group in groups}))
-    where = placements(groups)
-    counted = sum(group.fires for group in groups)
-    classified = sum(group.classified for group in groups)
+    if year is not None:
+        years = [year]
+    else:
+        with common.Spinner("Finding the campaigns the EGIF fires cover", logger):
+            years = list(session.scalars(years_query()))
 
-    if groups and not classified:
+    measured: list[Row] = []
+    no_point = 0
+    for index, campaign in enumerate(years, start=1):
+        with common.Spinner(f"Counting the EGIF fires by cause "
+                            f"({campaign}: {index} of {len(years)})", logger):
+            counted = session.execute(*counts_query(campaign, family)).one()
+        if not counted.fires:
+            continue
+        no_point += counted.no_point
+        measured.append(Row(
+            country=COUNTRY_NAME,
+            year=campaign,
+            fires=counted.fires,
+            classified=counted.classified,
+            matching=counted.matching,
+            inside_fires=counted.inside_fires,
+            inside_classified=counted.inside_classified,
+            inside_matching=counted.inside_matching,
+        ))
+
+    if not measured:
+        return []
+
+    rows = sorted(measured, key=lambda row: row.year, reverse=True)
+    rows.append(total(measured, COUNTRY_NAME))
+    summary = rows[-1]
+
+    if not summary.classified:
         # An XML import into a database whose cause catalogue was never seeded,
         # almost always. A table of zeros with no explanation would look like an
         # answer rather than an absence.
@@ -801,32 +692,19 @@ def compute(session: Session, year: int | None, logger: logging.Logger,
             "percentage can be given: an XML import cannot resolve idcausa unless the "
             "cause catalogue has been seeded first", label)
 
-    if counted:
-        logger.info(
-            "Of %d fire(s), %d have a point inside %s (%.2f%%): %d publish no point, "
-            "%d publish a point in no country, %d publish a point in another country",
-            counted, where.inside, COUNTRY_NAME,
-            100.0 * where.inside / counted, where.no_point, where.no_country,
-            sum(count for _, count in where.elsewhere))
-    if where.no_country:
-        logger.warning(
-            "%d fire(s) have a published coordinate that is inside no country — a point "
-            "in the sea survives import, whose only geometric guard is a plausibility box "
-            "on the UTM easting and northing", where.no_country)
-    for name, count in where.elsewhere:
-        logger.warning(
-            "%d fire(s) filed in %s have a published coordinate inside %s — a border "
-            "rounding error at this scale, a wrong UTM zone at a larger one",
-            count, COUNTRY_NAME, name)
-    if counted and not where.inside:
-        if not session.scalar(country_geometry_query()):
+    logger.info("Of %d fire(s), %d have a point inside %s (%s); %d publish no point at all",
+                summary.fires, summary.inside_fires, COUNTRY_NAME,
+                "—" if summary.located_share is None
+                else f"{summary.located_share:.2f}%", no_point)
+    if summary.fires and not summary.inside_fires:
+        if not session.scalar(*country_geometry_query()):
             logger.warning(
                 "No OCHA level-0 boundary named %s is imported, so no fire can be found "
                 "inside one and every '... inside' column is zero: import the OCHA "
                 "country boundaries before reading them", COUNTRY_NAME)
 
     logger.info("Counted %d rows over %d campaign(s) (%s fires)",
-                len(rows), len({row.year for row in rows if not row.is_total}), label)
+                len(rows), len(measured), label)
     return rows
 
 

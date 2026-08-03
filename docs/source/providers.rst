@@ -271,6 +271,96 @@ Times are local, and not all in the same zone
    141 days, alongside genuine multi-week fires such as the 22,233 ha Sierra de la
    Culebra. Treat anything beyond about a week as suspect rather than as data.
 
+DARPA
+-----
+
+The Catalan `Departament d'Agricultura, Ramaderia, Pesca i Alimentació
+<https://agricultura.gencat.cat>`_ publishes the perimeters of the forest fires of
+Catalonia, one shapefile per year from 1986 on, in EPSG:25831.
+
+This is GisFIRE's **first regional perimeter source**, and it exists because EGIF has
+none. EGIF is the national statistic and publishes a burnt *area* in hectares, on a
+report form; what the autonomous regions publish is the shape. The two datasets are
+complements rather than alternatives, and neither can answer the other's question.
+
+:doc:`providers/darpa_provider`
+    The dataset itself: the two character sets, the three shattered years, the six
+    formats of ``CODI_FINAL``, ``GRID_CODE``, and the layer names that must not be
+    imported.
+
+:doc:`providers/darpa_wildfire`
+    The perimeter model. The date and the polygon are already the generic model's, so the
+    subclass adds the published code, the published date, the municipality, how many
+    polygons the fire was published as, the perimeter on the Catalan grid, and the link to
+    the EGIF *parte*. Imported by :doc:`applications/darpa_import_wildfires`.
+
+Four things about this dataset are worth knowing before using it. All four were checked
+against the thirty-nine published layers, 4,712 features in total:
+
+A fire is many polygons, and the import dissolves them
+    The layers were vectorised from a raster and never dissolved. 1991, 1993 and **1994**
+    publish fragments — one 1994 fire is 1,309 separate features — and 4,533 burnt
+    features are 860 fires. The count each row was assembled from is kept in
+    :attr:`~src.providers.catalonia_darpa.wildfire.DarpaWildfire.part_count`, because a
+    perimeter made of 1,309 fragments is a different kind of evidence from one digitised
+    as a single ring.
+
+``CODI_FINAL`` is not a key; ``(code, date)`` is
+    ``303/22N`` names a fire in Lleida on 19 June 2022 and another in Figueres on 7 July.
+    The pair is unique across the whole archive — 860 of them for 859 codes — and a
+    unique constraint on the code alone would have merged two unrelated perimeters at
+    import time with nothing left to notice it by.
+
+``GRID_CODE`` is a raster class, not an attribute of the fire
+    ``2`` is burnt and ``0`` is background. The 179 background features are not fires,
+    and they are also where every defect in the dataset lives: the 152 with no code and no
+    date, and the twenty whose ``DATA_INCEN`` is ``2,152543589*``. Filtering on it does the
+    whole of the data cleaning in one predicate.
+
+There is no burnt area, and there never will be
+    The layers publish ``CODI_FINAL``, ``DATA_INCEN``, ``MUNICIPI`` and ``GRID_CODE`` and
+    no hectares. The hectares for a Catalan fire are on the EGIF *parte* for the same
+    fire, which is much of the point of the link below.
+
+The file names are not regular, and the year comes from them
+    ``incendis10`` is 2010 where every other loose file uses four digits, every zip uses
+    two, and ``incendis22.zip`` holds a shapefile called plainly ``incendis``. So
+    :attr:`~src.providers.catalonia_darpa.wildfire.DarpaWildfire.source_layer` is
+    canonicalised to ``incendis`` plus four digits, from the name of the file being
+    imported rather than of the layer inside it — which is what lets a zip and a loose
+    shapefile of the same year replace each other instead of doubling it.
+
+.. warning::
+
+   The ``.dbf`` files are **not all in the same character set** and none carries a
+   ``.cpg``: 1986-1988 and 1991-2012 are ISO-8859-1, 1989, 1990 and 2013-2024 are UTF-8.
+   Each declares itself in the DBF language-driver byte — ``0x57`` on every Latin-1 file
+   and ``0x00`` on every UTF-8 one, exactly — and GDAL reads it, so the import passes **no**
+   ``ENCODING`` option. Forcing one, as the ICNF import has to, corrupts half the archive
+   whichever way it is forced.
+
+.. note::
+
+   :attr:`~src.providers.catalonia_darpa.wildfire.DarpaWildfire.egif_wildfire_id` is the
+   link to the Spanish *parte* for the same fire, and the import **never fills it in**.
+   :doc:`applications/darpa_bind_egif_wildfires` does, afterwards, and is the only thing
+   that writes it or the three columns that account for it — ``match_method``,
+   ``match_confidence`` and ``matched_at``.
+
+   Those three exist because the bindings are not all the same kind of claim. All 529 of
+   the ten-digit codes (1997 onwards) are exactly an EGIF
+   :attr:`~src.providers.spain_egif.wildfire.EgifWildfire.report_number` — year, Catalan
+   INE province, four-digit sequence, the year always matching the layer — and matching on
+   those is an identity, not a guess. But a third of the archive predates that form and
+   uses four others, thirteen recent fires use a code EGIF never issued, and those fall
+   back to a date narrowed by province and municipality name. An analysis that could not
+   tell the two apart would be claiming a precision half its rows do not have.
+
+   There is no :doc:`data_model/ignition` for a Catalan fire either: the layers publish a
+   perimeter and a municipality and no ignition coordinate. EGIF does publish a point,
+   which is one more thing the link makes reachable — and, from 1998 on, the last
+   tiebreak the binding has.
+
 OCHA
 ----
 
@@ -475,6 +565,8 @@ NUTS refines the administrative tree instead of crossing it
 
    providers/caop_provider
    providers/caop_admin_boundary
+   providers/darpa_provider
+   providers/darpa_wildfire
    providers/egif_provider
    providers/egif_ignition
    providers/egif_wildfire

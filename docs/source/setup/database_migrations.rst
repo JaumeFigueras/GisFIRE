@@ -123,13 +123,21 @@ View                         Flattens                                    Geometr
 ``v_icnf_wildfire_3763``     ``wildfire`` + ``icnf_wildfire``            ``MULTIPOLYGON``, 3763
 ``v_egif_ignition``          ``ignition`` + ``egif_ignition``            ``POINT``, 4326
 ``v_egif_wildfire``          ``wildfire`` + ``egif_wildfire``            ``POINT``, 4326
+``v_darpa_wildfire_4326``    ``wildfire`` + ``darpa_wildfire``           ``MULTIPOLYGON``, 4326
+``v_darpa_wildfire_25831``   ``wildfire`` + ``darpa_wildfire``           ``MULTIPOLYGON``, 25831
 ===========================  ==========================================  =====================
 
-Portugal appears twice because a QGIS layer takes a single geometry column and the ICNF
-data has two perimeters: the one it publishes in EPSG:3763 (ETRS89 / PT-TM06), on
-``icnf_wildfire``, and the EPSG:4326 one the import reprojects onto ``wildfire``. Both
-views name it ``perimeter``, so a style or an expression written against one works on
-the other.
+Portugal and Catalonia each appear twice, because a QGIS layer takes a single geometry
+column and both datasets have two perimeters: the one the provider publishes on its own
+national or regional grid — EPSG:3763 (ETRS89 / PT-TM06) on ``icnf_wildfire``, EPSG:25831
+(ETRS89 / UTM 31N) on ``darpa_wildfire`` — and the EPSG:4326 one the import reprojects
+onto ``wildfire``. All four views name it ``perimeter``, so a style or an expression
+written against one works on the others.
+
+``v_darpa_wildfire_*`` also carry ``egif_report_number``, resolved through
+``darpa_wildfire.egif_wildfire_id``. Nothing fills that link in yet — see
+:doc:`../providers` — so today the column is NULL on every row. It is in the view because
+the layer that will show whether the binding worked should not need a migration first.
 
 ``v_egif_wildfire`` is the odd one out: a wildfire view whose geometry is a ``POINT``.
 EGIF publishes no perimeter at all — see :doc:`../providers` — so a ``perimeter`` column
