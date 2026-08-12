@@ -1,0 +1,263 @@
+"""add chile conaf wildfires
+
+Revision ID: 268b915dce92
+Revises: c5e91a2b8d43
+Create Date: 2026-08-11 19:08:10.998310+00:00
+"""
+from __future__ import annotations
+
+from typing import Sequence
+
+import geoalchemy2
+import sqlalchemy as sa
+
+from alembic import op
+from geoalchemy2 import Geometry
+# revision identifiers, used by Alembic.
+revision: str = '268b915dce92'
+down_revision: str | None = 'c5e91a2b8d43'
+branch_labels: str | Sequence[str] | None = None
+depends_on: str | Sequence[str] | None = None
+
+
+def upgrade() -> None:
+    """Apply this revision.
+
+    Chile arrives as **two providers**, one agency and two products, and four
+    tables. ``conaf_wildfire`` and ``conaf_ignition`` are CONAF's seasonal fire
+    reports — 95,868 points over the fifteen seasons 2010-2011 to 2024-2025 —
+    ``conaf_magnitud_wildfire`` is the mapped perimeter of each of the 743 fires
+    that reached about 200 hectares, and ``conaf_fire_cause`` is the classification
+    both of them point at.
+
+    .. important::
+
+       These are **Chile's** CONAF tables. ``conafor_wildfire`` and
+       ``conafor_fire_cause``, added by revision ``3f8a5c21d7b4``, are **Mexico's**
+       CONAFOR. Two letters apart, two countries, no relationship. Do not write a
+       migration that touches one meaning the other.
+
+    Six things about this set are worth reading before changing any of it.
+
+    **Two geometry columns per spatial table, and a ``CHECK`` that exactly one is
+    filled.** Chile has no single national projected CRS: the mainland archives are
+    published on EPSG:32719 (UTM 19S) and the Easter Island ones on EPSG:32712
+    (UTM 12S), seven zones apart. Every other provider that keeps a published grid
+    beside the EPSG:4326 reprojection — ICNF at 3763, DARPA at 25831, REDIAM at
+    25830, NBAC and NFDB at 3978 — needs only one column, because their countries
+    fit on one grid.
+
+    ``num_nonnulls(...) = 1`` is what stops a row being written on both grids or on
+    neither. It is not decoration: on ``conaf_ignition`` the point is the reason the
+    row exists, and on ``conaf_magnitud_wildfire`` so is the polygon.
+
+    **There is no unique constraint anywhere in this provider, and that is
+    deliberate.** ``NUMERO_REG`` is CONAF's own running number and repeats inside a
+    single season even within one región — 2021-2022 has 5,975 distinct
+    ``(CODREG, NUMERO_REG)`` pairs for 6,884 fires — and it is published as zero on
+    every row of two seasons. Names repeat freely. A ``UNIQUE`` on any of it would
+    reject records the service really published, the same judgement
+    ``nfdb_wildfire`` and ``greece_ffa_wildfire`` make.
+
+    **``conaf_wildfire.ignition_id`` is NOT NULL**, which no other provider's is.
+    All 95,868 published features carry a geometry, checked with no exceptions, so
+    a report always has a point. ``nfdb_wildfire.ignition_id`` is nullable because a
+    handful of Canadian reports do not.
+
+    **``conaf_fire_cause`` needs three partial unique indexes, not two.** Uniqueness
+    is on the ``(cause, specific_cause)`` pair and in SQL two ``NULL``\\ s are not
+    equal, so each combination of present and absent halves needs its own conflict
+    target. ``conafor_fire_cause`` gets away with two because its ``cause`` is
+    always present; here 7,061 fires publish no *causa general* and 4,727 no *causa
+    específica*, and the two sets overlap. The fourth combination — both ``NULL`` —
+    is prevented by ``ck_conaf_fire_cause_not_empty`` instead, because an index
+    cannot constrain it and because a classification that classifies nothing is the
+    absence of a row rather than a row.
+
+    ``scheme`` is on this table because CONAF **renumbered the taxonomy in
+    2023-2024 and reused the codes**: ``4.1`` is *incendios de causa desconocida*
+    before the break and *faenas forestales* after it. Nothing here enforces that a
+    query pairs the code with the scheme; the ``CHECK`` only fixes the vocabulary.
+    See ``src/providers/chile_conaf/fire_cause.py``.
+
+    **``date_time_precision`` has three values, not NBAC's two**, and the third,
+    ``'season'``, covers 49,470 of the 95,868 fires. Eight of the fifteen mainland
+    seasons publish no start date at all, so those fires are dated to 1 July of
+    their season at local midnight. The column is indexed on ``conaf_wildfire``
+    because a report that does not filter on it is reporting on 1 July.
+
+    **``conaf_magnitud_wildfire.match_method`` gets no ``CHECK`` here.** The
+    vocabulary is the binder's, the binder does not exist at this revision, and a
+    constraint written before the thing it constrains is a guess. Revision
+    ``2c9f4e7b81a6`` adds it, the way ``d5f7a3b91c04`` did for NBAC.
+
+    ``ck_conaf_magnitud_wildfire_match_method_with_link`` *is* here, because it does
+    not need the vocabulary: a link and its explanation arrive together or not at
+    all, whatever the explanations turn out to be.
+    """
+    # ### commands auto generated by Alembic - please adjust! ###
+    op.create_table('conaf_fire_cause',
+    sa.Column('id', sa.Integer(), nullable=False),
+    sa.Column('cause', sa.String(), nullable=True),
+    sa.Column('cause_code', sa.String(), nullable=True),
+    sa.Column('cause_normalised', sa.String(), nullable=True),
+    sa.Column('cause_en', sa.String(), nullable=True),
+    sa.Column('specific_cause', sa.String(), nullable=True),
+    sa.Column('specific_cause_code', sa.String(), nullable=True),
+    sa.Column('scheme', sa.String(), nullable=True),
+    sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
+    sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
+    sa.CheckConstraint("scheme IS NULL OR scheme IN ('pre_2023', 'post_2023')", name='ck_conaf_fire_cause_scheme'),
+    sa.CheckConstraint('cause IS NOT NULL OR specific_cause IS NOT NULL', name='ck_conaf_fire_cause_not_empty'),
+    sa.PrimaryKeyConstraint('id')
+    )
+    op.create_index('ix_conaf_fire_cause_cause_normalised', 'conaf_fire_cause', ['cause_normalised'], unique=False)
+    op.create_index('ix_conaf_fire_cause_specific_cause_code', 'conaf_fire_cause', ['specific_cause_code'], unique=False)
+    op.create_index('uq_conaf_fire_cause_cause_only', 'conaf_fire_cause', ['cause'], unique=True, postgresql_where=sa.text('cause IS NOT NULL AND specific_cause IS NULL'))
+    op.create_index('uq_conaf_fire_cause_pair', 'conaf_fire_cause', ['cause', 'specific_cause'], unique=True, postgresql_where=sa.text('cause IS NOT NULL AND specific_cause IS NOT NULL'))
+    op.create_index('uq_conaf_fire_cause_specific_only', 'conaf_fire_cause', ['specific_cause'], unique=True, postgresql_where=sa.text('cause IS NULL AND specific_cause IS NOT NULL'))
+    op.create_geospatial_table('conaf_ignition',
+    sa.Column('id', sa.Integer(), nullable=False),
+    sa.Column('season_start_year', sa.Integer(), nullable=False),
+    sa.Column('number', sa.Integer(), nullable=True),
+    sa.Column('region_code', sa.String(), nullable=True),
+    sa.Column('utm_easting', sa.Numeric(), nullable=True),
+    sa.Column('utm_northing', sa.Numeric(), nullable=True),
+    sa.Column('utm_zone', sa.Integer(), nullable=True),
+    sa.Column('utm_band', sa.String(), nullable=True),
+    sa.Column('geometry_utm19s', Geometry(geometry_type='POINT', srid=32719, dimension=2, spatial_index=False, from_text='ST_GeomFromEWKT', name='geometry'), nullable=True),
+    sa.Column('geometry_utm12s', Geometry(geometry_type='POINT', srid=32712, dimension=2, spatial_index=False, from_text='ST_GeomFromEWKT', name='geometry'), nullable=True),
+    sa.CheckConstraint('num_nonnulls(geometry_utm19s, geometry_utm12s) = 1', name='ck_conaf_ignition_one_grid'),
+    sa.CheckConstraint('utm_zone IS NULL OR utm_zone IN (12, 18, 19)', name='ck_conaf_ignition_utm_zone'),
+    sa.ForeignKeyConstraint(['id'], ['ignition.id'], ),
+    sa.PrimaryKeyConstraint('id')
+    )
+    op.create_geospatial_index('idx_conaf_ignition_geometry_utm12s', 'conaf_ignition', ['geometry_utm12s'], unique=False, postgresql_using='gist', postgresql_ops={})
+    op.create_geospatial_index('idx_conaf_ignition_geometry_utm19s', 'conaf_ignition', ['geometry_utm19s'], unique=False, postgresql_using='gist', postgresql_ops={})
+    op.create_index('ix_conaf_ignition_number', 'conaf_ignition', ['number'], unique=False)
+    op.create_index('ix_conaf_ignition_season_start_year', 'conaf_ignition', ['season_start_year'], unique=False)
+    op.create_table('conaf_wildfire',
+    sa.Column('id', sa.Integer(), nullable=False),
+    sa.Column('ignition_id', sa.Integer(), nullable=False),
+    sa.Column('season', sa.String(), nullable=False),
+    sa.Column('season_start_year', sa.Integer(), nullable=False),
+    sa.Column('number', sa.Integer(), nullable=True),
+    sa.Column('name', sa.String(), nullable=True),
+    sa.Column('reporter', sa.String(), nullable=True),
+    sa.Column('region', sa.String(), nullable=True),
+    sa.Column('province', sa.String(), nullable=True),
+    sa.Column('commune', sa.String(), nullable=True),
+    sa.Column('region_code', sa.String(), nullable=True),
+    sa.Column('province_code', sa.String(), nullable=True),
+    sa.Column('commune_code', sa.String(), nullable=True),
+    sa.Column('start_place', sa.String(), nullable=True),
+    sa.Column('fuel', sa.String(), nullable=True),
+    sa.Column('cause_id', sa.Integer(), nullable=True),
+    sa.Column('date_time_precision', sa.String(), nullable=False),
+    sa.Column('area_ha_pine_0_10', sa.Numeric(), nullable=True),
+    sa.Column('area_ha_pine_11_17', sa.Numeric(), nullable=True),
+    sa.Column('area_ha_pine_18_plus', sa.Numeric(), nullable=True),
+    sa.Column('area_ha_eucalyptus', sa.Numeric(), nullable=True),
+    sa.Column('area_ha_other_plantation', sa.Numeric(), nullable=True),
+    sa.Column('area_ha_plantation', sa.Numeric(), nullable=True),
+    sa.Column('area_ha_native_forest', sa.Numeric(), nullable=True),
+    sa.Column('area_ha_scrub', sa.Numeric(), nullable=True),
+    sa.Column('area_ha_grassland', sa.Numeric(), nullable=True),
+    sa.Column('area_ha_vegetation', sa.Numeric(), nullable=True),
+    sa.Column('area_ha_agricultural', sa.Numeric(), nullable=True),
+    sa.Column('area_ha_debris', sa.Numeric(), nullable=True),
+    sa.Column('area_ha_other', sa.Numeric(), nullable=True),
+    sa.Column('area_ha_total', sa.Numeric(), nullable=True),
+    sa.Column('area_totals_agree', sa.Boolean(), nullable=False),
+    sa.CheckConstraint("date_time_precision IN ('minute', 'day', 'season')", name='ck_conaf_wildfire_date_time_precision'),
+    sa.CheckConstraint("reporter IS NULL OR reporter IN ('Conaf', 'Empresa')", name='ck_conaf_wildfire_reporter'),
+    sa.CheckConstraint('area_ha_total IS NULL OR area_ha_total >= 0', name='ck_conaf_wildfire_area_ha_total'),
+    sa.ForeignKeyConstraint(['cause_id'], ['conaf_fire_cause.id'], ),
+    sa.ForeignKeyConstraint(['id'], ['wildfire.id'], ),
+    sa.ForeignKeyConstraint(['ignition_id'], ['conaf_ignition.id'], ),
+    sa.PrimaryKeyConstraint('id')
+    )
+    op.create_index('ix_conaf_wildfire_cause_id', 'conaf_wildfire', ['cause_id'], unique=False)
+    op.create_index('ix_conaf_wildfire_date_time_precision', 'conaf_wildfire', ['date_time_precision'], unique=False)
+    op.create_index('ix_conaf_wildfire_ignition_id', 'conaf_wildfire', ['ignition_id'], unique=False)
+    op.create_index('ix_conaf_wildfire_number', 'conaf_wildfire', ['number'], unique=False)
+    op.create_index('ix_conaf_wildfire_reporter', 'conaf_wildfire', ['reporter'], unique=False)
+    op.create_index('ix_conaf_wildfire_season_start_year', 'conaf_wildfire', ['season_start_year'], unique=False)
+    op.create_geospatial_table('conaf_magnitud_wildfire',
+    sa.Column('id', sa.Integer(), nullable=False),
+    sa.Column('season', sa.String(), nullable=False),
+    sa.Column('season_start_year', sa.Integer(), nullable=False),
+    sa.Column('number', sa.Integer(), nullable=True),
+    sa.Column('name', sa.String(), nullable=True),
+    sa.Column('region', sa.String(), nullable=True),
+    sa.Column('province', sa.String(), nullable=True),
+    sa.Column('commune', sa.String(), nullable=True),
+    sa.Column('region_code', sa.String(), nullable=True),
+    sa.Column('province_code', sa.String(), nullable=True),
+    sa.Column('commune_code', sa.String(), nullable=True),
+    sa.Column('cause_published', sa.String(), nullable=True),
+    sa.Column('cause_id', sa.Integer(), nullable=True),
+    sa.Column('area_ha_mapped', sa.Numeric(), nullable=True),
+    sa.Column('area_ha_published', sa.Numeric(), nullable=True),
+    sa.Column('part_count', sa.Integer(), nullable=False),
+    sa.Column('date_time_precision', sa.String(), nullable=False),
+    sa.Column('perimeter_utm19s', Geometry(geometry_type='MULTIPOLYGON', srid=32719, dimension=2, spatial_index=False, from_text='ST_GeomFromEWKT', name='geometry'), nullable=True),
+    sa.Column('perimeter_utm12s', Geometry(geometry_type='MULTIPOLYGON', srid=32712, dimension=2, spatial_index=False, from_text='ST_GeomFromEWKT', name='geometry'), nullable=True),
+    sa.Column('conaf_wildfire_id', sa.Integer(), nullable=True),
+    sa.Column('match_method', sa.String(), nullable=True),
+    sa.Column('match_confidence', sa.Float(), nullable=True),
+    sa.Column('matched_at', sa.DateTime(timezone=True), nullable=True),
+    sa.CheckConstraint("date_time_precision IN ('minute', 'day', 'season')", name='ck_conaf_magnitud_wildfire_date_time_precision'),
+    sa.CheckConstraint('(conaf_wildfire_id IS NULL) = (match_method IS NULL)', name='ck_conaf_magnitud_wildfire_match_method_with_link'),
+    sa.CheckConstraint('area_ha_mapped IS NULL OR area_ha_mapped >= 0', name='ck_conaf_magnitud_wildfire_area_ha_mapped'),
+    sa.CheckConstraint('num_nonnulls(perimeter_utm19s, perimeter_utm12s) = 1', name='ck_conaf_magnitud_wildfire_one_grid'),
+    sa.CheckConstraint('part_count >= 1', name='ck_conaf_magnitud_wildfire_part_count'),
+    sa.ForeignKeyConstraint(['cause_id'], ['conaf_fire_cause.id'], ),
+    sa.ForeignKeyConstraint(['conaf_wildfire_id'], ['conaf_wildfire.id'], ),
+    sa.ForeignKeyConstraint(['id'], ['wildfire.id'], ),
+    sa.PrimaryKeyConstraint('id')
+    )
+    op.create_geospatial_index('idx_conaf_magnitud_wildfire_perimeter_utm12s', 'conaf_magnitud_wildfire', ['perimeter_utm12s'], unique=False, postgresql_using='gist', postgresql_ops={})
+    op.create_geospatial_index('idx_conaf_magnitud_wildfire_perimeter_utm19s', 'conaf_magnitud_wildfire', ['perimeter_utm19s'], unique=False, postgresql_using='gist', postgresql_ops={})
+    op.create_index('ix_conaf_magnitud_wildfire_cause_id', 'conaf_magnitud_wildfire', ['cause_id'], unique=False)
+    op.create_index('ix_conaf_magnitud_wildfire_conaf_wildfire_id', 'conaf_magnitud_wildfire', ['conaf_wildfire_id'], unique=False)
+    op.create_index('ix_conaf_magnitud_wildfire_number', 'conaf_magnitud_wildfire', ['number'], unique=False)
+    op.create_index('ix_conaf_magnitud_wildfire_season_start_year', 'conaf_magnitud_wildfire', ['season_start_year'], unique=False)
+    # ### end Alembic commands ###
+
+
+def downgrade() -> None:
+    """Revert this revision.
+
+    The reverse of the creation order, and it has to be: ``conaf_magnitud_wildfire``
+    references ``conaf_wildfire``, which references both ``conaf_ignition`` and
+    ``conaf_fire_cause``. The perimeters go first, then the reports, then the points
+    and the classification.
+    """
+    # ### commands auto generated by Alembic - please adjust! ###
+    op.drop_index('ix_conaf_magnitud_wildfire_season_start_year', table_name='conaf_magnitud_wildfire')
+    op.drop_index('ix_conaf_magnitud_wildfire_number', table_name='conaf_magnitud_wildfire')
+    op.drop_index('ix_conaf_magnitud_wildfire_conaf_wildfire_id', table_name='conaf_magnitud_wildfire')
+    op.drop_index('ix_conaf_magnitud_wildfire_cause_id', table_name='conaf_magnitud_wildfire')
+    op.drop_geospatial_index('idx_conaf_magnitud_wildfire_perimeter_utm19s', table_name='conaf_magnitud_wildfire', postgresql_using='gist', column_name='perimeter_utm19s')
+    op.drop_geospatial_index('idx_conaf_magnitud_wildfire_perimeter_utm12s', table_name='conaf_magnitud_wildfire', postgresql_using='gist', column_name='perimeter_utm12s')
+    op.drop_geospatial_table('conaf_magnitud_wildfire')
+    op.drop_index('ix_conaf_wildfire_season_start_year', table_name='conaf_wildfire')
+    op.drop_index('ix_conaf_wildfire_reporter', table_name='conaf_wildfire')
+    op.drop_index('ix_conaf_wildfire_number', table_name='conaf_wildfire')
+    op.drop_index('ix_conaf_wildfire_ignition_id', table_name='conaf_wildfire')
+    op.drop_index('ix_conaf_wildfire_date_time_precision', table_name='conaf_wildfire')
+    op.drop_index('ix_conaf_wildfire_cause_id', table_name='conaf_wildfire')
+    op.drop_table('conaf_wildfire')
+    op.drop_index('ix_conaf_ignition_season_start_year', table_name='conaf_ignition')
+    op.drop_index('ix_conaf_ignition_number', table_name='conaf_ignition')
+    op.drop_geospatial_index('idx_conaf_ignition_geometry_utm19s', table_name='conaf_ignition', postgresql_using='gist', column_name='geometry_utm19s')
+    op.drop_geospatial_index('idx_conaf_ignition_geometry_utm12s', table_name='conaf_ignition', postgresql_using='gist', column_name='geometry_utm12s')
+    op.drop_geospatial_table('conaf_ignition')
+    op.drop_index('uq_conaf_fire_cause_specific_only', table_name='conaf_fire_cause', postgresql_where=sa.text('cause IS NULL AND specific_cause IS NOT NULL'))
+    op.drop_index('uq_conaf_fire_cause_pair', table_name='conaf_fire_cause', postgresql_where=sa.text('cause IS NOT NULL AND specific_cause IS NOT NULL'))
+    op.drop_index('uq_conaf_fire_cause_cause_only', table_name='conaf_fire_cause', postgresql_where=sa.text('cause IS NOT NULL AND specific_cause IS NULL'))
+    op.drop_index('ix_conaf_fire_cause_specific_cause_code', table_name='conaf_fire_cause')
+    op.drop_index('ix_conaf_fire_cause_cause_normalised', table_name='conaf_fire_cause')
+    op.drop_table('conaf_fire_cause')
+    # ### end Alembic commands ###

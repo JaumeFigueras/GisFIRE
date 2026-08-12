@@ -22,6 +22,7 @@ from geoalchemy2 import alembic_helpers
 from sqlalchemy import create_engine
 from sqlalchemy import inspect
 from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
 
 import src.providers  # noqa: F401  (registers the provider tables on Base.metadata)
 
@@ -49,6 +50,51 @@ VIEWS = {
     "v_rediam_wildfire_4326": ("perimeter", "MULTIPOLYGON", 4326),
     "v_rediam_wildfire_25830": ("perimeter", "MULTIPOLYGON", 25830),
     "v_rediam_ignition": ("geometry", "POINT", 4326),
+    "v_greece_ffa_ignition": ("geometry", "POINT", 4326),
+    # The second POINT on a wildfire view, after v_egif_wildfire and for the same
+    # reason: the Greek Fire Service publishes no perimeter either. See revision
+    # 7d2e51b8c39f — and note that this view shows only the fifth of the dataset
+    # that has a point at all, no year before 2020 publishing one.
+    "v_greece_ffa_wildfire": ("geometry", "POINT", 4326),
+    "v_nbac_wildfire_4326": ("perimeter", "MULTIPOLYGON", 4326),
+    "v_nbac_wildfire_3978": ("perimeter", "MULTIPOLYGON", 3978),
+    "v_nfdb_ignition": ("geometry", "POINT", 4326),
+    # The third POINT on a wildfire view, after v_egif_wildfire and
+    # v_greece_ffa_wildfire: the Canadian agencies publish a location, not a shape.
+    # Unlike the Greek one this LEFT JOINs its ignition, so a report with no usable
+    # coordinate is a feature that does not draw rather than a row that vanishes.
+    "v_nfdb_wildfire": ("geometry", "POINT", 4326),
+    # The only perimeter provider with a single wildfire view. ICNF, DARPA, REDIAM
+    # and NBAC each get a pair because each publishes on a national grid kept beside
+    # the EPSG:4326 reprojection; CONAFOR publishes in EPSG:4326 already, so there is
+    # no second CRS to expose. See revision 6c2e94ab13d8.
+    "v_conafor_wildfire": ("perimeter", "MULTIPOLYGON", 4326),
+    "v_inab_ignition": ("geometry", "POINT", 4326),
+    # The fourth POINT on a wildfire view, after v_egif_wildfire,
+    # v_greece_ffa_wildfire and v_nfdb_wildfire: INAB publishes no perimeter — nor
+    # any burnt area at all — so the fire is mapped where it was reported. See
+    # revision c5e91a2b8d43.
+    "v_inab_wildfire": ("geometry", "POINT", 4326),
+    # Chile's CONAF — seven views, and the first provider needing more than two per
+    # spatial table. ICNF, DARPA, REDIAM and NBAC each publish on one national grid
+    # and get a 4326 view plus one grid view; Chile publishes the mainland on
+    # EPSG:32719 and Easter Island on EPSG:32712, and a view has one geometry column
+    # with one SRID, so each spatial table needs three. See revision 9d4a06e3f2b8.
+    #
+    # The two grid views of a pair are disjoint, not alternative renderings: the
+    # 32719 one carries the 95,625 mainland rows and the 32712 one the 243 Rapa Nui
+    # rows. Only the 4326 view of each pair shows the whole dataset.
+    "v_conaf_ignition_4326": ("geometry", "POINT", 4326),
+    "v_conaf_ignition_32719": ("geometry", "POINT", 32719),
+    "v_conaf_ignition_32712": ("geometry", "POINT", 32712),
+    # The fifth POINT on a wildfire view, after v_egif_wildfire,
+    # v_greece_ffa_wildfire, v_nfdb_wildfire and v_inab_wildfire: CONAF's seasonal
+    # archive publishes a location, not a shape. Unlike the Canadian one it INNER
+    # JOINs its ignition, because conaf_wildfire.ignition_id is NOT NULL.
+    "v_conaf_wildfire": ("geometry", "POINT", 4326),
+    "v_conaf_magnitud_wildfire_4326": ("perimeter", "MULTIPOLYGON", 4326),
+    "v_conaf_magnitud_wildfire_32719": ("perimeter", "MULTIPOLYGON", 32719),
+    "v_conaf_magnitud_wildfire_32712": ("perimeter", "MULTIPOLYGON", 32712),
 }
 
 
@@ -450,3 +496,165 @@ def test_the_rediam_match_method_constraint_accepts_every_method(alembic_config)
     assert stored == set(MATCH_METHODS)
     # The two Catalan-only rules are refused, not merely unused.
     assert {"date", "date_name"} & stored == set()
+
+
+def _a_conaf_report(connection, provider_id, *, number, region_code="08"):
+    """Insert one CONAF report and its ignition, returning the report's id.
+
+    Four rows for one fire — ``ignition``, ``conaf_ignition``, ``wildfire``,
+    ``conaf_wildfire`` — because both halves of the pair use joined table
+    inheritance. The point is on the mainland grid, which is what
+    ``ck_conaf_ignition_one_grid`` wants exactly one of.
+    """
+    ignition_parent = connection.execute(text(
+        "INSERT INTO ignition (type, data_provider_id, geometry, date_time, time_zone) "
+        "VALUES ('conaf_ignition', :p, ST_SetSRID(ST_MakePoint(-72.5, -36.5), 4326), "
+        "'2019-01-15T18:30:00Z', 'America/Santiago') RETURNING id"),
+        {"p": provider_id}).scalar()
+    connection.execute(text(
+        "INSERT INTO conaf_ignition (id, season_start_year, number, region_code, "
+        "geometry_utm19s) VALUES (:id, 2018, :number, :region_code, "
+        "ST_Transform(ST_SetSRID(ST_MakePoint(-72.5, -36.5), 4326), 32719))"),
+        {"id": ignition_parent, "number": number, "region_code": region_code})
+    parent = connection.execute(text(
+        "INSERT INTO wildfire (type, data_provider_id, start_date_time, time_zone) "
+        "VALUES ('conaf_wildfire', :p, '2019-01-15T18:30:00Z', 'America/Santiago') "
+        "RETURNING id"), {"p": provider_id}).scalar()
+    connection.execute(text(
+        "INSERT INTO conaf_wildfire (id, ignition_id, season, season_start_year, "
+        "number, name, region_code, date_time_precision, area_totals_agree) "
+        "VALUES (:id, :ignition, '2018-2019', 2018, :number, 'EL BOLDO', "
+        ":region_code, 'minute', true)"),
+        {"id": parent, "ignition": ignition_parent, "number": number,
+         "region_code": region_code})
+    return parent
+
+
+def test_the_conaf_match_method_constraint_accepts_every_method(alembic_config):
+    """The migrations' CHECK list and the model's ``MATCH_METHODS`` agree.
+
+    The Chilean half of the gap the two tests above close for Catalonia and
+    Andalusia: ``compare_metadata`` does not compare check constraints, so a method
+    added to the model would pass the drift test and be refused by the database the
+    migrations built, at the moment the new rule first fires.
+
+    The constraint arrives in its own revision, ``2c9f4e7b81a6``, rather than with
+    the tables in ``268b915dce92`` — the vocabulary was the binder's and the binder
+    did not exist yet — so this test is also what proves that second revision ran.
+    """
+    from src.providers.chile_conaf_magnitud import MATCH_METHOD_CONFIDENCE
+    from src.providers.chile_conaf_magnitud import MATCH_METHODS
+
+    config, url = alembic_config
+    upgrade(config, "head")
+
+    engine = create_engine(url)
+    with engine.begin() as connection:
+        report_provider = connection.execute(text(
+            "INSERT INTO data_provider (name, product, full_name) "
+            "VALUES ('CONAF', 'Incendios forestales por temporada', "
+            "'Corporacion Nacional Forestal') RETURNING id")).scalar()
+        perimeter_provider = connection.execute(text(
+            "INSERT INTO data_provider (name, product, full_name) "
+            "VALUES ('CONAF', 'Incendios forestales de magnitud', "
+            "'Corporacion Nacional Forestal') RETURNING id")).scalar()
+
+        for index, method in enumerate(MATCH_METHODS):
+            # One report each, because the binder never binds two perimeters to one
+            # report and a test that did would be pinning the wrong behaviour.
+            report = _a_conaf_report(connection, report_provider, number=200 + index)
+            parent = connection.execute(text(
+                "INSERT INTO wildfire (type, data_provider_id, start_date_time, "
+                "time_zone, perimeter) VALUES ('conaf_magnitud_wildfire', :p, "
+                "'2019-01-15T18:30:00Z', 'America/Santiago', "
+                "ST_Multi(ST_Buffer(ST_SetSRID(ST_MakePoint(-72.5, -36.5), 4326), 0.01))) "
+                "RETURNING id"), {"p": perimeter_provider}).scalar()
+            connection.execute(text(
+                "INSERT INTO conaf_magnitud_wildfire (id, season, season_start_year, "
+                "number, name, region_code, part_count, date_time_precision, "
+                "perimeter_utm19s, conaf_wildfire_id, match_method, match_confidence, "
+                "matched_at) VALUES (:id, '2018-2019', 2018, :number, 'EL BOLDO', '08', "
+                "1, 'minute', ST_Multi(ST_Buffer(ST_Transform(ST_SetSRID("
+                "ST_MakePoint(-72.5, -36.5), 4326), 32719), 500)), :report, :method, "
+                ":confidence, now())"),
+                {"id": parent, "number": 200 + index, "report": report,
+                 "method": method, "confidence": MATCH_METHOD_CONFIDENCE[method]})
+
+    with engine.connect() as connection:
+        stored = set(connection.scalars(text(
+            "SELECT match_method FROM conaf_magnitud_wildfire")))
+    engine.dispose()
+
+    assert stored == set(MATCH_METHODS)
+    # The Iberian binders' rules are refused, not merely unused: Chile matches on a
+    # published running number and a name, never on a report code or a bare date.
+    assert {"date", "date_name", "code", "code_year"} & stored == set()
+
+
+def test_a_conaf_geometry_belongs_to_exactly_one_grid(alembic_config):
+    """``conaf_ignition`` refuses a point on both grids, and a point on neither.
+
+    Chile is the only provider in the schema publishing on two projected CRSs — the
+    mainland on EPSG:32719 and Easter Island on EPSG:32712 — so it is the only one
+    whose grid column is a pair. ``ck_conaf_ignition_one_grid`` is what keeps that
+    pair from becoming a row that is on both grids at once, which would be two
+    different claims about where the fire was, or on neither, which would be a point
+    row with no published point in it.
+
+    Written against the migrated schema rather than against ``create_all`` because
+    the ``CHECK`` uses ``num_nonnulls``, and a constraint that renders differently
+    through Alembic than through the ORM would pass a model test and fail here.
+    """
+    config, url = alembic_config
+    upgrade(config, "head")
+
+    engine = create_engine(url)
+    with engine.begin() as connection:
+        provider_id = connection.execute(text(
+            "INSERT INTO data_provider (name, product, full_name) "
+            "VALUES ('CONAF', 'Incendios forestales por temporada', "
+            "'Corporacion Nacional Forestal') RETURNING id")).scalar()
+
+        def an_ignition(utm19s: str | None, utm12s: str | None):
+            parent = connection.execute(text(
+                "INSERT INTO ignition (type, data_provider_id, geometry, date_time, "
+                "time_zone) VALUES ('conaf_ignition', :p, "
+                "ST_SetSRID(ST_MakePoint(-72.5, -36.5), 4326), "
+                "'2019-01-15T18:30:00Z', 'America/Santiago') RETURNING id"),
+                {"p": provider_id}).scalar()
+            connection.execute(text(
+                "INSERT INTO conaf_ignition (id, season_start_year, geometry_utm19s, "
+                "geometry_utm12s) VALUES (:id, 2018, "
+                "ST_GeomFromEWKT(CAST(:utm19s AS text)), "
+                "ST_GeomFromEWKT(CAST(:utm12s AS text)))"),
+                {"id": parent, "utm19s": utm19s, "utm12s": utm12s})
+
+        mainland = "SRID=32719;POINT(722000 5957000)"
+        rapa_nui = "SRID=32712;POINT(660000 6998000)"
+
+        # One grid: accepted, once for each.
+        an_ignition(mainland, None)
+        an_ignition(None, rapa_nui)
+
+    for utm19s, utm12s in ((mainland, rapa_nui), (None, None)):
+        with pytest.raises(IntegrityError):
+            with engine.begin() as connection:
+                provider_id = connection.execute(text(
+                    "SELECT id FROM data_provider WHERE name = 'CONAF' LIMIT 1")).scalar()
+                parent = connection.execute(text(
+                    "INSERT INTO ignition (type, data_provider_id, geometry, date_time, "
+                    "time_zone) VALUES ('conaf_ignition', :p, "
+                    "ST_SetSRID(ST_MakePoint(-72.5, -36.5), 4326), "
+                    "'2019-01-15T18:30:00Z', 'America/Santiago') RETURNING id"),
+                    {"p": provider_id}).scalar()
+                connection.execute(text(
+                    "INSERT INTO conaf_ignition (id, season_start_year, geometry_utm19s, "
+                    "geometry_utm12s) VALUES (:id, 2018, "
+                    "ST_GeomFromEWKT(CAST(:utm19s AS text)), "
+                    "ST_GeomFromEWKT(CAST(:utm12s AS text)))"),
+                    {"id": parent, "utm19s": utm19s, "utm12s": utm12s})
+
+    with engine.connect() as connection:
+        assert connection.execute(text(
+            "SELECT count(*) FROM conaf_ignition")).scalar() == 2
+    engine.dispose()

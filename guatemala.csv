@@ -1,0 +1,6 @@
+Country,Year,Fires,Minimum (ha),Maximum (ha),Total (ha),False alarms,Located,Located (%),In protected area
+Guatemala,2026,1840,,,,68,1840,100.00,431
+Guatemala,2025,1726,,,,63,1726,100.00,351
+Guatemala,2024,718,,,,9,718,100.00,534
+Guatemala,2023,187,,,,0,187,100.00,101
+Guatemala,Total,4471,,,,140,4471,100.00,1417

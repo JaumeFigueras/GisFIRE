@@ -128,15 +128,21 @@ View                         Flattens                                    Geometr
 ``v_rediam_wildfire_4326``   ``wildfire`` + ``rediam_wildfire``          ``MULTIPOLYGON``, 4326
 ``v_rediam_wildfire_25830``  ``wildfire`` + ``rediam_wildfire``          ``MULTIPOLYGON``, 25830
 ``v_rediam_ignition``        ``ignition`` + ``rediam_ignition``          ``POINT``, 4326
+``v_greece_ffa_ignition``    ``ignition`` + ``greece_ffa_ignition``      ``POINT``, 4326
+``v_greece_ffa_wildfire``    ``wildfire`` + ``greece_ffa_wildfire``      ``POINT``, 4326
+``v_nbac_wildfire_4326``     ``wildfire`` + ``nbac_wildfire``            ``MULTIPOLYGON``, 4326
+``v_nbac_wildfire_3978``     ``wildfire`` + ``nbac_wildfire``            ``MULTIPOLYGON``, 3978
+``v_nfdb_ignition``          ``ignition`` + ``nfdb_ignition``            ``POINT``, 4326
+``v_nfdb_wildfire``          ``wildfire`` + ``nfdb_wildfire``            ``POINT``, 4326
 ===========================  ==========================================  =====================
 
-Portugal, Catalonia and Andalusia each appear twice, because a QGIS layer takes a single
-geometry column and all three datasets have two perimeters: the one the provider publishes
-on its own national or regional grid — EPSG:3763 (ETRS89 / PT-TM06) on ``icnf_wildfire``,
-EPSG:25831 (ETRS89 / UTM 31N) on ``darpa_wildfire``, EPSG:25830 (UTM 30N) on
-``rediam_wildfire`` — and the EPSG:4326 one the import reprojects onto ``wildfire``. All
-six views name it ``perimeter``, so a style or an expression written against one works on
-the others.
+Portugal, Catalonia, Andalusia and Canada each appear twice, because a QGIS layer takes a
+single geometry column and all four datasets have two perimeters: the one the provider
+publishes on its own national or regional grid — EPSG:3763 (ETRS89 / PT-TM06) on
+``icnf_wildfire``, EPSG:25831 (ETRS89 / UTM 31N) on ``darpa_wildfire``, EPSG:25830 (UTM
+30N) on ``rediam_wildfire``, EPSG:3978 (NAD83 / Canada Atlas Lambert) on ``nbac_wildfire``
+— and the EPSG:4326 one the import reprojects onto ``wildfire``. All eight views name it
+``perimeter``, so a style or an expression written against one works on the others.
 
 .. note::
 
@@ -153,8 +159,35 @@ migration first.
 ``v_rediam_ignition`` is the third ignition view. It exists because 201 Andalusian fires
 publish a start point as well as a perimeter, and the two frequently disagree: a single
 layer cannot show both geometries, and a fire's point is not an attribute of its polygon.
+
 The perimeter views carry the same point as ``ignition_x`` / ``ignition_y``, which is what
 makes it visible in an attribute table.
+
+``v_greece_ffa_ignition`` is the fourth, on the same argument: the Greek Fire Service
+publishes a point for its last six years. ``v_nfdb_ignition`` is the fifth, and the first
+whose provider table carries a **projected copy of the point** as well — the Canadian
+agencies publish metres on a national grid, so the EPSG:4326 geometry is a reprojection
+rather than the published pair.
+
+.. warning::
+
+   ``v_greece_ffa_wildfire`` is the second wildfire view with a ``POINT`` geometry, after
+   ``v_egif_wildfire`` and for the same reason — neither service publishes a perimeter —
+   and it is the one view in the schema that shows a **minority** of its own dataset.
+   The join to the ignition is an inner one, and only 54,491 of the 260,194 Greek fires
+   have a point: no year before 2020 publishes a coordinate at all.
+
+   So the layer is the mappable fifth of the dataset, and a feature count taken from it
+   is not a count of Greek fires. Anything counting fires reads ``greece_ffa_wildfire``.
+   A ``LEFT JOIN`` was the alternative and is worse for the one job a view has here: it
+   would hand QGIS 205,703 features that render as nothing and select as nothing.
+
+``v_nfdb_wildfire`` is the third such view and takes the **opposite** decision: it
+``LEFT JOIN``\ s its ignition. The Greek inner join hides four fires in five, which is a
+structural property of that archive; here the coordinate is the point of the dataset and
+only a handful of rows lack a usable one, so dropping them would hide a defect rather than
+depict an absence. A NULL geometry in QGIS is a feature that does not draw, which is the
+correct depiction of a fire report with no usable location.
 
 ``v_egif_wildfire`` is the odd one out: a wildfire view whose geometry is a ``POINT``.
 EGIF publishes no perimeter at all — see :doc:`../providers` — so a ``perimeter`` column

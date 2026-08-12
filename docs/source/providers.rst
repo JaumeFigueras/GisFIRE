@@ -94,6 +94,12 @@ several products; each one is its own
    not constrained, and the GWIS import cannot be made idempotent — see
    :doc:`providers/gwis_wildfire` for what follows from that.
 
+.. toctree::
+   :maxdepth: 1
+   :hidden:
+
+   providers/gwis_wildfire
+
 GFA
 ---
 
@@ -122,6 +128,13 @@ points as separate sets of shapefiles, one per year.
    collects into a single row. It is therefore constrained ``UNIQUE`` on both the wildfire
    and the ignition, and the GFA import *is* idempotent — a second run of the same file
    imports nothing.
+
+.. toctree::
+   :maxdepth: 1
+   :hidden:
+
+   providers/gfa_ignition
+   providers/gfa_wildfire
 
 ICNF
 ----
@@ -177,6 +190,14 @@ The perimeter is stored twice, in EPSG:3763 and EPSG:4326
    ``PI_`` attributes name where the fire started — district, municipality, parish,
    place — but the layers publish **no ignition coordinate**, so there would be no point
    to put in it.
+
+.. toctree::
+   :maxdepth: 1
+   :hidden:
+
+   providers/icnf_provider
+   providers/icnf_wildfire
+   providers/icnf_fire_cause
 
 EGIF
 ----
@@ -271,6 +292,17 @@ Times are local, and not all in the same zone
    141 days, alongside genuine multi-week fires such as the 22,233 ha Sierra de la
    Culebra. Treat anything beyond about a week as suspect rather than as data.
 
+.. toctree::
+   :maxdepth: 1
+   :hidden:
+
+   providers/egif_provider
+   providers/egif_ignition
+   providers/egif_wildfire
+   providers/egif_wildfire_report
+   providers/egif_fire_cause
+   providers/egif_fire_motivation
+
 DARPA
 -----
 
@@ -360,6 +392,13 @@ The file names are not regular, and the year comes from them
    perimeter and a municipality and no ignition coordinate. EGIF does publish a point,
    which is one more thing the link makes reachable — and, from 1998 on, the last
    tiebreak the binding has.
+
+.. toctree::
+   :maxdepth: 1
+   :hidden:
+
+   providers/darpa_provider
+   providers/darpa_wildfire
 
 REDIAM
 ------
@@ -454,6 +493,624 @@ An ignition point, for four years
    alone. 759 of the 907 perimeters are bound and 749 of those on the published
    identifier — 98.7%, against Catalonia's 77%.
 
+.. toctree::
+   :maxdepth: 1
+   :hidden:
+
+   providers/rediam_provider
+   providers/rediam_wildfire
+   providers/rediam_ignition
+
+Greek Fire Service
+------------------
+
+The `Hellenic Fire Service <https://www.fireservice.gr>`_ — *Πυροσβεστικό Σώμα Ελλάδας* —
+publishes the Greek national fire statistic, *Δασικές Πυρκαγιές*, as a set of Excel
+workbooks: one per year from 2013, plus one holding 2000 to 2012 in thirteen sheets.
+**260,194 fire records over twenty-six years**, and GisFIRE's first source outside the
+Iberian peninsula.
+
+It is the same *kind* of dataset as :doc:`providers/egif_wildfire` and not the same kind
+as GWIS, GFA, DARPA or REDIAM. What the service publishes is a record of an
+**intervention** — who was called, where, when they arrived and when they left, what
+burnt and what was sent to it — and never a shape. Read the EGIF section first: the
+argument for why an administrative statistic gets no perimeter column is made there and
+is not repeated here.
+
+:doc:`providers/greece_ffa_provider`
+    The dataset itself: the fifteen workbooks, the six column arrangements, the header
+    that is two rows deep (four in 2025), and the two functions any reader of it needs —
+    the header fold and the is-this-a-location test.
+
+:doc:`providers/greece_ffa_wildfire`
+    One published record. Adds the year and source sheet, the two identifiers the recent
+    years carry, six administrative and locator names, the eight burnt areas, the
+    thirteen deployment counts and the link to the published point. Imported by
+    :doc:`applications/greece_ffa_import_wildfires`.
+
+:doc:`providers/greece_ffa_ignition`
+    Where the service was engaged, for the six years that publish a coordinate.
+
+What makes this dataset unlike the others already in GisFIRE:
+
+Nothing identifies a fire
+    ``Α/Α ΕΓΓΡΑΦΗΣ`` and ``Α/Α ENGAGE`` begin in **2020**, so 201,948 of the 260,194
+    records carry no identifier of any kind — not a code, not a sequence, not a row
+    number. And where the record number exists it is not unique: 512 of its 57,734 values
+    are used by more than one row.
+
+    Neither table therefore carries a unique constraint, and an import replaces a
+    **year** rather than upserting a row. There is nothing to upsert on.
+
+Three quarters of it has no coordinate
+    ``X-ENGAGE`` and ``Y-ENGAGE`` arrive in 2020, in EPSG:4326. 54,491 fires have a
+    point; the other 205,703 are locatable only by name — prefecture, municipality,
+    forest district, locality. This is the largest wildfire dataset in the project that is
+    mostly unmappable, and any spatial analysis over it is an analysis of its last six
+    years.
+
+No cause, in any year
+    Nothing in any of the twenty-six sheets says why a fire started. There is no
+    equivalent of EGIF's ``idcausa``, so there is no catalogue to seed and **no lightning
+    question this dataset can answer** — worth stating plainly, since answering it for
+    Spain is what :doc:`providers/egif_fire_cause` exists for.
+
+Areas in στρέμματα, stored as hectares
+    Eight land-cover columns, and a στρέμμα is 1,000 m² — a tenth of a hectare. The
+    conversion is exact and done at import, so a Greek fire and a Spanish one are
+    comparable without a per-provider unit. There is no published total and none is
+    stored.
+
+A deployment block, which nothing else has
+    Thirteen counts from 2011 on: firefighters, ground units, volunteers, soldiers and
+    others; four kinds of vehicle; and the aircraft by type, Canadairs and PZLs
+    included. The only measurement of a *response* rather than an event anywhere in
+    GisFIRE — and a measure of what was sent, which is a function of what was available
+    and what was feared as much as of what burnt.
+
+.. warning::
+
+   **The 2025 file is a different dataset wearing the same name.**
+   ``agrotodasikes_pyrkaies_2025.xlsx`` is *αγροτοδασικές* — agricultural **and** forest —
+   where every earlier file is *δασικές*. It publishes ``Κατηγορία Συμβάντος``, a size
+   class the others do not have, and **1,255 of its 9,043 rows are** ``ΨΕΥΔΗΣ
+   ΑΝΑΓΓΕΛΙΑ`` — *false alarm*, a call-out that found no fire at all. That is 14% of the
+   year.
+
+   They are imported rather than dropped, because a row that says "this was not a fire"
+   can be filtered and a discarded one cannot be recovered. Any query that counts or
+   measures fires must exclude them::
+
+      WHERE incident_category IS DISTINCT FROM 'ΨΕΥΔΗΣ ΑΝΑΓΓΕΛΙΑ'
+
+   ``IS DISTINCT FROM`` and not ``<>``: the column is ``NULL`` for every year before
+   2025, where ``<>`` evaluates to ``NULL`` and silently drops the other twenty-five.
+
+.. note::
+
+   Header cells must be matched through
+   :func:`~src.providers.greece_ffa.normalise_column`, never by ``==``. The published
+   headers wrap long names with a hyphen (``ΒΥΤΙΟ- ΦΟΡΑ`` beside ``ΒΥΤΙΟΦΟΡΑ``,
+   ``ΜΗΧΑΝΗ-ΜΑΤΑ`` beside ``ΜΗΧΑΝΗΜΑΤΑ``), spell accents inconsistently, and — in the
+   2025 file — write ``Α/Α ENGAGE`` with a **Latin** ``A`` where every other year uses the
+   Greek ``Α`` (U+0391). The two render identically and compare unequal, which is the kind
+   of mismatch that imports a whole year with an empty column and no error.
+
+   Reading by column *position* is not an option either: the sheets have 16, 17, 31, 32,
+   36, 38 and 39 columns depending on the year.
+
+.. toctree::
+   :maxdepth: 1
+   :hidden:
+
+   providers/greece_ffa_provider
+   providers/greece_ffa_wildfire
+   providers/greece_ffa_ignition
+
+NBAC and NFDB
+-------------
+
+`Natural Resources Canada <https://cwfis.cfs.nrcan.gc.ca>`_ publishes two national
+wildfire datasets through the Canadian Wildland Fire Information System, and GisFIRE
+imports both. They are **one agency and two products** — two
+:class:`~src.data_model.data_provider.DataProvider` rows sharing a name, which is exactly
+what that table's ``(name, product)`` uniqueness is for — and GisFIRE's first source
+outside Europe.
+
+**NBAC**, the *National Burned Area Composite*: 52,276 published polygons over 1973-2025,
+dissolving to **51,818 fire events** and 132.7 million hectares of mapped burn, one zipped
+shapefile per year. Compiled by the FireMARS system, which picks the best available
+polygon for each fire from Natural Resources Canada's own satellite products and the
+agencies' own mapping.
+
+**NFDB**, the *Canadian National Fire Database — Agency Fire Data*: **448,602 points**
+over 1930-2025 in one 1.1 GB shapefile, as thirteen provincial, territorial and Parks
+Canada agencies filed them. The import reads 1973 onwards, to line up with NBAC.
+
+They cover the same country and the same fires and their burnt-area totals differ by 34
+million hectares — 166.5 against 132.7 — because one records what an agency reported and
+the other measures what a satellite could see afterwards. Neither corrects the other.
+
+:doc:`providers/nbac_provider`
+    The composite: its sources, the boundary-split polygons, the two date pairs, the three
+    causes and why the CRS has to be asserted.
+
+:doc:`providers/nbac_wildfire`
+    One dissolved fire event. Adds the published identifiers, how the burn was mapped and
+    by whom, the four published dates, the cause, the two published areas, the
+    administrations it burnt in, the polygon in EPSG:3978 and the link to the NFDB report.
+
+:doc:`providers/nfdb_provider`
+    The agency archive: the thirteen contributors, the identifiers that do not identify,
+    and the dirt.
+
+:doc:`providers/nfdb_wildfire`
+    One agency fire report. No perimeter, ever.
+
+:doc:`providers/nfdb_ignition`
+    Where the fire was reported, in EPSG:3978 as published and EPSG:4326 on the generic
+    model.
+
+.. note::
+
+   **195,240 of the NFDB fires are natural-cause** — by a wide margin the largest
+   lightning-attributable set in GisFIRE, and every one of them has a coordinate and a
+   date. NBAC classifies 26,311 of its fire events the same way.
+
+   Neither ``Natural`` nor ``N`` is a **lightning** category. The NBAC metadata glosses it
+   *"Ignition source by natural cause. Most often lightning."* — the relationship
+   :doc:`providers/icnf_fire_cause`'s ``Natural`` has to lightning, and emphatically not
+   the one EGIF's ``100 — Rayo`` has. Anything counting lightning fires here is counting
+   natural-cause fires and has to say so.
+
+What makes these two unlike the datasets already in GisFIRE:
+
+A fire is a ``GID``, not a polygon
+    NBAC cuts its perimeters at provincial, territorial and national park boundaries, so a
+    fire that crossed one is published as several features sharing a ``GID``. 458 of the
+    52,276 polygons are such pieces. The import dissolves them, sums the published areas,
+    counts the parts and joins the administrations with ``"; "`` —
+    :attr:`~src.providers.canada_nbac.wildfire.NbacWildfire.crosses_admin` being what tells
+    a reader to expect a list rather than having to look for a separator.
+
+Two date pairs, and sometimes neither
+    NBAC publishes satellite hotspot dates *and* agency-reported dates, independently, and
+    for some fires neither: 102 of 1980's 530, 39 of 2023's 2,244. The import resolves the
+    start from the agency's date, then the hotspot's, then 1 January of the published year,
+    and records both which it used and how much of it is real.
+
+Nothing identifies an NFDB fire
+    ``NFDBFIREID`` has 446,918 distinct values over 448,602 rows and ``FIRE_ID`` only
+    338,313. Both are indexed, neither is constrained.
+
+Thirteen agencies, thirteen standards
+    British Columbia files 156,554 of the NFDB points and Prince Edward Island 55; the
+    start years run from 1930 to 2018 and ``FIRE_TYPE`` means something different in each
+    agency's hands. The published summary is frank about it: *"Data completeness and
+    quality vary among agencies and between years."*
+
+.. warning::
+
+   **The NBAC ``.prj`` does not declare its EPSG code.** It is a bare
+   ``Canada_Lambert_Conformal_Conic`` — NAD83, standard parallels at 49° and 77°, false
+   origin at 49°N 95°W — which is EPSG:3978 exactly, and the dataset's own metadata names
+   ``EPSG:3978`` as its reference system. The NFDB shapefile declares it properly.
+
+   So the import **asserts** 3978 rather than reading it, the guard
+   :doc:`providers/rediam_wildfire` needs for the opposite reason. A projection GDAL cannot
+   name is one PROJ may later decide to interpret differently.
+
+.. note::
+
+   :attr:`~src.providers.canada_nbac.wildfire.NbacWildfire.nfdb_wildfire_id` is the link
+   from a perimeter to the agency report for the same fire, and the import **never fills
+   it in** — exactly as for Catalonia and Andalusia, and in the same direction: the shape
+   points at the record the fire is filed under. ``match_method``, ``match_confidence``
+   and ``matched_at`` come with it.
+
+   **No check constraint lists the methods yet.** Unlike ``CODI_FINAL`` and ``CODIGO``,
+   which turn out to be EGIF report numbers, the two Canadian datasets share **no
+   published identifier at all** — so a binding will rest on date, place and geometry, and
+   a vocabulary invented now would be a guess frozen into the schema.
+
+.. note::
+
+   1972 is not imported. The published NBAC metadata describes a 1972-2025 series of
+   52,610 features; the service distributes no 1972 archive, and the 53 yearly files
+   available hold 52,276. Nothing depends on the first year, and no lightning data of that
+   period exists to attribute it against.
+
+.. toctree::
+   :maxdepth: 1
+   :hidden:
+
+   providers/nbac_provider
+   providers/nbac_wildfire
+   providers/nfdb_provider
+   providers/nfdb_wildfire
+   providers/nfdb_ignition
+
+CONAFOR
+-------
+
+The `Comisión Nacional Forestal <https://datos.gob.mx/busca/organization/conafor>`_
+publishes Mexico's national burnt-area cartography, *Incendios Forestales*, as **one
+zipped shapefile per year**. 45,914 polygons over 2010-2023, and GisFIRE's first Latin
+American source.
+
+It is a cartography and not a statistic, so it belongs with :doc:`providers/icnf_wildfire`
+and :doc:`providers/nbac_wildfire` rather than with EGIF or the Greek Fire Service: every
+record is a shape. What sets it apart from those two is that the shape is already in
+**EPSG:4326** — all fourteen archives carry a byte-identical ``.prj`` — so there is no
+national grid to keep alongside it and this is the one perimeter provider with a single
+geometry column and a single QGIS view.
+
+:doc:`providers/conafor_provider`
+    The dataset itself: the fourteen archives, the schema that changes every year, and
+    the five readers that absorb it.
+
+:doc:`providers/conafor_wildfire`
+    One published polygon. Adds the key, the year and source layer, the state and
+    municipality, the *predio*, the classification attributes, the total burnt area and
+    its six strata, and the link to the cause. Imported by
+    :doc:`applications/conafor_import_wildfires`.
+
+:doc:`providers/conafor_fire_cause`
+    The 141 cause classifications, reconciled from sixty-four published spellings and
+    translated.
+
+What makes this dataset unlike the others already in GisFIRE:
+
+The published key is unique, so a row can be upserted
+    ``CLAVEINC`` is ``YY-EE-NNNN`` — year, INEGI state, sequence — in all 45,914 rows, and
+    takes 45,909 distinct values. The five repeats are in 2021 and are *exact* duplicate
+    features, identical down to the geometry, so dropping the second copy loses nothing.
+
+    Every other perimeter provider here is re-imported a layer at a time because it has to
+    be: ICNF publishes no identifier on 48,861 features, GWIS's repeats, the Greek archive
+    has none at all. This is the first that can do ``ON CONFLICT (fire_code)``.
+
+    The middle pair of the key is the INEGI state code, and it agrees with the published
+    ``ESTADO`` in every single row — which is what makes it worth parsing, since the names
+    do not agree with each other: 34 spellings for 32 states, *Distrito Federal* and
+    *Ciudad de México* being one state either side of 2016.
+
+No two consecutive years have the same attributes
+    Fifty-eight published names across fourteen files. ``TIPVEG`` is also ``TIPVEGE``,
+    ``TIP_VEG`` and ``TIPO_DE_VE``. **Two layers are wholly their own**: 2012, with
+    ``CLAVE`` for the key and four attributes no other year has, all of them the string
+    ``"0"`` in all 224 of its rows; and 2015, which renames almost everything —
+    ``CLAVE_DEL`` for the key, ``TIPO_DE_IN``, ``TIPO_DE_VE``, ``TIPO_DE_IM``,
+    ``ANP_HECTAR``, and ``ARBADULTO`` / ``RENUEVO`` / ``ARBUSTIVO`` / ``HERBACEO`` /
+    ``SUELOORG`` for five of the six strata. ``CAUSAESP`` runs 2010-2019 and stops. The
+    six strata run 2010-2021, lose ``SUELORG_HA`` in 2020 and vanish entirely in 2022.
+
+    All of it is absorbed by :data:`~src.providers.mexico_conafor.FIELD_ALIASES` and
+    :func:`~src.providers.mexico_conafor.field_value`, so nothing downstream branches on
+    the year and a layer that publishes less simply leaves more of the row ``NULL``.
+
+    The *order* of those aliases matters, and 2015 is why: in that layer ``ESTADO`` holds
+    the numeric state code and the name is in ``ESTADO_1``, so listing ``ESTADO`` first
+    would store ``"32"`` as the name of a Mexican state for 1,105 fires.
+
+``CLAVEMUN`` is not a national code
+    It is the municipality's number *within its state*, 1 to 570 — 570 being exactly the
+    number of municipalities in Oaxaca — and means nothing without ``state_code`` beside
+    it. The national INEGI key is the two composed, two digits and three::
+
+        LPAD(state_code::text, 2, '0') || LPAD(municipality_code::text, 3, '0')
+
+    It is published from 2018 on; the 13,872 fires before that have a name and no code.
+
+The one attribute that says how good a perimeter is, is published once
+    ``POLIGONO``, in the 2023 layer and no other: ``IMAGEN`` for a perimeter digitised
+    from satellite imagery, ``COORD`` for one surveyed on the ground or from the air,
+    ``AQSPPIF`` for the agency's aerial product. It is ``NULL`` on 38,401 of the 45,914
+    rows, and it is stored anyway — the year that does publish it shows the mix, 69%
+    digitised and 25% surveyed, which is the only quantitative statement about perimeter
+    quality anywhere in this dataset.
+
+.. warning::
+
+   **The 2010 areas do not describe the 2010 polygons.** ``AREA_HA`` is the polygon's own
+   geodesic area from 2016 on — median ratio 1.000, four rows in five within 1% — and
+   agrees to within a few percent for 2011-2014. In 2010 the median ratio is **3.0** and
+   the 90th percentile **65**: ``10-01-0001`` reports 20 ha on a polygon of 1.08 ha,
+   ``10-01-0004`` reports 2.5 ha on 20.2 ha. Those 311 polygons are five-to-twelve-vertex
+   sketches drawn beside a separately reported field figure, and neither number can be
+   derived from the other.
+
+   Anything measuring burnt area across the series must either start at
+   :data:`~src.providers.mexico_conafor.FIRST_YEAR_WITH_MEASURED_AREA` or measure from the
+   geometry — and either way must not average the 2010 column in with the rest.
+
+   The feature counts step by an order of magnitude at the same point (628 in 2014 against
+   3,244 in 2016) for a related reason: before 2016 CONAFOR published only the fires it
+   had drawn, and from 2016 it publishes the season.
+
+.. warning::
+
+   **Some of the published text is mojibake in the file itself**, not in the reader. The
+   archives declare UTF-8 in a ``.cpg``, GDAL honours it, and what comes out is already
+   corrupt — ``'BolaÃƒÂ±os'`` for *Bolaños*, ``'CaÃƒÆ’Ã‚Â±ada Verde'`` for *Cañada Verde*,
+   worst in 2021 and 2022. The same names are written correctly in the same column in
+   other years. There is no encoding that reads these files right.
+
+   2019 and 2022 also carry a find-and-replace accident in ``TIPVEG`` where the letter *i*
+   became the word *bosque*: ``'Bosque de Pbosqueno Encbosqueno'`` is *Bosque de Pino
+   Encino*. Nine rows.
+
+   Nothing repairs any of it. The strings are stored as published, and the reconciled forms
+   on :doc:`providers/conafor_fire_cause` are what a query groups by.
+
+.. note::
+
+   **The 2015 archive is distributed separately from the other thirteen** and is easy to
+   miss. A run without it is not silently wrong — the key ``CLAVE_DEL`` that layer uses is
+   in :data:`~src.providers.mexico_conafor.FIELD_ALIASES`, and the year simply does not
+   appear in any report — but it is a year of 1,105 fires absent from every total.
+
+   Two CSV files sit beside the shapefiles in the published directory and are **not
+   imported**: they are CONAFOR's tabular statistic, a different product with no geometry.
+   One of them reaches 2025, which the cartography does not; closing that gap means
+   importing a 2025 archive when CONAFOR publishes one, not importing a different
+   product.
+
+.. note::
+
+   No layer of any year publishes a **time of day**, so every stored instant is local
+   midnight and
+   :attr:`~src.providers.mexico_conafor.wildfire.ConaforWildfire.date_time_precision` is
+   ``day`` on every row. Mexico spans four time zones and abolished daylight saving outside
+   the northern border strip in 2022, which is why the importer resolves the zone from the
+   geometry and stores it by *name*: the same published wall clock is UTC-5 in June 2019
+   and UTC-6 in January 2023.
+
+   There is **no ignition point**. CONAFOR publishes a perimeter and a *predio* and never a
+   coordinate for where the fire started, exactly as the ICNF does — so there is no
+   :doc:`../data_model/ignition` for a CONAFOR fire.
+
+.. toctree::
+   :maxdepth: 1
+   :hidden:
+
+   providers/conafor_provider
+   providers/conafor_wildfire
+   providers/conafor_fire_cause
+
+INAB
+----
+
+The `Instituto Nacional de Bosques <https://sig.inab.gob.gt>`_ publishes Guatemala's fire
+reports, *Monitoreo de Incendios Forestales*, through the ArcGIS REST server of the
+*Sistema Integral de Información para la Gestión del Fuego*. **4,615 reports over
+2023-2026**, and GisFIRE's first Central American source.
+
+There is no file to download and no WFS to read: the layer is fetched by
+:doc:`applications/inab_download_wildfires`, which is why this is the only provider whose
+data arrives through an application of its own.
+
+:doc:`providers/inab_provider`
+    The dataset itself: the four published vocabularies, the department codes, the national
+    grid that has no EPSG code, and the three readers the models share.
+
+:doc:`providers/inab_wildfire`
+    One published report. Adds the identifier, what became of the report, who reported it
+    and how, the administrative location, the protected areas and the link to the point.
+
+:doc:`providers/inab_ignition`
+    Where the fire was reported to be — on **every** record — plus the coordinates as the
+    operator typed them.
+
+What makes this dataset unlike the others already in GisFIRE:
+
+It publishes no size at all
+    Not a perimeter, not a hectare figure, not a land-cover split. :doc:`providers/egif_wildfire`
+    and :doc:`providers/greece_ffa_wildfire` publish no perimeter but do publish burnt areas;
+    this publishes neither, and is the first source here of which that is true.
+
+    So there is no ``area_ha`` on the model, no perimeter on any row, and **nothing any
+    report can sum**: :doc:`applications/inab_wildfire_statistics` keeps the three hectare
+    columns the other seven burnt-area reports have and leaves every cell of them empty.
+    Anything wanting burnt area in Guatemala has to go elsewhere; the burn-scar layers on
+    the same server are a single season of polygons rather than an archive.
+
+A row is a report, and one fire can be reported twice
+    57 published pairs share an exact coordinate and an exact minute, differing only in
+    which institution called it in and — twice — in what they concluded. ``global_id`` is
+    unique because a *report* is unique. Deduplicating is an analysis that can state its
+    rule, not an import that would have to guess one.
+
+Every record has a point, and the times are real
+    All 4,615 carry an EPSG:4326 point, and ``fecha_hora_incendio`` is the minute the
+    report came in. In local time the hourly histogram peaks between 13:00 and 16:00 — the
+    afternoon fire peak — so these are observations and not a date rounded to midnight.
+
+The national grid has no EPSG code
+    ``sistema_proyeccion`` says ``GTM``, Guatemala Transverse Mercator, and the EPSG
+    registry has no such system: its Guatemalan entries are the Ocotepeque 1935 Lambert
+    zones. :data:`~src.providers.guatemala_inab.GTM_PROJ` is the definition, verified by
+    reprojecting the published points onto the published typed coordinates — exact to the
+    metre on the best records.
+
+.. warning::
+
+   **140 of the 4,615 records are false alarms** — ``estado_aviso = 'falso'``, meaning
+   there was no fire — and 90 more are ``no_verificado``, meaning nobody went to look. They
+   are imported rather than dropped, because a record saying *this was not a fire* can be
+   filtered and a discarded one cannot be recovered.
+
+   Any query that counts or maps fires must exclude the first group and decide about the
+   second::
+
+      WHERE report_status IS DISTINCT FROM 'falso'
+
+   ``IS DISTINCT FROM`` and not ``<>``: the column is ``NULL`` on the four records that
+   carry no attributes at all, where ``<>`` evaluates to ``NULL`` and would drop them
+   silently.
+
+   The flag earns its keep in an unexpected way: **all three published points that fall
+   outside Guatemala are already ``falso``**. Two are longitudes that lost their minus sign
+   — ``+90.47`` puts a fire in Jutiapa into Cambodia — and the third is 200 km inside
+   Honduras. The provider's own quality flag removes every one of them without this project
+   having to invent a coordinate.
+
+.. warning::
+
+   **The published layer carries personal data, and none of it is imported.**
+
+   ``reportado_por`` and ``telefono`` are the name and telephone number of whoever reported
+   each fire: 1,786 distinct names, 1,008 numbers, **1,969 distinct pairs**, most of them
+   private individuals rather than officials. ``created_user`` and ``last_edited_user`` are
+   INAB staff accounts.
+
+   :data:`~src.providers.guatemala_inab.PERSONAL_FIELDS` names all four so the omission is a
+   decision on the record rather than an oversight, and a test asserts that no column of
+   either model holds one. Nothing analytical is lost — no question about fire is answered
+   by a reporter's phone number — and
+   :attr:`~src.providers.guatemala_inab.wildfire.InabWildfire.institution` keeps which
+   *organisation* reported it, which is the part that has meaning.
+
+.. note::
+
+   **The end times are in a layer that is not modelled.** ``informes`` on the same service,
+   5,812 rows, holds when the first ground and air crews arrived and when the fire was
+   controlled and extinguished — the only end-time data Guatemala publishes. Until it is
+   modelled, :attr:`~src.data_model.wildfire.Wildfire.end_date_time` is ``NULL`` on every
+   INAB fire.
+
+   It is a second model rather than a column: there are more *informes* than fires, one fire
+   being reported on several times, so those times are a one-to-many relationship.
+
+.. warning::
+
+   **An unfilled text field is sometimes ``null`` and sometimes ``""``, in the same
+   column**, mixed with no pattern:
+
+   .. code-block:: text
+
+                         null    ""    filled
+      nombre_ap_1          80   3,080   1,455
+      tipo_incendio     2,681   1,445     489
+      finca             3,373     203   1,039
+
+   An import that stores what it is handed records 3,080 fires as being inside a protected
+   area called ``""`` — which counts as filled in any ``IS NOT NULL`` afterwards and is
+   invisible in a spot check. Every text attribute has to go through
+   :func:`~src.providers.guatemala_inab.blank_to_none`. The numeric columns are unaffected:
+   JSON has no empty number.
+
+.. note::
+
+   ``tipo_incendio`` — inside or outside forest — is the only classification of the fire
+   itself, and it is filled on **489 records, 10.6%**. Anything grouping by it is describing
+   one record in ten.
+
+   ``municipio`` carries the national INE code inside the slug (``rio_hondo_1903`` is
+   department 19, municipality 03), which is what a join to a Guatemalan boundary layer
+   needs. Four slugs carry a truncated code naming the wrong department; those 22 records
+   get a ``NULL`` code rather than a guessed one, and keep their department name.
+
+.. toctree::
+   :maxdepth: 1
+   :hidden:
+
+   providers/inab_provider
+   providers/inab_wildfire
+   providers/inab_ignition
+
+CONAF
+-----
+
+The `Corporación Nacional Forestal <https://www.conaf.cl>`_ publishes Chile's fire data as
+**two products**, both from its own incident record and both organised by *temporada*:
+
+* the seasonal **reports** — 23 shapefiles, **95,868 fires**, 2010-2011 to 2024-2025 —
+  each a point, a cause and fourteen burnt-area figures;
+* the *incendios de magnitud* **perimeters** — 13 shapefiles, 781 features dissolving to
+  **743 fires**, 2013-2014 onwards — the mapped shapes of the fires that reached roughly
+  200 hectares.
+
+.. warning::
+
+   **This is Chile's CONAF, not Mexico's CONAFOR.** *Corporación Nacional Forestal* and
+   *Comisión Nacional Forestal* differ by two letters and both are real agencies with
+   data in GisFIRE. The table prefixes are ``conaf_`` and ``conafor_``, and every module
+   in both packages opens by naming its country.
+
+:doc:`providers/conaf_provider`
+    The report archive: the fire season, the four date formats, the coordinate triple, the
+    two grids, the null tokens and the dirt, plus the readers the models share.
+
+:doc:`providers/conaf_wildfire`
+    One seasonal report. Adds the season, the office's number and name, who filed it, the
+    administrative location, the cause, the fourteen areas and the link to its point.
+
+:doc:`providers/conaf_ignition`
+    Where the fire was reported — on **every** record — on whichever of Chile's two UTM
+    grids it was published on, with the published coordinate triple beside it.
+
+:doc:`providers/conaf_fire_cause`
+    The cause classification both products share, and the reconciliation of CONAF's **two
+    taxonomies**.
+
+:doc:`providers/conaf_magnitud_provider`
+    The perimeter product: the threshold, the dissolve key and the binder's vocabulary.
+
+:doc:`providers/conaf_magnitud_wildfire`
+    One mapped fire, its two areas, its grid and its link back to the report.
+
+What makes this dataset unlike the others already in GisFIRE:
+
+It is the first provider with **two** projected grids
+    Chile has no single national projected CRS. The mainland is EPSG:32719 (UTM 19S) and
+    Rapa Nui is EPSG:32712 (UTM 12S), five thousand kilometres and seven zones apart, so
+    both the ignition and the perimeter carry two nullable geometry columns and a ``CHECK``
+    that exactly one is filled. :doc:`providers/nfdb_ignition` needs one because Canada
+    publishes on one grid; this needs two, and a ``COALESCE`` of them would be metres added
+    to metres on different planes.
+
+Half of it has no date at all
+    Eight of the fifteen mainland seasons publish no start time, so **49,470 fires — 51.6%**
+    — are dated to 1 July of their season because that is the only thing known about when
+    they burnt. ``date_time_precision`` says so on every row, and every report over this
+    provider carries a ``Dated`` count beside its ``Fires`` count.
+
+The cause taxonomy was renumbered **and the numbers reused**
+    ``4.1`` is *incendios de causa desconocida* to 2022-2023 and *faenas forestales* from
+    2023-2024. Ten more categories were renamed into narrower or broader ones. See the
+    danger note in :doc:`providers/conaf_fire_cause`; the short version is *group on the
+    name, never on the code*.
+
+Nothing in it is a key
+    ``NUMERO_REG`` repeats within a season and within a región — 6,884 fires and 5,975
+    distinct ``(CODREG, NUMERO_REG)`` pairs in 2021-2022 — and ``NOM_INCEN`` is a place
+    name. Neither model constrains an identifier, which is the same position
+    :doc:`providers/nfdb_wildfire` is in.
+
+.. warning::
+
+   **Both products are the same fires, and both are in ``wildfire``.** Every one of the 743
+   perimeters is also one of the 95,868 reports. A query filtered only by provider *name*
+   counts those 743 twice; filter by ``data_provider_id`` or by the polymorphic ``type``.
+
+.. note::
+
+   The perimeter archive is **not exhaustive**: 2021-2022 has 97 reports of 200 ha or more
+   and 62 perimeters. A perimeter is evidence a fire was mapped, and its absence is not
+   evidence a fire was small.
+
+.. toctree::
+   :maxdepth: 1
+   :hidden:
+
+   providers/conaf_provider
+   providers/conaf_wildfire
+   providers/conaf_ignition
+   providers/conaf_fire_cause
+   providers/conaf_magnitud_provider
+   providers/conaf_magnitud_wildfire
+
 OCHA
 ----
 
@@ -531,6 +1188,12 @@ were checked against the 2025-07-29 release, which has 318 features:
    filter on the field. Should a later release ship several views, the same country would
    appear more than once and the import would need to choose.
 
+.. toctree::
+   :maxdepth: 1
+   :hidden:
+
+   providers/ocha_admin_boundary
+
 CAOP
 ----
 
@@ -590,6 +1253,13 @@ There is no Portugal
    DICOFRE from a 2010 fire may name nothing in CAOP 2025, or name a differently shaped
    parish. Each edition is imported as its own data provider so that editions can sit
    side by side and a fire can be matched to the boundaries in force when it burnt.
+
+.. toctree::
+   :maxdepth: 1
+   :hidden:
+
+   providers/caop_provider
+   providers/caop_admin_boundary
 
 IGN
 ---
@@ -656,25 +1326,5 @@ NUTS refines the administrative tree instead of crossing it
    :maxdepth: 1
    :hidden:
 
-   providers/caop_provider
-   providers/caop_admin_boundary
-   providers/darpa_provider
-   providers/darpa_wildfire
-   providers/egif_provider
-   providers/egif_ignition
-   providers/egif_wildfire
-   providers/egif_wildfire_report
-   providers/egif_fire_cause
-   providers/egif_fire_motivation
-   providers/gfa_ignition
-   providers/gfa_wildfire
-   providers/gwis_wildfire
-   providers/icnf_provider
-   providers/icnf_wildfire
-   providers/icnf_fire_cause
    providers/ign_provider
    providers/ign_admin_boundary
-   providers/rediam_provider
-   providers/rediam_wildfire
-   providers/rediam_ignition
-   providers/ocha_admin_boundary

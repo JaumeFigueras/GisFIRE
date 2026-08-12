@@ -21,6 +21,15 @@ numpy>=2.1
 pandas>=2.2
 geopandas>=1.0
 
+# --- Spreadsheet input ---
+# Reads the Greek Fire Service .xlsx workbooks (src/providers/greece_ffa). Needed
+# for three things a hand-rolled zip/XML reader would have to reimplement: cached
+# formula results (the 2022-2024 coordinate columns are VLOOKUPs), multi-row
+# headers, and per-sheet access in the 13-sheet 2000-2012 workbook.
+# The EGIF importer predates this and keeps its own streaming reader; it is not
+# migrated, because at 586k rows streaming is the point of it.
+openpyxl>=3.1
+
 # --- Report output ---
 # Writes the .docx of the statistics applications. Pure Python, no system
 # dependency; CSV output needs nothing beyond the stdlib.

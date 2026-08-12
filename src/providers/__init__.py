@@ -28,10 +28,31 @@ from src.providers.catalonia_darpa.wildfire import DarpaWildfire  # noqa: E402,F
 # Likewise RediamWildfire, which points at EgifWildfire as well.
 from src.providers.andalusia_rediam.ignition import RediamIgnition  # noqa: E402,F401
 from src.providers.andalusia_rediam.wildfire import RediamWildfire  # noqa: E402,F401
+from src.providers.greece_ffa.ignition import GreeceFfaIgnition  # noqa: E402,F401
+from src.providers.greece_ffa.wildfire import GreeceFfaWildfire  # noqa: E402,F401
+# NbacWildfire points at NfdbWildfire (the perimeter references the agency report),
+# so the NFDB models have to come first, as EGIF does before DARPA and REDIAM.
+from src.providers.canada_nfdb.ignition import NfdbIgnition  # noqa: E402,F401
+from src.providers.canada_nfdb.wildfire import NfdbWildfire  # noqa: E402,F401
+from src.providers.canada_nbac.wildfire import NbacWildfire  # noqa: E402,F401
 from src.providers.gfa.ignition import GfaIgnition  # noqa: E402,F401
 from src.providers.gfa.wildfire import GfaWildfire  # noqa: E402,F401
 from src.providers.gwis.wildfire import GwisWildfire  # noqa: E402,F401
 from src.providers.portugal_icnf.fire_cause import IcnfFireCause  # noqa: E402,F401
 from src.providers.spain_ign.admin_boundary import IgnAdminBoundary  # noqa: E402,F401
 from src.providers.portugal_icnf.wildfire import IcnfWildfire  # noqa: E402,F401
+from src.providers.mexico_conafor.fire_cause import ConaforFireCause  # noqa: E402,F401
+from src.providers.mexico_conafor.wildfire import ConaforWildfire  # noqa: E402,F401
+# InabWildfire points at InabIgnition, so the ignition has to come first.
+from src.providers.guatemala_inab.ignition import InabIgnition  # noqa: E402,F401
+from src.providers.guatemala_inab.wildfire import InabWildfire  # noqa: E402,F401
+# Chile's CONAF — not Mexico's CONAFOR above, which is a different agency whose
+# tables are the conafor_* ones. Three dependencies to respect here, so the order
+# is the whole chain: the cause table and the ignition before ConafWildfire, which
+# points at both, and ConafWildfire before ConafMagnitudWildfire, whose perimeters
+# point at the reports as NBAC's do at NFDB's.
+from src.providers.chile_conaf.fire_cause import ConafFireCause  # noqa: E402,F401
+from src.providers.chile_conaf.ignition import ConafIgnition  # noqa: E402,F401
+from src.providers.chile_conaf.wildfire import ConafWildfire  # noqa: E402,F401
+from src.providers.chile_conaf_magnitud.wildfire import ConafMagnitudWildfire  # noqa: E402,F401
 from src.providers.ocha.admin_boundary import OchaAdminBoundary  # noqa: E402,F401

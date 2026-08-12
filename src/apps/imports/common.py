@@ -13,6 +13,10 @@ for every source, it is the only interesting part of an importer, and pushing it
 behind a shared abstraction would hide the one thing a reader of an import
 application comes to read.
 
+Importing this module loads ``.env`` (through :mod:`src.settings`), so an
+application that resolves its database settings here gets the file read for it and
+does not have to remember to import :mod:`src.settings` itself.
+
 Requires the ``ogr2ogr`` binary (GDAL) on ``PATH``. It is a system dependency,
 not a Python package.
 """
@@ -38,6 +42,8 @@ from sqlalchemy import text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.engine import URL
 from sqlalchemy.orm import Session
+
+import src.settings  # noqa: F401  (imported for the side effect of loading .env)
 
 from src.data_model.data_provider import DataProvider
 from src.providers import ocha
