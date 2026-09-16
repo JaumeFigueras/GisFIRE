@@ -55,4 +55,5 @@ from src.providers.chile_conaf.fire_cause import ConafFireCause  # noqa: E402,F4
 from src.providers.chile_conaf.ignition import ConafIgnition  # noqa: E402,F401
 from src.providers.chile_conaf.wildfire import ConafWildfire  # noqa: E402,F401
 from src.providers.chile_conaf_magnitud.wildfire import ConafMagnitudWildfire  # noqa: E402,F401
+from src.providers.australia_csiro.wildfire import CsiroWildfire  # noqa: E402,F401
 from src.providers.ocha.admin_boundary import OchaAdminBoundary  # noqa: E402,F401

@@ -241,7 +241,8 @@ def load_staging_table(datasource: str, layer: str, staging_table: str,
                        progress: bool | None = None, target_srs: str = "EPSG:4326",
                        open_options: list[str] | None = None,
                        append: bool = False, fid_column: str = "fid",
-                       creation_options: list[str] | None = None) -> None:
+                       creation_options: list[str] | None = None,
+                       preserve_fid: bool = False) -> None:
     """Copy one layer into the staging table with ``ogr2ogr``.
 
     Geometries are promoted to ``geometry_type`` and forced to ``target_srs``,
@@ -273,6 +274,14 @@ def load_staging_table(datasource: str, layer: str, staging_table: str,
     ``numeric(19,15)`` cannot hold the six-digit easting the field actually contains,
     so the ``COPY`` fails with a numeric field overflow. Like ``fid_column`` they are
     ignored when appending, the table already existing.
+
+    ``preserve_fid`` keeps the **source's own feature identifiers** in
+    ``fid_column`` instead of letting PostgreSQL number the rows afresh. Off by
+    default, because for a shapefile the FID is a position in a file and means
+    nothing. It is on for the Australian geodatabase, whose FID is its
+    ``OBJECTID``: the only identifier that dataset has which identifies anything,
+    and one the model stores (see
+    :mod:`src.apps.imports.wildfires.australia_csiro.import_wildfires`).
 
     ``fid_column`` names the serial primary key GDAL creates on the staging table.
     The default is right everywhere except where the **source publishes an attribute
@@ -312,6 +321,8 @@ def load_staging_table(datasource: str, layer: str, staging_table: str,
         command += ["-lco", "GEOMETRY_NAME=geom", "-lco", f"FID={fid_column}"]
         for option in creation_options or []:
             command += ["-lco", option]
+    if preserve_fid:
+        command.append("-preserve_fid")
     if show_progress:
         command.append("-progress")
     logger.info("Loading %s (layer %s) into %s with ogr2ogr", datasource, layer, staging_table)

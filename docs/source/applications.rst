@@ -233,6 +233,19 @@ Data import
     Splits the ``'402 - SAN GUILLERMO'`` prefix into a number and a name, which is what
     :doc:`applications/conaf_magnitud_bind_wildfires` then matches on.
 
+:doc:`applications/csiro_import_wildfires`
+    Imports the Australian historical bushfire extents — one file geodatabase, two feature
+    classes, **347,834 polygons stored one row each** over 1898-2025 — as GisFIRE's first
+    Oceanian source. Alone among the imports it **chooses its own unit of work**: the
+    archive is a single 860 MB file rather than one publication per period, so the import
+    stages a feature class once and then deletes, rewrites and commits **one year at a
+    time**, logging each. **Nothing is merged**: grouping the patches of a burn on the
+    tightest published key joins features 2,403 km apart, so the published feature is the
+    unit stored. Runs ``ogr2ogr`` with ``-preserve_fid`` to keep the
+    geodatabase's ``OBJECTID``, and opens the archive through a temporary ``.gdb`` symlink
+    because GDAL reads a geodatabase by its suffix and the distribution has none. **Half of
+    what it writes is prescribed burning**, kept and typed rather than dropped.
+
 :doc:`applications/icnf_resync_wildfires`
     Goes back to the ICNF's WFS for the times the shapefile export truncated — a
     shapefile's DBF has no datetime type, so every published instant arrived as a bare
@@ -268,6 +281,7 @@ Data import
    applications/inab_import_wildfires
    applications/conaf_import_wildfires
    applications/conaf_magnitud_import_wildfires
+   applications/csiro_import_wildfires
 
 Bindings
 --------

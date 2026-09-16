@@ -1111,6 +1111,104 @@ Nothing in it is a key
    providers/conaf_magnitud_provider
    providers/conaf_magnitud_wildfire
 
+CSIRO
+-----
+
+The `Digital Atlas of Australia
+<https://digital.atlas.gov.au/pages/8b124790a8f54ccd9b3288288e21cfd2#datasets>`_
+distributes the Australian historical bushfire extents as a single ESRI file geodatabase
+holding **two feature classes**: 345,345 national polygons over 1898-2025 covering every
+state and territory *except* the Northern Territory, and 2,489 more covering the Northern
+Territory over 2020-2025. **347,834 published polygons, stored one row each**, and
+GisFIRE's first Oceanian source.
+
+The two classes are complements rather than duplicates — no ``(fire_id, ignition_date)``
+pair appears in both — so one provider covers them and
+:attr:`~src.providers.australia_csiro.wildfire.CsiroWildfire.source_layer` records which
+one a row came from.
+
+:doc:`providers/csiro_provider`
+    The dataset: the two feature classes, the sentinel identifiers, the deliberate
+    burning, the vocabularies that disagree and the dates that are not dates.
+
+:doc:`providers/csiro_wildfire`
+    One published polygon. Adds the published identifiers, the state, the type, the cause,
+    how the burn was mapped and the three published dates.
+
+.. warning::
+
+   **Half of this dataset is deliberate burning.** 166,048 features are prescribed burns
+   and 84.8 million hectares of them, against 85,336 bushfires; 93,960 more are published
+   as ``Unknown``. All of it is imported — dropping rows at import is irreversible, and no
+   rule would honestly assign the unknowns — so **any count over more than one provider
+   must filter** :attr:`~src.providers.australia_csiro.wildfire.CsiroWildfire.fire_type`
+   or it is adding a fuel-reduction programme to a wildfire total.
+
+   This is the first provider in GisFIRE for which that is true.
+   :attr:`~src.providers.canada_nbac.wildfire.NbacWildfire.prescribed` marks 19 such fires
+   in Canada. The ``v_csiro_bushfire`` view is the filter already applied.
+
+What makes it unlike the datasets already in GisFIRE:
+
+Almost nothing identifies a fire
+    145,694 Western Australian features publish the literal sentinel ``'999'`` and 4,592
+    more publish ``'0'``; every one of Queensland's 15,444 features publishes no
+    ``fire_id`` at all; 10.5% of the national class is null. **46% of the archive has an
+    identifier that could be one** — and even those cannot be trusted to group: the
+    numbers that survive the sentinel test include Western Australian district sequences
+    reused across the state.
+
+Nothing is merged, and that was measured
+    Grouping on ``(source_layer, state_code, fire_id, ignition_date)`` — the tightest key
+    the archive offers — produces 4,078 merged groups in the national class, of which
+    **23.4% span more than 10 km**, 15.8% more than 25 km and 6.6% more than 100 km. The
+    widest joins two features **2,403 km apart**, both publishing ``fire_id`` ``23`` on
+    2010-11-24. A fire has several fronts; it does not have one on either side of Western
+    Australia. So one published polygon is one row, a row count is a count of **mapped
+    polygons and not of fires**, and reassembling fires is left to an application that can
+    bring a rule to it.
+
+The two classes do not share a vocabulary
+    ``state`` is ``WA (Western Australia)`` in one and ``WA`` in the other;
+    ``capture_date`` is ``YYYYMMDD`` text in one and a date column in the other;
+    *prescribed burn* is published in two capitalisations. Every value is stored verbatim
+    in a ``*_published`` column and normalised beside it.
+
+The published areas are whole hectares
+    Both ``area_ha`` and ``perim_km`` are integers in both classes, and 77,069 features
+    have an area of 0 — patches that rounded to nothing. Each row carries the figure for
+    its own polygon, unsummed and unreconciled with the geometry; anything wanting the
+    area of a shape should measure the shape.
+
+.. warning::
+
+   **67,552 features — one in five — ignite on 1 January**, and 25,027 more on 1 July.
+   That is a fire season written as a date. No rule separates them from the real
+   1 January fires, which in Australia are the peak of the season, so nothing tries: they
+   carry ``day`` precision like every other row. Anything computing a distribution over
+   months or days has to know this before it finds the spike.
+
+.. note::
+
+   The geodatabase names **no publisher, licence or lineage** anywhere inside it — the
+   embedded ESRI metadata carries an ArcGIS Pro schema edit dated 2025-11-07 and nothing
+   else. The provider identity comes from the Digital Atlas distribution page rather than
+   from the data.
+
+   Two practical consequences for the import that will read it: the distributed directory
+   has **no** ``.gdb`` **suffix**, which GDAL refuses to open until it is renamed or
+   symlinked, and the archive is 155.8 million vertices with single features of 2,125,741
+   vertices and 52,426 parts — so the country and time zone lookups need the subdivided
+   boundary pieces described in :doc:`../applications/conaf_import_wildfires`, not a plain
+   ``ST_Contains``.
+
+.. toctree::
+   :maxdepth: 1
+   :hidden:
+
+   providers/csiro_provider
+   providers/csiro_wildfire
+
 OCHA
 ----
 

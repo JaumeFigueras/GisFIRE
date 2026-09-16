@@ -95,6 +95,14 @@ VIEWS = {
     "v_conaf_magnitud_wildfire_4326": ("perimeter", "MULTIPOLYGON", 4326),
     "v_conaf_magnitud_wildfire_32719": ("perimeter", "MULTIPOLYGON", 32719),
     "v_conaf_magnitud_wildfire_32712": ("perimeter", "MULTIPOLYGON", 32712),
+    # One perimeter view and not two, alone among the perimeter providers: CSIRO
+    # publishes on EPSG:4283, geographic degrees 1.8 m from EPSG:4326, so there is
+    # no second geometry to expose. See revision ac2b51efcb0f.
+    "v_csiro_wildfire": ("perimeter", "MULTIPOLYGON", 4326),
+    # The same view with ``WHERE fire_type = 'bushfire'``. Half of the Australian
+    # archive is prescribed burning, so the layer a map of wildfire needs is not the
+    # layer of everything. See revision 5d8a2f4c6b19.
+    "v_csiro_bushfire": ("perimeter", "MULTIPOLYGON", 4326),
 }
 
 
