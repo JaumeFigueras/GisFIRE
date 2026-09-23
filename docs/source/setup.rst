@@ -116,7 +116,10 @@ Typical first-time flow
    make test-all        # run both test suites
 
 The configuration file and the schema migrations have their own pages:
-:doc:`setup/configuration` and :doc:`setup/database_migrations`.
+:doc:`setup/configuration` and :doc:`setup/database_migrations`. The database itself —
+installing PostgreSQL and PostGIS, creating the dedicated cluster, the roles and the
+database — is covered in :doc:`setup/postgresql_database`, and the native geospatial
+libraries a server should carry in :doc:`setup/geospatial_libraries`.
 
 Setup guides
 ------------
@@ -126,6 +129,7 @@ Setup guides
 
    setup/development_environment
    setup/postgresql_database
+   setup/geospatial_libraries
    setup/configuration
    setup/database_migrations
    setup/documentation
