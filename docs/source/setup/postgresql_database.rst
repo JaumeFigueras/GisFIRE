@@ -275,6 +275,160 @@ Managing the cluster
    a drop-in with ``ProtectHome=false``. SELinux-based systems additionally need the
    data directory labelled (``semanage fcontext``/``restorecon``).
 
+.. _pg-tuning:
+
+Tuning the cluster for bulk imports
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+``pg_createcluster`` writes a ``postgresql.conf`` sized for a small machine that shares
+its memory with everything else: 128 MB of buffer cache, 4 MB per sort, a checkpoint
+every 5 minutes or every 1 GB of WAL, and a planner that assumes a spinning disk. That
+works, but a GisFIRE import is the opposite of the workload those defaults are for: a
+single session writing hundreds of thousands of rows — each with one or more PostGIS
+geometries — in large transactions, then building GiST indexes and running
+spatial joins over them. With the stock values an import that should take minutes
+takes much longer, and almost all of the difference comes from the settings below.
+
+These are the values the reference workstation's cluster runs with (30 GB RAM, NVMe
+SSD, shared with a desktop session), compared with what ``pg_createcluster`` writes.
+Everything else in the file — paths, port, SSL, locale — stays as generated.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 24 14 14 48
+
+   * - Setting
+     - Default
+     - GisFIRE
+     - Why
+   * - ``shared_buffers``
+     - ``128MB``
+     - ``2GB``
+     - PostgreSQL's own page cache. At 128 MB the tables and indexes being loaded
+       fall out of it constantly and every index update becomes a read from the
+       operating system. **Needs a restart.**
+   * - ``work_mem``
+     - ``4MB``
+     - ``64MB``
+     - Memory per sort/hash operation, before it spills to temporary files on disk.
+       The binding scripts' spatial joins and ``ORDER BY``/``DISTINCT`` over whole
+       datasets spill at 4 MB. It is allocated *per operation, per connection*, so
+       keep it moderate if many clients (QGIS) connect at once.
+   * - ``maintenance_work_mem``
+     - ``64MB``
+     - ``1GB``
+     - Used by ``CREATE INDEX``, ``VACUUM`` and ``ALTER TABLE ... ADD FOREIGN KEY``.
+       Building a GiST index on a geometry column of a full dataset is the single
+       biggest beneficiary: with 64 MB it is done in many small passes. Only one or
+       two maintenance operations run at a time, so it can be large safely.
+   * - ``max_wal_size``
+     - ``1GB``
+     - ``4GB``
+     - **The main cause of a slow import.** Every row written goes to the WAL first;
+       when 1 GB of WAL has accumulated a checkpoint is forced, flushing every dirty
+       page to disk, and the first change to each page after a checkpoint writes the
+       *whole* 8 kB page to the WAL again (full-page writes). A bulk load produces
+       1 GB of WAL in seconds, so the server spends its time checkpointing instead of
+       loading. The symptom in the cluster log is
+       ``LOG: checkpoints are occurring too frequently``.
+   * - ``checkpoint_timeout``
+     - ``5min``
+     - ``15min``
+     - The same effect, bounded by time rather than volume: fewer checkpoints, fewer
+       full-page writes. The cost is a longer crash recovery (minutes, not seconds),
+       which is irrelevant for a research database.
+   * - ``wal_compression``
+     - ``off``
+     - ``lz4``
+     - Compresses those full-page images in the WAL. Geometry pages compress well,
+       so WAL volume — and disk I/O — drops noticeably for a negligible CPU cost.
+       ``lz4`` requires a server built with it (Debian's and PGDG's are).
+   * - ``effective_cache_size``
+     - ``4GB``
+     - ``8GB``
+     - Not an allocation: it only tells the planner how much of the database is
+       likely cached (``shared_buffers`` plus the OS page cache), which makes it
+       prefer index scans. Roughly 50–75 % of the RAM the server can count on.
+   * - ``random_page_cost``
+     - ``4.0``
+     - ``1.1``
+     - The default models a hard disk, where a random read costs four sequential
+       ones. On an SSD they cost about the same; with ``4.0`` the planner avoids the
+       GiST indexes and falls back to sequential scans for spatial lookups.
+   * - ``effective_io_concurrency``
+     - ``1``
+     - ``200``
+     - How many concurrent reads the server issues during bitmap heap scans. ``1``
+       serialises them, which suits a single spindle; an SSD/NVMe handles hundreds
+       in parallel.
+
+To apply them, add a drop-in file rather than editing the generated file — Debian's
+``postgresql.conf`` ends with ``include_dir = 'conf.d'``, so anything there overrides
+the values above it and survives package upgrades:
+
+.. code-block:: bash
+
+   sudo -u postgres tee /etc/postgresql/17/gisfire/conf.d/gisfire-tuning.conf >/dev/null <<'EOF'
+   # Memory
+   shared_buffers = 2GB
+   work_mem = 64MB
+   maintenance_work_mem = 1GB
+   effective_cache_size = 8GB
+
+   # WAL and checkpoints: few, large checkpoints during bulk loads
+   max_wal_size = 4GB
+   checkpoint_timeout = 15min
+   wal_compression = lz4
+
+   # Storage is an SSD
+   random_page_cost = 1.1
+   effective_io_concurrency = 200
+   EOF
+
+   sudo pg_ctlcluster 17 gisfire restart     # shared_buffers needs a restart, not a reload
+
+Editing the same keys directly in ``postgresql.conf`` works equally well; just do not
+do both, or the ``conf.d`` value wins silently.
+
+Check that the cluster actually picked them up — ``sourcefile`` shows which file each
+value came from, and ``pending_restart`` flags anything that still needs a restart:
+
+.. code-block:: bash
+
+   sudo -u postgres psql --port=5433 -c "
+     SELECT name, setting, unit, sourcefile, pending_restart
+       FROM pg_settings
+      WHERE name IN ('shared_buffers', 'work_mem', 'maintenance_work_mem',
+                     'effective_cache_size', 'max_wal_size', 'checkpoint_timeout',
+                     'wal_compression', 'random_page_cost', 'effective_io_concurrency')
+      ORDER BY name;"
+
+**Scale them to the machine.** The values above are for a 30 GB workstation; on the
+server size them from its own RAM and disk:
+
+- ``shared_buffers`` — about 25 % of RAM on a machine dedicated to the database, less
+  (as here) when it shares memory with other work. Going far beyond 8–16 GB rarely
+  helps, since the OS cache does the rest.
+- ``effective_cache_size`` — 50–75 % of RAM.
+- ``maintenance_work_mem`` — 1–2 GB is plenty once RAM is 16 GB or more.
+- ``work_mem`` — ``64MB`` assumes a handful of connections; with many concurrent QGIS
+  users lower it, since each of their queries may use it several times over.
+- ``max_wal_size`` — needs that much free space on the WAL disk (``pg_wal`` lives in
+  the data directory, here under ``/home``). 4–16 GB is typical for bulk loading.
+- **If the server's data disk is a hard disk, not an SSD**, keep
+  ``random_page_cost = 4.0`` and ``effective_io_concurrency`` at ``1``–``2``; the SSD
+  values would make the planner choose random I/O the disk cannot deliver. Check with
+  ``lsblk -d -o NAME,ROTA`` — ``ROTA 1`` means rotational.
+
+.. note::
+
+   Two knobs are often suggested for bulk loads and deliberately **not** used here:
+   ``fsync = off`` and ``full_page_writes = off`` risk an unrecoverable, corrupt
+   cluster after a power cut. If an import is still WAL-bound after the tuning above,
+   ``synchronous_commit = off`` is the safe middle ground — a crash can lose the last
+   fraction of a second of commits, never corrupt data — and it can be set for the
+   importing session only instead of the whole cluster.
+
 .. _pg-roles:
 
 3. Creating the roles
@@ -561,6 +715,9 @@ Quick reference
    sudo pg_createcluster -d /home/postgresql-17/gisfire \
         -l /home/postgresql-17/gisfire/gisfire.log -p 5433 \
         --start --start-conf auto 17 gisfire
+
+   # tuning: write conf.d/gisfire-tuning.conf (see "Tuning the cluster"), then
+   sudo pg_ctlcluster 17 gisfire restart
 
    # roles, database, extension
    sudo -i -u postgres
