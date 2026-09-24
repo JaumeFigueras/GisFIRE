@@ -32,6 +32,58 @@ The two CSV files that sit beside the archives in the published directory are **
 imported and are not looked at: they are CONAFOR's tabular statistic, a different product
 with no geometry. ``find_archives`` only ever picks up ``.zip`` and ``.shp``.
 
+Where to run it
+---------------
+
+The same command can be run in three ways, depending on where the data and the database
+are. :doc:`running_on_a_server` explains every part of the commands below.
+
+**Locally**, with the database on this machine and ``.env`` pointing at it:
+
+.. code-block:: bash
+
+   cd ~/GisFIRE && source .venv/bin/activate
+   python3 -m src.apps.imports.wildfires.mexico_conafor.import_wildfires \
+       -d /path/to/mexico/
+
+**On the server, over SSH**, detached with ``nohup`` so you can log out while it runs.
+The files have to be copied to the server first (``rsync -avP``), and the
+paths below are paths on the server:
+
+.. code-block:: bash
+
+   ssh user@server
+   cd ~/GisFIRE
+   nohup .venv/bin/python -u -m src.apps.imports.wildfires.mexico_conafor.import_wildfires \
+       -d /path/to/mexico/ \
+       > mexico_conafor_import_wildfires.log 2>&1 < /dev/null &
+   exit
+
+When you log in again, check on it:
+
+.. code-block:: bash
+
+   cd ~/GisFIRE
+   tail -f mexico_conafor_import_wildfires.log    # Ctrl-C stops tail, not the run
+   pgrep -af mexico_conafor.import_wildfires    # still running?
+   grep -E 'ERROR|WARNING' mexico_conafor_import_wildfires.log
+
+**From your machine, against the server's database**, through an SSH tunnel to its
+PostgreSQL. The files stay on your machine and every geometry goes over the network, so
+it is slower than running it on the server. The password is read into the environment
+rather than passed as ``--db-password``, which would show in ``ps`` and in the shell
+history:
+
+.. code-block:: bash
+
+   ssh -N -L 15433:localhost:5433 user@server &     # local 15433 -> server's 5433
+   read -rsp 'Database password: ' GISFIRE_DB_PASSWORD && export GISFIRE_DB_PASSWORD
+   python3 -m src.apps.imports.wildfires.mexico_conafor.import_wildfires \
+       -d /path/to/mexico/ \
+       --db-host localhost --db-port 15433 \
+       --db-name gisfire_db --db-user gisfire_user
+   kill %1                                          # close the tunnel
+
 The attributes change every single year
 ----------------------------------------
 

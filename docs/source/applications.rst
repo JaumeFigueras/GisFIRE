@@ -54,6 +54,25 @@ the only interesting part of an importer.
    rules out hyphens — hence ``admin_boundaries`` rather than
    ``administrative-boundaries``.
 
+Running on a server
+-------------------
+
+:doc:`applications/running_on_a_server`
+    Every import, binding, resync and statistics page has a *Where to run it* section giving
+    its command in three forms. **Locally**, when the files and the database are on the
+    machine you are typing on. **On the server over SSH**, started with ``nohup`` and its
+    output redirected to a log, so you can close the connection and check the result
+    later. **Against a remote database**, from your machine, through an SSH tunnel to the
+    server's PostgreSQL, with the ``--db-*`` options. This page explains the pieces those
+    commands are made of: why ``-u``, why ``< /dev/null``, how to keep the exit status,
+    and why the password goes in the environment rather than on the command line.
+
+.. toctree::
+   :maxdepth: 1
+   :hidden:
+
+   applications/running_on_a_server
+
 Data download
 -------------
 

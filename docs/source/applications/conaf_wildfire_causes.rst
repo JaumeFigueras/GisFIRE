@@ -25,6 +25,60 @@ Usage
 
 Run :doc:`conaf_import_wildfires` first. One of ``--csv`` or ``--docx`` is required.
 
+Where to run it
+---------------
+
+The same command can be run in three ways, depending on where the database is.
+:doc:`running_on_a_server` explains every part of the commands below. The report only
+reads the database, and what it writes (``--csv``, ``--docx``) lands on the machine
+the command runs on.
+
+**Locally**, with the database on this machine and ``.env`` pointing at it:
+
+.. code-block:: bash
+
+   cd ~/GisFIRE && source .venv/bin/activate
+   python3 -m src.apps.statistics.wildfires.chile_conaf.wildfire_causes \
+       --csv causes.csv
+
+**On the server, over SSH**, detached with ``nohup`` so you can log out while it runs.
+Relative output paths are relative to ``~/GisFIRE`` on the server:
+
+.. code-block:: bash
+
+   ssh user@server
+   cd ~/GisFIRE
+   nohup .venv/bin/python -u -m src.apps.statistics.wildfires.chile_conaf.wildfire_causes \
+       --csv causes.csv \
+       > chile_conaf_wildfire_causes.log 2>&1 < /dev/null &
+   exit
+
+When you log in again, check on it, then copy the report back to your machine:
+
+.. code-block:: bash
+
+   ssh user@server 'pgrep -af chile_conaf.wildfire_causes; tail -n 20 GisFIRE/chile_conaf_wildfire_causes.log'
+   scp user@server:GisFIRE/causes.csv .
+
+**From your machine, against the server's database**, through an SSH tunnel to its
+PostgreSQL. This is usually the most convenient form for a report. The aggregation runs
+on the server and only the summary rows cross the network, and the files are written
+straight onto your machine. The password is read into the environment rather than
+passed as ``--db-password``, which would show in ``ps`` and in the shell history:
+
+.. code-block:: bash
+
+   ssh -N -L 15433:localhost:5433 user@server &     # local 15433 -> server's 5433
+   read -rsp 'Database password: ' GISFIRE_DB_PASSWORD && export GISFIRE_DB_PASSWORD
+   python3 -m src.apps.statistics.wildfires.chile_conaf.wildfire_causes \
+       --csv causes.csv \
+       --db-host localhost --db-port 15433 \
+       --db-name gisfire_db --db-user gisfire_user
+   kill %1                                          # close the tunnel
+
+Being read-only, the report can also run as ``gisfire_remoteuser``, provided that role has been
+granted ``SELECT`` (see :ref:`pg-readonly-grants`).
+
 The break at 2023-2024
 ----------------------
 

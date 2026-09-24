@@ -42,6 +42,55 @@ database.
    perimeter is touched, no EGIF column is written. That is what makes it safe to
    re-run at any time, and it is asserted by a test.
 
+Where to run it
+---------------
+
+The same command can be run in three ways, depending on where the data and the database
+are. :doc:`running_on_a_server` explains every part of the commands below.
+
+**Locally**, with the database on this machine and ``.env`` pointing at it:
+
+.. code-block:: bash
+
+   cd ~/GisFIRE && source .venv/bin/activate
+   python3 -m src.apps.bindings.wildfires.andalusia_rediam.bind_egif_wildfires
+
+**On the server, over SSH**, detached with ``nohup`` so you can log out while it runs.
+It reads no files, so the server only needs the repository, its ``.venv``
+and a ``.env`` pointing at the server's cluster:
+
+.. code-block:: bash
+
+   ssh user@server
+   cd ~/GisFIRE
+   nohup .venv/bin/python -u -m src.apps.bindings.wildfires.andalusia_rediam.bind_egif_wildfires \
+       > andalusia_rediam_bind_egif_wildfires.log 2>&1 < /dev/null &
+   exit
+
+When you log in again, check on it:
+
+.. code-block:: bash
+
+   cd ~/GisFIRE
+   tail -f andalusia_rediam_bind_egif_wildfires.log    # Ctrl-C stops tail, not the run
+   pgrep -af andalusia_rediam.bind_egif_wildfires    # still running?
+   grep -E 'ERROR|WARNING' andalusia_rediam_bind_egif_wildfires.log
+
+**From your machine, against the server's database**, through an SSH tunnel to its
+PostgreSQL. It reads no files, so only its queries and their results cross the network,
+and it costs much less than a remote import. The password is read into the environment
+rather than passed as ``--db-password``, which would show in ``ps`` and in the shell
+history:
+
+.. code-block:: bash
+
+   ssh -N -L 15433:localhost:5433 user@server &     # local 15433 -> server's 5433
+   read -rsp 'Database password: ' GISFIRE_DB_PASSWORD && export GISFIRE_DB_PASSWORD
+   python3 -m src.apps.bindings.wildfires.andalusia_rediam.bind_egif_wildfires \
+       --db-host localhost --db-port 15433 \
+       --db-name gisfire_db --db-user gisfire_user
+   kill %1                                          # close the tunnel
+
 The cascade
 -----------
 

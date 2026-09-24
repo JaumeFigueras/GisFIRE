@@ -53,6 +53,58 @@ links them**. That is a deliberate step in the application, since
 ``ON CONFLICT DO NOTHING`` skips rows that already exist and would never fill the
 parent in.
 
+Where to run it
+---------------
+
+The same command can be run in three ways, depending on where the data and the database
+are. :doc:`running_on_a_server` explains every part of the commands below.
+
+**Locally**, with the database on this machine and ``.env`` pointing at it:
+
+.. code-block:: bash
+
+   cd ~/GisFIRE && source .venv/bin/activate
+   python3 -m src.apps.imports.admin_boundaries.ign.import_admin_boundaries \
+       -d /path/to/bddae
+
+**On the server, over SSH**, detached with ``nohup`` so you can log out while it runs.
+The files have to be copied to the server first (``rsync -avP``), and the
+paths below are paths on the server:
+
+.. code-block:: bash
+
+   ssh user@server
+   cd ~/GisFIRE
+   nohup .venv/bin/python -u -m src.apps.imports.admin_boundaries.ign.import_admin_boundaries \
+       -d /path/to/bddae \
+       > ign_import_admin_boundaries.log 2>&1 < /dev/null &
+   exit
+
+When you log in again, check on it:
+
+.. code-block:: bash
+
+   cd ~/GisFIRE
+   tail -f ign_import_admin_boundaries.log    # Ctrl-C stops tail, not the run
+   pgrep -af ign.import_admin_boundaries    # still running?
+   grep -E 'ERROR|WARNING' ign_import_admin_boundaries.log
+
+**From your machine, against the server's database**, through an SSH tunnel to its
+PostgreSQL. The files stay on your machine and every geometry goes over the network, so
+it is slower than running it on the server. The password is read into the environment
+rather than passed as ``--db-password``, which would show in ``ps`` and in the shell
+history:
+
+.. code-block:: bash
+
+   ssh -N -L 15433:localhost:5433 user@server &     # local 15433 -> server's 5433
+   read -rsp 'Database password: ' GISFIRE_DB_PASSWORD && export GISFIRE_DB_PASSWORD
+   python3 -m src.apps.imports.admin_boundaries.ign.import_admin_boundaries \
+       -d /path/to/bddae \
+       --db-host localhost --db-port 15433 \
+       --db-name gisfire_db --db-user gisfire_user
+   kill %1                                          # close the tunnel
+
 What is imported
 ----------------
 
