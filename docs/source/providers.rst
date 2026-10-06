@@ -1209,6 +1209,86 @@ The published areas are whole hectares
    providers/csiro_provider
    providers/csiro_wildfire
 
+WOD
+---
+
+The New Zealand *Wildfire Occurrence Database*, compiled by the Bioeconomy Science
+Institute (formerly Scion) from the incident records of **Fire and Emergency New Zealand**
+(FENZ) and the **Department of Conservation** (DOC), and described in Kiely et al., *A
+spatial database of wildfire occurrence and associated fire environment conditions in New
+Zealand*, Scientific Data (2026), doi:10.1038/s41597-026-07859-z. Published on figshare
+(doi:10.6084/m9.figshare.30854057) under CC BY 4.0, as two shapefiles in NZTM2000: **128,020
+records over 1931-2025**, 125,931 points and 2,089 perimeters. GisFIRE's second Oceanian
+source.
+
+Each record becomes four rows:
+
+:doc:`providers/wod_provider`
+    The dataset: coverage by period and agency, the sentinels, the cause classes and the
+    published spellings behind them, and every kind of dirt with what is done about it.
+
+:doc:`providers/wod_wildfire`
+    The record: the agency, its number, the report date and time, the fire year, the
+    recorded area, the cause verbatim and classified, the district, and the perimeter where
+    there is one.
+
+:doc:`providers/wod_ignition`
+    The published point, always, untouched — the ones in the sea included.
+
+:doc:`providers/wod_terrain` and :doc:`providers/wod_weather`
+    The fire environment the compilers attached — 18 topography and fuel columns and 68
+    weather, fire danger and climate columns — on tables of their own because they are a
+    derivation and not an observation.
+
+What makes it unlike the datasets already in GisFIRE:
+
+It names lightning
+    538 records are lightning by name — FENZ ``Lightning discharge``, DOC ``Lightning``
+    and ``Lightening Strike`` — and the cause classes keep them apart from the five other
+    natural fires (geothermal). Lightning is about half a percent of the fires whose cause
+    is known: New Zealand's fires are almost all started by people.
+
+The identifier is a key
+    ``ID`` (``WOD1``, ``WOD2``, …) is unique and stable across releases: every record of the
+    2023 release is in the 2025 one with the same identifier and content. It is constrained
+    ``UNIQUE``, and a re-import matches on it.
+
+Most records are tiny
+    FENZ records every vegetation fire it attends: the median FENZ area is 0.0005 ha —
+    five square metres — and 121,000 of the records are under one hectare. A count of WOD
+    fires is a count of incidents.
+
+The fire environment comes with it
+    Every record carries the elevation, slope, aspect, land cover, fuel, landform and the
+    weather and fire-weather indices at, before and after the report time — the reason the
+    QGIS ignition views carry all of it.
+
+.. warning::
+
+   **Coverage is not uniform.** Before 1998 the WOD is DOC's records alone and, in its
+   authors' words, does not give good overall coverage; the import starts at 1998 unless
+   asked otherwise. From 1998 to 2011 both agencies are present, deduplicated by the
+   compilers (same day, within 600 m: the DOC record kept, the FENZ number noted in
+   ``OrgIDDrop``). From 2012 it is FENZ alone. There are no perimeters for 2012-2016.
+
+.. note::
+
+   Times are **local** and are the time the fire was reported. DOC records publish none and
+   are dated to local midnight with ``report_time`` left ``NULL``; the compilers assumed
+   noon for those records' weather. The 18 Chatham Islands records are dated in
+   ``Pacific/Chatham``, 45 minutes ahead of the mainland, although the compilers used
+   mainland time throughout.
+
+.. toctree::
+   :maxdepth: 1
+   :hidden:
+
+   providers/wod_provider
+   providers/wod_wildfire
+   providers/wod_ignition
+   providers/wod_terrain
+   providers/wod_weather
+
 OCHA
 ----
 

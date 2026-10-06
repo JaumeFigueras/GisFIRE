@@ -57,3 +57,9 @@ from src.providers.chile_conaf.wildfire import ConafWildfire  # noqa: E402,F401
 from src.providers.chile_conaf_magnitud.wildfire import ConafMagnitudWildfire  # noqa: E402,F401
 from src.providers.australia_csiro.wildfire import CsiroWildfire  # noqa: E402,F401
 from src.providers.ocha.admin_boundary import OchaAdminBoundary  # noqa: E402,F401
+# WodWildfire points at WodIgnition, and the terrain and weather side tables at
+# WodWildfire, so the order is the chain.
+from src.providers.new_zealand_wod.ignition import WodIgnition  # noqa: E402,F401
+from src.providers.new_zealand_wod.wildfire import WodWildfire  # noqa: E402,F401
+from src.providers.new_zealand_wod.terrain import WodTerrain  # noqa: E402,F401
+from src.providers.new_zealand_wod.weather import WodWeather  # noqa: E402,F401

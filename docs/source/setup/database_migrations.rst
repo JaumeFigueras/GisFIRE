@@ -134,6 +134,10 @@ View                         Flattens                                    Geometr
 ``v_nbac_wildfire_3978``     ``wildfire`` + ``nbac_wildfire``            ``MULTIPOLYGON``, 3978
 ``v_nfdb_ignition``          ``ignition`` + ``nfdb_ignition``            ``POINT``, 4326
 ``v_nfdb_wildfire``          ``wildfire`` + ``nfdb_wildfire``            ``POINT``, 4326
+``v_wod_wildfire``           ``wildfire`` + ``wod_wildfire``             ``MULTIPOLYGON``, 4326
+``v_wod_wildfire_2193``      ``wildfire`` + ``wod_wildfire``             ``MULTIPOLYGON``, 2193
+``v_wod_ignition``           ``ignition`` + ``wod_*`` (four tables)      ``POINT``, 4326
+``v_wod_ignition_2193``      ``ignition`` + ``wod_*`` (four tables)      ``POINT``, 2193
 ===========================  ==========================================  =====================
 
 Portugal, Catalonia, Andalusia and Canada each appear twice, because a QGIS layer takes a
@@ -188,6 +192,14 @@ structural property of that archive; here the coordinate is the point of the dat
 only a handful of rows lack a usable one, so dropping them would hide a defect rather than
 depict an absence. A NULL geometry in QGIS is a feature that does not draw, which is the
 correct depiction of a fire report with no usable location.
+
+New Zealand's WOD gets a pair per spatial table, EPSG:4326 and the NZTM2000 grid
+(EPSG:2193) it publishes on. ``v_wod_wildfire*`` hold **every** record, the point records
+with a NULL ``perimeter`` — a feature that does not draw — so the layer's feature count is
+the dataset's; ``has_perimeter`` selects the ones that draw. ``v_wod_ignition*`` join the
+point to its record **and to all of** ``wod_terrain`` **and** ``wod_weather``, which makes
+them the layer for fire-environment analysis, and also means they block
+``ALTER COLUMN ... TYPE`` on every terrain and weather column.
 
 ``v_egif_wildfire`` is the odd one out: a wildfire view whose geometry is a ``POINT``.
 EGIF publishes no perimeter at all — see :doc:`../providers` — so a ``perimeter`` column

@@ -36,6 +36,7 @@ under ``src/apps/imports/``::
    src/apps/imports/wildfires/guatemala_inab/import_wildfires.py
    src/apps/imports/wildfires/chile_conaf/import_wildfires.py
    src/apps/imports/wildfires/chile_conaf_magnitud/import_wildfires.py
+   src/apps/imports/wildfires/new_zealand_wod/import_wildfires.py
 
 so that a second source for the same kind of data — OSM for the administrative levels
 below the country, another agency's fire perimeters — sits beside the first rather than
@@ -265,6 +266,17 @@ Data import
     because GDAL reads a geodatabase by its suffix and the distribution has none. **Half of
     what it writes is prescribed burning**, kept and typed rather than dropped.
 
+:doc:`applications/wod_import_wildfires`
+    Imports the New Zealand *Wildfire Occurrence Database* — two shapefiles, **128,020
+    records over 1931-2025** — as GisFIRE's second Oceanian source. Each record becomes
+    four rows: the record, its published point, and the terrain and weather the compilers
+    attached, every one of the 109 attributes kept. **Nothing in scope is refused**: the
+    dirt is corrected and counted — a scientific-notation identifier, a negative area,
+    invalid polygons, points in the sea kept as published — but a release the model cannot
+    hold, above all one with a cause spelling nobody has classified, is refused **whole**
+    before anything is deleted. Reads from 1998, when the FENZ records start, unless
+    ``--all-years``; a year at a time, the NFDB shape.
+
 :doc:`applications/icnf_resync_wildfires`
     Goes back to the ICNF's WFS for the times the shapefile export truncated — a
     shapefile's DBF has no datetime type, so every published instant arrived as a bare
@@ -301,6 +313,7 @@ Data import
    applications/conaf_import_wildfires
    applications/conaf_magnitud_import_wildfires
    applications/csiro_import_wildfires
+   applications/wod_import_wildfires
 
 Bindings
 --------
@@ -386,11 +399,14 @@ as the importers::
    src/apps/statistics/wildfires/guatemala_inab/wildfire_statistics.py
    src/apps/statistics/wildfires/chile_conaf/wildfire_statistics.py
    src/apps/statistics/wildfires/chile_conaf_magnitud/wildfire_statistics.py
+   src/apps/statistics/wildfires/australia_csiro/wildfire_statistics.py
+   src/apps/statistics/wildfires/new_zealand_wod/wildfire_statistics.py
    src/apps/statistics/wildfires/portugal_icnf/wildfire_causes.py
    src/apps/statistics/wildfires/spain_egif/wildfire_causes.py
    src/apps/statistics/wildfires/canada_nbac/wildfire_causes.py
    src/apps/statistics/wildfires/canada_nfdb/wildfire_causes.py
    src/apps/statistics/wildfires/chile_conaf/wildfire_causes.py
+   src/apps/statistics/wildfires/new_zealand_wod/wildfire_causes.py
    src/apps/statistics/wildfires/guatemala_inab/wildfire_classification.py
 
 :doc:`applications/gwis_wildfire_statistics`
@@ -578,6 +594,32 @@ as the importers::
     published grid, since Chile's two are seven zones apart and could not be added
     together.
 
+:doc:`applications/csiro_wildfire_statistics`
+    The Australian historical bushfire extents, and the only report grouped by **fire
+    season** (July to June) rather than by year. Each season has a triplet — fires,
+    reported hectares, measured hectares — for every fire, for each of the three
+    published fire types (which add up to it) and for the natural-cause fires, whose cells
+    are left empty where no cause was published. Writes a national file and **one file
+    per state**, CSV and Word. Starts at 1970-71 by default, the first season every state
+    but the Northern Territory reports every year. Fires are published features, nothing
+    merged, so there are no minimum or maximum columns.
+
+:doc:`applications/wod_wildfire_statistics`
+    The New Zealand WOD: the shared six columns plus how many of each row's fires FENZ and
+    DOC recorded and how many have a perimeter — the coverage caveat made visible, DOC
+    alone before 1998 and FENZ alone from 2012. ``--area-method`` chooses the **recorded**
+    area of every fire or the **measured** area of the 2,089 perimeters, never a mixture;
+    ``--financial-year`` counts by New Zealand fire year, July to June. Its
+    ``--country-source`` defaults to ``filed``: every record is a New Zealand fire, the
+    points in the sea included. By fire year it reproduces the paper's 11,415 ha for
+    1998/1999.
+
+:doc:`applications/wod_wildfire_causes`
+    Counts by cause over the same fires — and a dataset that **names lightning**, 538
+    records of it, kept apart from the five other natural fires. Lightning is half a
+    percent of the fires whose cause is known and about one hectare in a hundred: New
+    Zealand's fires are started by people.
+
 .. note::
 
    **There is no counts-by-cause report for Greece or Guatemala**, and there cannot
@@ -620,3 +662,6 @@ as the importers::
    applications/conaf_wildfire_statistics
    applications/conaf_wildfire_causes
    applications/conaf_magnitud_wildfire_statistics
+   applications/csiro_wildfire_statistics
+   applications/wod_wildfire_statistics
+   applications/wod_wildfire_causes

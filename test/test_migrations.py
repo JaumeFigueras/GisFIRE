@@ -103,6 +103,14 @@ VIEWS = {
     # archive is prescribed burning, so the layer a map of wildfire needs is not the
     # layer of everything. See revision 5d8a2f4c6b19.
     "v_csiro_bushfire": ("perimeter", "MULTIPOLYGON", 4326),
+    # New Zealand's WOD: a pair per spatial table, EPSG:4326 and the NZTM2000 grid it
+    # publishes on. The wildfire pair holds every record, the point ones with a NULL
+    # perimeter; the ignition pair carries the terrain and weather as well. See
+    # revision 2f5e28048454.
+    "v_wod_wildfire": ("perimeter", "MULTIPOLYGON", 4326),
+    "v_wod_wildfire_2193": ("perimeter", "MULTIPOLYGON", 2193),
+    "v_wod_ignition": ("geometry", "POINT", 4326),
+    "v_wod_ignition_2193": ("geometry", "POINT", 2193),
 }
 
 
@@ -372,6 +380,88 @@ def test_the_egif_wildfire_view_keeps_a_fire_that_has_no_coordinate(alembic_conf
     assert row.geometry is None
     # Excel-only provenance: no report row, so no XML has been read for this fire.
     assert row.has_full_report is False
+
+
+def test_the_wod_views_flatten_a_record_with_its_terrain_and_weather(alembic_config):
+    """One WOD record, inserted across its six tables, comes back whole.
+
+    The ignition view is the one a fire-environment analysis loads, so the terrain and
+    weather have to arrive on the point's row; the wildfire view has to keep a point
+    record although it has no perimeter to draw.
+    """
+    config, url = alembic_config
+    upgrade(config, "head")
+
+    engine = create_engine(url)
+    with engine.begin() as connection:
+        provider_id = connection.execute(text(
+            "INSERT INTO data_provider (name, product, full_name) "
+            "VALUES ('Bioeconomy Science Institute', 'Wildfire Occurrence Database (WOD)', "
+            "'Bioeconomy Science Institute') RETURNING id")).scalar()
+        ignition_id = connection.execute(text(
+            "INSERT INTO ignition (type, data_provider_id, geometry, date_time, time_zone) "
+            "VALUES ('wod_ignition', :provider_id, "
+            "ST_GeomFromText('POINT(174.61 -36.83)', 4326), '1998-07-30T11:35:00Z', "
+            "'Pacific/Auckland') RETURNING id"), {"provider_id": provider_id}).scalar()
+        connection.execute(text(
+            "INSERT INTO wod_ignition (id, wod_id, year, source, geometry_nztm) "
+            "VALUES (:id, 'WOD1', 1998, 'FENZ', "
+            "ST_GeomFromText('POINT(1743575 5922720)', 2193))"), {"id": ignition_id})
+        wildfire_id = connection.execute(text(
+            "INSERT INTO wildfire (type, data_provider_id, start_date_time, time_zone) "
+            "VALUES ('wod_wildfire', :provider_id, '1998-07-30T11:35:00Z', "
+            "'Pacific/Auckland') RETURNING id"), {"provider_id": provider_id}).scalar()
+        connection.execute(text(
+            "INSERT INTO wod_wildfire (id, wod_id, source, year, report_date, report_time, "
+            "season, financial_year, area_ha, fire_cause, ignition_id) "
+            "VALUES (:id, 'WOD1', 'FENZ', 1998, '1998-07-30', '23:35', 'Winter', 1998, "
+            "0, 'human', :ignition_id)"), {"id": wildfire_id, "ignition_id": ignition_id})
+        connection.execute(text(
+            "INSERT INTO wod_terrain (id, elev, land_cvr) "
+            "VALUES (:id, 80.95, 'Built-up Area (settlement)')"), {"id": wildfire_id})
+        connection.execute(text(
+            "INSERT INTO wod_weather (id, temp_noon, fdc_noon, enso) "
+            "VALUES (:id, 16.0, 1, 'La Nina')"), {"id": wildfire_id})
+
+    with engine.connect() as connection:
+        point = connection.execute(text(
+            "SELECT id, wildfire_id, wod_id, fire_cause, date_time_local, elev, land_cvr, "
+            "temp_noon, fdc_noon, enso, has_perimeter FROM v_wod_ignition_2193")).one()
+        fire = connection.execute(text(
+            "SELECT id, wod_id, start_date_time_local, has_perimeter, perimeter "
+            "FROM v_wod_wildfire")).one()
+    engine.dispose()
+
+    assert (point.id, point.wildfire_id, point.wod_id) == (ignition_id, wildfire_id, "WOD1")
+    assert point.fire_cause == "human"
+    assert point.date_time_local == datetime.datetime(1998, 7, 30, 23, 35)
+    assert (point.elev, point.land_cvr) == (80.95, "Built-up Area (settlement)")
+    assert (point.temp_noon, point.fdc_noon, point.enso) == (16.0, 1, "La Nina")
+    assert point.has_perimeter is False
+    assert (fire.id, fire.wod_id) == (wildfire_id, "WOD1")
+    assert fire.start_date_time_local == datetime.datetime(1998, 7, 30, 23, 35)
+    assert fire.has_perimeter is False and fire.perimeter is None
+
+
+@pytest.mark.parametrize("table", ["wod_terrain", "wod_weather"])
+def test_the_wod_side_tables_go_with_their_fire(alembic_config, table):
+    """The WOD import replaces a year with SQL deletes of ``wod_wildfire``.
+
+    Stated against the migrated schema because the cascade is what the import relies
+    on and ``compare_metadata`` is not a reliable judge of ``ON DELETE``.
+    """
+    config, url = alembic_config
+    upgrade(config, "head")
+
+    engine = create_engine(url)
+    with engine.connect() as connection:
+        actions = connection.execute(text(
+            "SELECT confdeltype FROM pg_constraint "
+            "WHERE contype = 'f' AND conrelid = CAST(:table AS regclass) "
+            "AND confrelid = CAST('wod_wildfire' AS regclass)"), {"table": table}).scalars().all()
+    engine.dispose()
+
+    assert actions == ["c"]
 
 
 def test_migrations_downgrade_to_base(alembic_config):
