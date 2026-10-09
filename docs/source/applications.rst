@@ -84,6 +84,7 @@ politely and checking that nothing was silently truncated. That is a program, an
 under ``src/apps/download/``::
 
    src/apps/download/wildfires/guatemala_inab/download_wildfires.py
+   src/apps/download/wildfires/south_korea_kfs/download_wildfires.py
 
 These touch no database at all.
 
@@ -99,6 +100,14 @@ These touch no database at all.
     Run its ``years`` mode before anything else: the burn-scar layers turn out to hold one
     season rather than the archive their names suggest. What it writes is read by
     :doc:`applications/inab_import_wildfires`.
+
+:doc:`applications/kfs_download_wildfires`
+    Downloads the Korea Forest Service wildfire history (*산불발생이력*) from the Safemap
+    open API, service ``IF_0088``. Needs a Safemap service key **approved for this
+    dataset** — issuing the key is only the first step. The API pages but does not
+    filter, so it fetches the whole history, converts the Web Mercator ``x``/``y`` to a
+    WGS84 point, checks the result against ``totalCount`` and for repeated ids, and
+    prints the records per year. The data is KOGL Type 4: non-commercial, no derivatives.
 
 Data import
 -----------
@@ -309,6 +318,7 @@ Data import
    applications/nfdb_import_wildfires
    applications/conafor_import_wildfires
    applications/inab_download_wildfires
+   applications/kfs_download_wildfires
    applications/inab_import_wildfires
    applications/conaf_import_wildfires
    applications/conaf_magnitud_import_wildfires
