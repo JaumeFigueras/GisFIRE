@@ -37,6 +37,7 @@ under ``src/apps/imports/``::
    src/apps/imports/wildfires/chile_conaf/import_wildfires.py
    src/apps/imports/wildfires/chile_conaf_magnitud/import_wildfires.py
    src/apps/imports/wildfires/new_zealand_wod/import_wildfires.py
+   src/apps/imports/wildfires/south_korea_kfs/import_wildfires.py
 
 so that a second source for the same kind of data — OSM for the administrative levels
 below the country, another agency's fire perimeters — sits beside the first rather than
@@ -286,6 +287,15 @@ Data import
     before anything is deleted. Reads from 1998, when the FENZ records start, unless
     ``--all-years``; a year at a time, the NFDB shape.
 
+:doc:`applications/kfs_import_wildfires`
+    Imports the Korea Forest Service wildfire statistics — one CP949 CSV, **2,020 fires
+    over 2022 to September 2025** — as GisFIRE's first Asian source. No coordinate in any
+    row, so no geometry and no boundaries: place names are stored as published and
+    romanized, and each free-text cause is translated and classified. A year is replaced
+    wholesale, since nothing identifies a fire; a cause text nobody has classified stops
+    the import before anything is deleted; the fourteen impossible ends are stored as no
+    end, with the reason. ``--dry-run`` checks a release without a database.
+
 :doc:`applications/icnf_resync_wildfires`
     Goes back to the ICNF's WFS for the times the shapefile export truncated — a
     shapefile's DBF has no datetime type, so every published instant arrived as a bare
@@ -324,6 +334,7 @@ Data import
    applications/conaf_magnitud_import_wildfires
    applications/csiro_import_wildfires
    applications/wod_import_wildfires
+   applications/kfs_import_wildfires
 
 Bindings
 --------
@@ -411,12 +422,14 @@ as the importers::
    src/apps/statistics/wildfires/chile_conaf_magnitud/wildfire_statistics.py
    src/apps/statistics/wildfires/australia_csiro/wildfire_statistics.py
    src/apps/statistics/wildfires/new_zealand_wod/wildfire_statistics.py
+   src/apps/statistics/wildfires/south_korea_kfs/wildfire_statistics.py
    src/apps/statistics/wildfires/portugal_icnf/wildfire_causes.py
    src/apps/statistics/wildfires/spain_egif/wildfire_causes.py
    src/apps/statistics/wildfires/canada_nbac/wildfire_causes.py
    src/apps/statistics/wildfires/canada_nfdb/wildfire_causes.py
    src/apps/statistics/wildfires/chile_conaf/wildfire_causes.py
    src/apps/statistics/wildfires/new_zealand_wod/wildfire_causes.py
+   src/apps/statistics/wildfires/south_korea_kfs/wildfire_causes.py
    src/apps/statistics/wildfires/guatemala_inab/wildfire_classification.py
 
 :doc:`applications/gwis_wildfire_statistics`
@@ -630,6 +643,18 @@ as the importers::
     percent of the fires whose cause is known and about one hectare in a hundred: New
     Zealand's fires are started by people.
 
+:doc:`applications/kfs_wildfire_statistics`
+    The Korea Forest Service statistics: the shared six columns, nothing else. The
+    hectares are reported — no perimeter — and there is no ``--country``; ``--province``
+    selects one province by its published abbreviation. **Flags the last year of a
+    release as partial**, by the date of its last fire.
+
+:doc:`applications/kfs_wildfire_causes`
+    Counts by cause over the same fires, in two tables: the New Zealand report's columns,
+    so the two countries compare, and the eighteen classes the import gives the
+    free-text cause, with each class's share of fires and area and how many are only
+    suspected. Lightning is nine fires in 2,020.
+
 .. note::
 
    **There is no counts-by-cause report for Greece or Guatemala**, and there cannot
@@ -675,3 +700,5 @@ as the importers::
    applications/csiro_wildfire_statistics
    applications/wod_wildfire_statistics
    applications/wod_wildfire_causes
+   applications/kfs_wildfire_statistics
+   applications/kfs_wildfire_causes

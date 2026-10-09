@@ -113,6 +113,15 @@ VIEWS = {
     "v_wod_ignition_2193": ("geometry", "POINT", 2193),
 }
 
+#: Dataset views with no geometry column, loaded by QGIS as plain tables. They are
+#: checked like the others except for the geometry registration.
+#:
+#: South Korea's KFS statistics publish place names and no coordinate, so the view
+#: has no geometry to select. See revision a8ac4314f84e.
+TABLE_VIEWS = {
+    "v_kfs_wildfire",
+}
+
 
 
 @pytest.fixture
@@ -190,7 +199,7 @@ def test_the_sequence_backed_ids_have_a_usable_sequence(alembic_config, table):
     engine.dispose()
 
 
-@pytest.mark.parametrize("view", sorted(VIEWS))
+@pytest.mark.parametrize("view", sorted(VIEWS.keys() | TABLE_VIEWS))
 def test_the_dataset_views_are_queryable(alembic_config, view):
     """Each dataset view exists after upgrading and its ``SELECT`` runs.
 
@@ -211,7 +220,7 @@ def test_the_dataset_views_are_queryable(alembic_config, view):
     engine.dispose()
 
 
-@pytest.mark.parametrize("view", sorted(VIEWS))
+@pytest.mark.parametrize("view", sorted(VIEWS.keys() | TABLE_VIEWS))
 def test_the_dataset_views_carry_a_qgis_usable_key(alembic_config, view):
     """Every view exposes ``id`` as a plain integer.
 

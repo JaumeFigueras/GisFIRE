@@ -63,3 +63,4 @@ from src.providers.new_zealand_wod.ignition import WodIgnition  # noqa: E402,F40
 from src.providers.new_zealand_wod.wildfire import WodWildfire  # noqa: E402,F401
 from src.providers.new_zealand_wod.terrain import WodTerrain  # noqa: E402,F401
 from src.providers.new_zealand_wod.weather import WodWeather  # noqa: E402,F401
+from src.providers.south_korea_kfs.wildfire import KfsWildfire  # noqa: E402,F401

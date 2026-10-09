@@ -1289,6 +1289,56 @@ The fire environment comes with it
    providers/wod_terrain
    providers/wod_weather
 
+KFS
+---
+
+The South Korean wildfire statistics, *산불통계데이터*, published by the **Korea Forest
+Service** (*산림청*) on the national open data portal as data.go.kr dataset 15121380, with
+no restriction on use. One CP949 CSV, one row per fire: **2,020 fires from January 2022 to
+September 2025** in the 2025-09-12 release. GisFIRE's first Asian source.
+
+:doc:`providers/kfs_provider`
+    The dataset: the release, the five place names and what a blank one means, the
+    impossible ends, the three cause columns, and the cause table that translates and
+    classifies the free text.
+
+:doc:`providers/kfs_wildfire`
+    The fire: start and end of suppression, the filing office, province, municipality,
+    township and village as published and romanized, the cause four ways, and the burnt
+    area.
+
+What makes it unlike the datasets already in GisFIRE:
+
+It has no location at all
+    No coordinate and no shape in any row: a fire is placed by name only. There is no
+    ignition, the perimeter and the country are ``NULL``, and the QGIS view is a table.
+    The service's Safemap API publishes points for the same fires, which could be bound to
+    these rows later.
+
+The cause is in the free text
+    The coded cause is ``기타(직접입력)``, *other (free text)*, on 73% of rows; the cause
+    is written in words, in 455 spellings. A hand-made table translates them and sorts
+    them into eighteen classes, then into the four shared fire causes. Lightning is nine
+    fires.
+
+It is a recent-years release
+    Four years, the last one partial; the next release revises it. A year is the unit an
+    import replaces.
+
+.. warning::
+
+   **Two fires are three quarters of the area.** The Uiseong fires of 22 March 2025 burnt
+   99,282 ha of the release's 134,928, and like every row are filed at the municipality
+   they started in, though they spread into four others. Area by municipality is area by
+   *ignition* municipality.
+
+.. toctree::
+   :maxdepth: 1
+   :hidden:
+
+   providers/kfs_provider
+   providers/kfs_wildfire
+
 OCHA
 ----
 
