@@ -88,7 +88,8 @@ Generic and provider-specific models
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 Generic domain models (:class:`~src.data_model.data_provider.DataProvider`,
-:class:`~src.data_model.wildfire.Wildfire`, ``Lightning``, ``Thunderstorm``,
+:class:`~src.data_model.wildfire.Wildfire`, :class:`~src.data_model.lightning.Lightning`,
+``Thunderstorm``,
 ``WeatherStation``, ``Variable``, ...) use polymorphic inheritance; provider-specific
 subclasses add the columns particular to each data source. They live under
 ``src/providers/`` and use joined table inheritance — see :doc:`providers`.
@@ -131,6 +132,12 @@ property of the date: the same place is UTC+1 in January and UTC+2 in July.
 
 Turning a coordinate into a zone name needs polygons that IANA does not publish — see
 :doc:`data_model/geography_time_zone`.
+
+.. note::
+
+   :class:`~src.data_model.lightning.Lightning` has the instant and **no** ``time_zone``.
+   A detection network timestamps a stroke with a GPS clock and publishes it in UTC, so
+   no local reading was ever printed and there is no conversion to record.
 
 Geographic reference data
 -------------------------
@@ -235,6 +242,13 @@ below as they are ported.
     ignited. A separate observation from the perimeter: not every provider publishes both,
     and a point is unambiguous about its country in a way a perimeter is not.
 
+:doc:`data_model/lightning`
+    One lightning stroke located by a detection network — a PostGIS ``POINT`` in
+    EPSG:4326, the instant to the microsecond, the signed peak current and whether it
+    reached the ground. A row is a stroke, not a flash: how strokes group into flashes is
+    each network's own algorithm and lives on the provider's subclass. The first generic
+    model that is not about fires.
+
 :doc:`data_model/geography_admin_boundary`
     An administrative division — a country, a region, a province, a municipality — as a
     PostGIS ``MULTIPOLYGON`` in EPSG:4326, nested under the division above it.
@@ -258,6 +272,7 @@ below as they are ported.
    data_model/data_provider
    data_model/wildfire
    data_model/ignition
+   data_model/lightning
    data_model/geography_admin_boundary
    data_model/geography_time_zone
    data_model/replaceable

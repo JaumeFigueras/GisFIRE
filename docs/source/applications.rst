@@ -38,6 +38,7 @@ under ``src/apps/imports/``::
    src/apps/imports/wildfires/chile_conaf_magnitud/import_wildfires.py
    src/apps/imports/wildfires/new_zealand_wod/import_wildfires.py
    src/apps/imports/wildfires/south_korea_kfs/import_wildfires.py
+   src/apps/imports/lightnings/catalonia_meteocat/import_lightnings.py
 
 so that a second source for the same kind of data — OSM for the administrative levels
 below the country, another agency's fire perimeters — sits beside the first rather than
@@ -296,6 +297,17 @@ Data import
     the import before anything is deleted; the fourteen impossible ends are stored as no
     end, with the reason. ``--dry-run`` checks a release without a database.
 
+:doc:`applications/meteocat_import_lightnings`
+    Imports MeteoCat's XDDE lightning strokes — fifteen yearly CSV extracts, **6,156,214
+    cloud-to-ground strokes over 2006-2020** — as GisFIRE's first lightning source. Read
+    in Python and streamed with ``COPY``, no ``ogr2ogr``. A UTC year is replaced
+    wholesale, since nothing identifies a stroke; every flash is numbered
+    (``multiplicity``, ``stroke_index``) over the whole file; the first network
+    generation's ``0`` sensor count and chi-squared are stored as ``NULL``; the published
+    ETRS89 point is kept beside its EPSG:4326 reprojection, and the country is resolved
+    against subdivided OCHA boundaries. ``--dry-run`` checks the extracts without a
+    database.
+
 :doc:`applications/icnf_resync_wildfires`
     Goes back to the ICNF's WFS for the times the shapefile export truncated — a
     shapefile's DBF has no datetime type, so every published instant arrived as a bare
@@ -335,6 +347,7 @@ Data import
    applications/csiro_import_wildfires
    applications/wod_import_wildfires
    applications/kfs_import_wildfires
+   applications/meteocat_import_lightnings
 
 Bindings
 --------

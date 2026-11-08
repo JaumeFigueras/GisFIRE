@@ -653,11 +653,12 @@ def check_time_zones(session: Session, logger: logging.Logger,
 
 
 def find_boundary_provider(session: Session, logger: logging.Logger) -> DataProvider | None:
-    """Return the OCHA provider whose boundaries fires are attributed to, if imported.
+    """Return the OCHA provider whose boundaries events are attributed to, if imported.
 
-    Returning ``None`` rather than raising is deliberate: the perimeters and the
+    Events are whatever the importer writes — fires, ignitions, lightning strokes.
+    Returning ``None`` rather than raising is deliberate: the geometries and the
     dates are worth having on their own, and the boundaries can be imported later
-    without the fires having to be.
+    without the events having to be.
     """
     provider = session.scalar(
         select(DataProvider).where(DataProvider.name == ocha.PROVIDER_NAME,
@@ -665,7 +666,7 @@ def find_boundary_provider(session: Session, logger: logging.Logger) -> DataProv
     )
     if provider is None:
         logger.warning(
-            "No %s / %s boundaries imported: fires will have no country. Import them with "
+            "No %s / %s boundaries imported: events will have no country. Import them with "
             "src.apps.imports.admin_boundaries.ocha.import_admin_boundaries",
             ocha.PROVIDER_NAME, ocha.PROVIDER_PRODUCT,
         )

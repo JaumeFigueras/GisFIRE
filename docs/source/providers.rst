@@ -1339,6 +1339,72 @@ It is a recent-years release
    providers/kfs_provider
    providers/kfs_wildfire
 
+MeteoCat
+--------
+
+The lightning strokes of the *Xarxa de Detecció de Descàrregues Elèctriques* (XDDE),
+the lightning-detection network of the **Servei Meteorològic de Catalunya**. Delivered as
+yearly CSV extracts (request DATMET-12706): **6,156,214 cloud-to-ground strokes over
+2006-2020**. The same data is served by the XDDE endpoint of the
+`MeteoCat API <https://apidocs.meteocat.gencat.cat/>`_, which a future import will read
+into the same provider row and model. GisFIRE's first lightning source, and the first
+dataset that is not about fires.
+
+:doc:`providers/meteocat_provider`
+    The dataset: the eleven columns, the flash identifier, the two network generations
+    and the rule that tells them apart.
+
+:doc:`providers/meteocat_lightning`
+    The stroke: the published ETRS89 point, the flash it belongs to with its multiplicity
+    and the stroke's place in it, the location quality (sensors, chi-squared, confidence
+    ellipse), the municipality and the network generation.
+
+What makes it unlike the datasets already in GisFIRE:
+
+It is a stroke, not an event
+    A row is one return stroke. ``secidx`` is the **flash** it belongs to: 2014 has
+    291,306 single-stroke flashes and 54,383 with two, up to a few dozen strokes. The
+    import counts each flash's strokes into ``multiplicity`` and orders them by instant
+    into ``stroke_index``.
+
+Nothing identifies a stroke
+    Not even ``(secidx, data)``, which repeats 81 times with two different positions and
+    currents. There is no unique constraint, and a UTC year is the unit an import
+    replaces.
+
+It covers far more than Catalonia
+    From Andalusia to the Alps, about 6.5 W to 9.4 E and 35.6 to 47.1 N; only about 40%
+    of the strokes fall inside Catalonia's bounding box, and most of the rest at sea.
+    Every stroke is stored. ``idmunicipi``, the Catalan municipality, is filled only
+    inside Catalonia.
+
+It is UTC
+    The instant is published in UTC to the microsecond, and each file is one UTC calendar
+    year, so there is no ``time_zone`` and no ``*_local`` column.
+
+.. warning::
+
+   **Two network generations, and a month of overlap.** Version 1 (2006 to 29 September
+   2009) recorded no sensor count or chi-squared, clipped the current to ±30 kA, drew a
+   circular ellipse and timed strokes to the second — the sub-millisecond digits are a
+   sequence number, not a time. Version 2 (from 1 September 2009) records all of it.
+   Both reported **September 2009** (88,694 and 46,767 strokes), so the same discharges
+   may be stored twice: filter on ``network_version``. Their flash identifiers are
+   independent — 6,286 are used by both that month for unrelated flashes.
+
+.. note::
+
+   The delivery is cloud-to-ground only and has no ellipse angle. Both columns exist —
+   ``cloud_to_ground`` on the generic model, ``ellipse_angle`` on MeteoCat's — for the API,
+   which publishes intra-cloud strokes and the angle.
+
+.. toctree::
+   :maxdepth: 1
+   :hidden:
+
+   providers/meteocat_provider
+   providers/meteocat_lightning
+
 OCHA
 ----
 

@@ -113,32 +113,35 @@ and the provider's own columns beside it (joined table inheritance, see
 relation with everything on it. So the schema also carries a **view per dataset**,
 flattening the two tables and resolving the foreign keys to names:
 
-===========================  ==========================================  =====================
-View                         Flattens                                    Geometry
-===========================  ==========================================  =====================
-``v_gwis_wildfire``          ``wildfire`` + ``gwis_wildfire``            ``MULTIPOLYGON``, 4326
-``v_gfa_wildfire``           ``wildfire`` + ``gfa_wildfire``             ``MULTIPOLYGON``, 4326
-``v_gfa_ignition``           ``ignition`` + ``gfa_ignition``             ``POINT``, 4326
-``v_icnf_wildfire_4326``     ``wildfire`` + ``icnf_wildfire``            ``MULTIPOLYGON``, 4326
-``v_icnf_wildfire_3763``     ``wildfire`` + ``icnf_wildfire``            ``MULTIPOLYGON``, 3763
-``v_egif_ignition``          ``ignition`` + ``egif_ignition``            ``POINT``, 4326
-``v_egif_wildfire``          ``wildfire`` + ``egif_wildfire``            ``POINT``, 4326
-``v_darpa_wildfire_4326``    ``wildfire`` + ``darpa_wildfire``           ``MULTIPOLYGON``, 4326
-``v_darpa_wildfire_25831``   ``wildfire`` + ``darpa_wildfire``           ``MULTIPOLYGON``, 25831
-``v_rediam_wildfire_4326``   ``wildfire`` + ``rediam_wildfire``          ``MULTIPOLYGON``, 4326
-``v_rediam_wildfire_25830``  ``wildfire`` + ``rediam_wildfire``          ``MULTIPOLYGON``, 25830
-``v_rediam_ignition``        ``ignition`` + ``rediam_ignition``          ``POINT``, 4326
-``v_greece_ffa_ignition``    ``ignition`` + ``greece_ffa_ignition``      ``POINT``, 4326
-``v_greece_ffa_wildfire``    ``wildfire`` + ``greece_ffa_wildfire``      ``POINT``, 4326
-``v_nbac_wildfire_4326``     ``wildfire`` + ``nbac_wildfire``            ``MULTIPOLYGON``, 4326
-``v_nbac_wildfire_3978``     ``wildfire`` + ``nbac_wildfire``            ``MULTIPOLYGON``, 3978
-``v_nfdb_ignition``          ``ignition`` + ``nfdb_ignition``            ``POINT``, 4326
-``v_nfdb_wildfire``          ``wildfire`` + ``nfdb_wildfire``            ``POINT``, 4326
-``v_wod_wildfire``           ``wildfire`` + ``wod_wildfire``             ``MULTIPOLYGON``, 4326
-``v_wod_wildfire_2193``      ``wildfire`` + ``wod_wildfire``             ``MULTIPOLYGON``, 2193
-``v_wod_ignition``           ``ignition`` + ``wod_*`` (four tables)      ``POINT``, 4326
-``v_wod_ignition_2193``      ``ignition`` + ``wod_*`` (four tables)      ``POINT``, 2193
-===========================  ==========================================  =====================
+==============================  ======================================  =======================
+View                            Flattens                                Geometry
+==============================  ======================================  =======================
+``v_gwis_wildfire``             ``wildfire`` + ``gwis_wildfire``        ``MULTIPOLYGON``, 4326
+``v_gfa_wildfire``              ``wildfire`` + ``gfa_wildfire``         ``MULTIPOLYGON``, 4326
+``v_gfa_ignition``              ``ignition`` + ``gfa_ignition``         ``POINT``, 4326
+``v_icnf_wildfire_4326``        ``wildfire`` + ``icnf_wildfire``        ``MULTIPOLYGON``, 4326
+``v_icnf_wildfire_3763``        ``wildfire`` + ``icnf_wildfire``        ``MULTIPOLYGON``, 3763
+``v_egif_ignition``             ``ignition`` + ``egif_ignition``        ``POINT``, 4326
+``v_egif_wildfire``             ``wildfire`` + ``egif_wildfire``        ``POINT``, 4326
+``v_darpa_wildfire_4326``       ``wildfire`` + ``darpa_wildfire``       ``MULTIPOLYGON``, 4326
+``v_darpa_wildfire_25831``      ``wildfire`` + ``darpa_wildfire``       ``MULTIPOLYGON``, 25831
+``v_rediam_wildfire_4326``      ``wildfire`` + ``rediam_wildfire``      ``MULTIPOLYGON``, 4326
+``v_rediam_wildfire_25830``     ``wildfire`` + ``rediam_wildfire``      ``MULTIPOLYGON``, 25830
+``v_rediam_ignition``           ``ignition`` + ``rediam_ignition``      ``POINT``, 4326
+``v_greece_ffa_ignition``       ``ignition`` + ``greece_ffa_ignition``  ``POINT``, 4326
+``v_greece_ffa_wildfire``       ``wildfire`` + ``greece_ffa_wildfire``  ``POINT``, 4326
+``v_nbac_wildfire_4326``        ``wildfire`` + ``nbac_wildfire``        ``MULTIPOLYGON``, 4326
+``v_nbac_wildfire_3978``        ``wildfire`` + ``nbac_wildfire``        ``MULTIPOLYGON``, 3978
+``v_nfdb_ignition``             ``ignition`` + ``nfdb_ignition``        ``POINT``, 4326
+``v_nfdb_wildfire``             ``wildfire`` + ``nfdb_wildfire``        ``POINT``, 4326
+``v_wod_wildfire``              ``wildfire`` + ``wod_wildfire``         ``MULTIPOLYGON``, 4326
+``v_wod_wildfire_2193``         ``wildfire`` + ``wod_wildfire``         ``MULTIPOLYGON``, 2193
+``v_wod_ignition``              ``ignition`` + ``wod_*`` (four tables)  ``POINT``, 4326
+``v_wod_ignition_2193``         ``ignition`` + ``wod_*`` (four tables)  ``POINT``, 2193
+``v_meteocat_lightning_4326``   ``lightning`` + ``meteocat_lightning``  ``POINT``, 4326
+``v_meteocat_lightning_4258``   ``lightning`` + ``meteocat_lightning``  ``POINT``, 4258
+``v_meteocat_lightning_25831``  ``lightning`` + ``meteocat_lightning``  ``POINT``, 25831
+==============================  ======================================  =======================
 
 Portugal, Catalonia, Andalusia and Canada each appear twice, because a QGIS layer takes a
 single geometry column and all four datasets have two perimeters: the one the provider
@@ -200,6 +203,21 @@ the dataset's; ``has_perimeter`` selects the ones that draw. ``v_wod_ignition*``
 point to its record **and to all of** ``wod_terrain`` **and** ``wod_weather``, which makes
 them the layer for fire-environment analysis, and also means they block
 ``ALTER COLUMN ... TYPE`` on every terrain and weather column.
+
+MeteoCat's lightning strokes get **three** views of the same rows, one per CRS:
+EPSG:4326 for a layer beside every other dataset, the ETRS89 point as published
+(EPSG:4258), and ETRS89 / UTM 31N (EPSG:25831), the grid Catalonia measures and draws on.
+All three name the column ``geometry``. The 25831 one is the only view in the schema
+whose geometry is **computed** rather than selected — the UTM point is not stored — so it
+breaks the rule above in the one way the rule allows: it reprojects the ETRS89 point and
+casts the result back to ``geometry(Point,25831)``, which keeps the type modifier. A
+reprojection in a view also defeats the spatial index, and over six million points every
+QGIS pan would be a sequential scan, so ``meteocat_lightning`` carries an **expression
+index**, ``idx_meteocat_lightning_geometry_25831``, on exactly the view's expression,
+declared on the model and created by revision ``5b7e2c9d4a13``. The two must stay the
+same expression for the planner to use it, and ``test/test_migrations.py`` checks that it
+does. There is no ``date_time_local``: the XDDE publishes UTC, so the published reading
+is ``date_time``.
 
 ``v_egif_wildfire`` is the odd one out: a wildfire view whose geometry is a ``POINT``.
 EGIF publishes no perimeter at all — see :doc:`../providers` — so a ``perimeter`` column

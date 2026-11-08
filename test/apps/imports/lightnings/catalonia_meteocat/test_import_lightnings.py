@@ -266,7 +266,7 @@ def test_importing_a_year_leaves_the_others_alone(database, tmp_path):
     assert run(url, extract_2009(tmp_path)) == 0
 
     assert count(engine, "lightning") == len(ROWS_2009) + len(ROWS_2010)
-    years = {stroke.date_time.year for stroke in strokes(engine)}
+    years = {stroke.date_time.astimezone(UTC).year for stroke in strokes(engine)}
     assert years == {2009, 2010}
 
 
@@ -286,7 +286,7 @@ def test_a_year_filter_imports_only_that_year(database, tmp_path):
     engine, url = database
     assert run(url, extract_2009(tmp_path), extract_2010(tmp_path), extra=["--year", "2010"]) == 0
 
-    assert {stroke.date_time.year for stroke in strokes(engine)} == {2010}
+    assert {stroke.date_time.astimezone(UTC).year for stroke in strokes(engine)} == {2010}
 
 
 def test_strokes_of_other_providers_are_not_deleted(database, tmp_path):
@@ -362,3 +362,94 @@ def test_an_unmigrated_database_is_refused(database, tmp_path):
         connection.execute(text("DROP TABLE meteocat_lightning"))
 
     assert run(url, extract_2009(tmp_path)) == 1
+
+
+# --------------------------------------------------------------------------
+# Added in the review of these tests
+# --------------------------------------------------------------------------
+
+def test_a_failed_year_leaves_the_stored_one_as_it_was(database, tmp_path, monkeypatch):
+    """The delete and the insert are one transaction: a failure keeps the old year."""
+    engine, url = database
+    assert run(url, extract_2009(tmp_path)) == 0
+    stored_ids = {stroke.id for stroke in strokes(engine)}
+
+    monkeypatch.setattr(app, "INSERT_SQL", "SELECT 1 / 0")
+    assert run(url, extract_2009(tmp_path)) == 1
+
+    assert {stroke.id for stroke in strokes(engine)} == stored_ids
+
+
+def test_a_flash_across_new_year_is_numbered_whole(database, tmp_path):
+    """Numbering is done over the file before it is split into years."""
+    engine, url = database
+    path = write_extract(tmp_path / "x.csv", [
+        '7;"2009-12-31 23:59:59.900000";-10;1;300;100;3;t;"";2;41',
+        '7;"2010-01-01 00:00:00.100000";-11;1;300;100;3;t;"";2;41',
+    ])
+    assert run(url, path) == 0
+
+    numbering = {stroke.date_time.astimezone(UTC).year:
+                 (stroke.stroke_index, stroke.multiplicity) for stroke in strokes(engine)}
+    assert numbering == {2009: (1, 2), 2010: (2, 2)}
+
+
+def test_a_refused_row_is_logged_with_its_line(database, tmp_path, caplog):
+    engine, url = database
+    bad = '1;"2009-07-01 10:00:00.000001";abc;1;300;100;3;t;"";2;41'
+    path = write_extract(tmp_path / "x.csv", [*ROWS_2009, bad])
+
+    with caplog.at_level(logging.WARNING):
+        assert run(url, path) == 0
+    line = len(ROWS_2009) + 2
+    assert f"Line {line} skipped" in caplog.text
+    assert "correntpic" in caplog.text
+
+
+def test_a_year_in_two_files_is_warned_about(database, tmp_path, caplog):
+    """The second file replaces the first: worth saying, since nothing else will."""
+    engine, url = database
+    second = write_extract(tmp_path / "again.csv", [ROWS_2009[0]])
+
+    with caplog.at_level(logging.WARNING):
+        assert run(url, extract_2009(tmp_path), second) == 0
+    assert "imported twice" in caplog.text
+    assert count(engine, "lightning") == 1
+
+
+def test_a_directory_with_no_extract_is_refused(database, tmp_path):
+    _, url = database
+    (tmp_path / "README.csv").write_text("not;an;extract\n", encoding="ascii")
+
+    assert run(url, directory=tmp_path) == 1
+
+
+def test_a_dry_run_still_checks_the_header(tmp_path):
+    path = tmp_path / "other.csv"
+    path.write_text("a;b;c\n", encoding="ascii")
+
+    assert app.main(["-s", str(path), "--dry-run"]) == 1
+
+
+def test_the_imported_strokes_appear_in_the_views(database, tmp_path):
+    """``create_all`` builds no views, so this test creates the 25831 one from the
+    migration's own SQL and checks the imported point arrives on the UTM grid."""
+    import importlib.util
+
+    from src.settings import ROOT_DIR
+
+    engine, url = database
+    assert run(url, extract_2009(tmp_path)) == 0
+
+    revision = next((ROOT_DIR / "alembic" / "versions").glob("*9c4f1a7e3b62*.py"))
+    spec = importlib.util.spec_from_file_location("views_revision", revision)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    view = module.meteocat_lightning_25831_view
+    with engine.begin() as connection:
+        connection.execute(text(f"CREATE VIEW {view.name} AS {view.sqltext}"))
+        row = connection.execute(text(
+            f"SELECT count(*) AS n, min(ST_X(geometry)) AS x FROM {view.name}")).one()
+
+    assert row.n == len(ROWS_2009)
+    assert 300_000 < row.x < 700_000
