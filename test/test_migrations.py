@@ -111,6 +111,14 @@ VIEWS = {
     "v_wod_wildfire_2193": ("perimeter", "MULTIPOLYGON", 2193),
     "v_wod_ignition": ("geometry", "POINT", 4326),
     "v_wod_ignition_2193": ("geometry", "POINT", 2193),
+    # MeteoCat's lightning strokes, the first views that are not about fires: three,
+    # one per CRS — the EPSG:4326 reprojection, the ETRS89 point as published and
+    # ETRS89 / UTM 31N. The 25831 one is the only view whose geometry is computed
+    # rather than selected, cast back to keep its typmod and backed by an expression
+    # index. See revision 9c4f1a7e3b62.
+    "v_meteocat_lightning_4326": ("geometry", "POINT", 4326),
+    "v_meteocat_lightning_4258": ("geometry", "POINT", 4258),
+    "v_meteocat_lightning_25831": ("geometry", "POINT", 25831),
 }
 
 #: Dataset views with no geometry column, loaded by QGIS as plain tables. They are
@@ -175,7 +183,7 @@ def test_migrations_match_the_models(alembic_config):
     assert differences == []
 
 
-@pytest.mark.parametrize("table", ["wildfire", "ignition"])
+@pytest.mark.parametrize("table", ["wildfire", "ignition", "lightning"])
 def test_the_sequence_backed_ids_have_a_usable_sequence(alembic_config, table):
     """The wildfire importers draw ids with ``nextval(pg_get_serial_sequence(...))``.
 
@@ -450,6 +458,83 @@ def test_the_wod_views_flatten_a_record_with_its_terrain_and_weather(alembic_con
     assert (fire.id, fire.wod_id) == (wildfire_id, "WOD1")
     assert fire.start_date_time_local == datetime.datetime(1998, 7, 30, 23, 35)
     assert fire.has_perimeter is False and fire.perimeter is None
+
+
+def test_the_meteocat_lightning_views_flatten_a_stroke(alembic_config):
+    """One stroke, inserted across its two tables, comes back whole in all three views.
+
+    The 25831 view computes its point, so it is the one that can be wrong: the stroke
+    has to arrive on the UTM 31N grid, not with its degrees relabelled.
+    """
+    config, url = alembic_config
+    upgrade(config, "head")
+
+    engine = create_engine(url)
+    with engine.begin() as connection:
+        provider_id = connection.execute(text(
+            "INSERT INTO data_provider (name, product, full_name) "
+            "VALUES ('MeteoCat', 'XDDE', 'Servei Meteorològic de Catalunya') RETURNING id")).scalar()
+        stroke_id = connection.execute(text(
+            "INSERT INTO lightning (type, data_provider_id, date_time, geometry, peak_current, "
+            "cloud_to_ground) VALUES ('meteocat_lightning', :provider_id, "
+            "'2014-05-26T08:29:25.737483Z', ST_GeomFromText('POINT(2.1812854 41.3828)', 4326), "
+            "-22.903, true) RETURNING id"), {"provider_id": provider_id}).scalar()
+        connection.execute(text(
+            "INSERT INTO meteocat_lightning (id, network_version, flash_id, multiplicity, "
+            "stroke_index, chi_squared, ellipse_major_axis, ellipse_minor_axis, "
+            "number_of_sensors, municipality_code, geometry_etrs89) "
+            "VALUES (:id, 2, 9926356, 2, 1, 4, 1800, 500, 2, '082589', "
+            "ST_GeomFromText('POINT(2.1812854 41.3828)', 4258))"), {"id": stroke_id})
+
+    with engine.connect() as connection:
+        rows = {
+            view: connection.execute(text(
+                f"SELECT id, flash_id, multiplicity, stroke_index, peak_current, "
+                f"network_version, municipality_code, data_provider_name, admin_boundary_name, "
+                f"date_time, ST_SRID(geometry) AS srid, ST_X(geometry) AS x, "
+                f"ST_Y(geometry) AS y FROM {view}")).one()
+            for view in ("v_meteocat_lightning_4326", "v_meteocat_lightning_4258",
+                         "v_meteocat_lightning_25831")
+        }
+    engine.dispose()
+
+    for row in rows.values():
+        assert (row.id, row.flash_id, row.multiplicity, row.stroke_index) == (stroke_id, 9926356, 2, 1)
+        assert (row.peak_current, row.network_version) == (-22.903, 2)
+        assert row.municipality_code == "082589"
+        assert row.data_provider_name == "MeteoCat"
+        # LEFT JOIN: a stroke at sea has no boundary and must not vanish.
+        assert row.admin_boundary_name is None
+        assert row.date_time == datetime.datetime(2014, 5, 26, 8, 29, 25, 737483,
+                                                  tzinfo=datetime.timezone.utc)
+    assert [rows[v].srid for v in sorted(rows)] == [25831, 4258, 4326]
+    assert (rows["v_meteocat_lightning_4258"].x, rows["v_meteocat_lightning_4258"].y) == \
+        (2.1812854, 41.3828)
+    # Barcelona on UTM 31N: about 431 km east, 4,581 km north.
+    projected = rows["v_meteocat_lightning_25831"]
+    assert 430_000 < projected.x < 432_000
+    assert 4_580_000 < projected.y < 4_583_000
+
+
+def test_the_meteocat_25831_view_uses_its_expression_index(alembic_config):
+    """A bounding-box filter on the computed geometry is answered from the index.
+
+    The view reprojects six million points; without the index every QGIS pan is a
+    sequential scan of all of them. The index only helps if the view's expression and
+    the index's are the same, and nothing else would notice them drifting apart.
+    """
+    config, url = alembic_config
+    upgrade(config, "head")
+
+    engine = create_engine(url)
+    with engine.connect() as connection:
+        connection.execute(text("SET enable_seqscan = off"))
+        plan = "\n".join(connection.execute(text(
+            "EXPLAIN SELECT id FROM v_meteocat_lightning_25831 WHERE geometry && "
+            "ST_MakeEnvelope(400000, 4550000, 450000, 4600000, 25831)")).scalars())
+    engine.dispose()
+
+    assert "idx_meteocat_lightning_geometry_25831" in plan
 
 
 @pytest.mark.parametrize("table", ["wod_terrain", "wod_weather"])
