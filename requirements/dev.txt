@@ -4,9 +4,9 @@
 -r base.txt
 
 # --- Docs system ---
-sphinx>=9.1.0
-sphinx-rtd-theme>=3.1.0
-Pygments>=2.20.0
+# Kept in docs.txt so the documentation workflow can install it without the
+# testing dependencies.
+-r docs.txt
 
 # --- Testing ---
 pytest>=8.3
