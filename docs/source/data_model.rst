@@ -249,6 +249,13 @@ below as they are ported.
     each network's own algorithm and lives on the provider's subclass. The first generic
     model that is not about fires.
 
+:doc:`data_model/thunderstorm`
+    A thunderstorm **inferred** from one provider's strokes by a clustering run: the run
+    (algorithm, parameters, stroke filter, period), each storm found with its concave
+    hull and its strokes, and the evolution of each storm over moving time windows —
+    gravity centres from which the views derive direction vectors, paths and convex
+    hulls.
+
 :doc:`data_model/geography_admin_boundary`
     An administrative division — a country, a region, a province, a municipality — as a
     PostGIS ``MULTIPOLYGON`` in EPSG:4326, nested under the division above it.
@@ -273,6 +280,7 @@ below as they are ported.
    data_model/wildfire
    data_model/ignition
    data_model/lightning
+   data_model/thunderstorm
    data_model/geography_admin_boundary
    data_model/geography_time_zone
    data_model/replaceable

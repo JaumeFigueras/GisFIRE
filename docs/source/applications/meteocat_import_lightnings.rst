@@ -26,11 +26,17 @@ Over one or more extracts, or over the directory holding them:
    python3 -m src.apps.imports.lightnings.catalonia_meteocat.import_lightnings \
        -d meteocat/ --year 2009 2010 --dry-run
 
+   python3 -m src.apps.imports.lightnings.catalonia_meteocat.import_lightnings \
+       -s meteocat/DATMET-12706_cg_cm_2009.csv --drop-thunderstorms
+
 ``-d`` and ``-s`` are mutually exclusive and one is required. With ``-d`` every ``.csv``
 in the directory with the extract header is imported and any other is skipped with a
 warning; with ``-s`` a file without the header stops the run before anything is written.
 Every header is checked before the first file is read. ``--year`` imports only the UTC
 years named. ``--dry-run`` reads, checks and reports without connecting to a database.
+``--drop-thunderstorms`` lets a year that thunderstorm experiments depend on be replaced,
+by deleting those experiments first (see below); with ``--dry-run`` it connects, read
+only, just to list them.
 
 Settings are read from the environment (``.env``, see :doc:`../setup/configuration`) and
 each can be overridden with ``--db-host``, ``--db-port``, ``--db-name``, ``--db-user``
@@ -44,6 +50,30 @@ in a file is deleted — MeteoCat's strokes of it, no other provider's — and r
 one transaction; a failure leaves the year as it was. Each extract is one UTC year, so
 importing a file again replaces exactly what it holds. Re-importing a year from a CSV
 also replaces whatever a future API import stored for it.
+
+**A year thunderstorms depend on is refused.** A thunderstorm experiment
+(:doc:`../data_model/thunderstorm`) is computed from MeteoCat's strokes over a period, so
+replacing a year under it would change its input silently — and the strokes in its
+thunderstorms cannot be deleted at all (``ON DELETE RESTRICT``). Before replacing a year,
+in the same transaction, the import looks for the experiments that depend on it:
+MeteoCat's experiments whose period overlaps the year, whatever their status and whether
+or not any of the year's strokes ended up in a thunderstorm, and any experiment holding
+one of the year's strokes. If there is one, the year is **not replaced** — each experiment
+is logged with its period and counts, the year is skipped, the other years are imported,
+and the run ends with an error naming the years left out:
+
+.. code-block:: text
+
+   2009 is used by thunderstorm experiment 1 (DBSCAN, complete, 2009-01-01 to 2010-01-01): 1 thunderstorm(s), 1 tracking(s)
+   2009 not replaced: thunderstorm experiment(s) 1 depend on its strokes; delete them first, or run again with --drop-thunderstorms
+
+With ``--drop-thunderstorms`` those experiments are deleted **whole** — their
+thunderstorms, the stroke links, their trackings and windows go by cascade — before the
+year is replaced, in its transaction: a failure keeps both the year and the experiments.
+The whole experiment goes, not just the year, because a run is one consistent result and
+cutting a year out of it would leave storms that crossed New Year half built. Rebuild the
+experiment afterwards. Should the check ever miss an experiment, ``RESTRICT`` refuses the
+delete, the year is rolled back and the error says its strokes are in thunderstorms.
 
 **Every flash is numbered.** Strokes are grouped by ``(network_version, secidx)`` over
 the whole file, before it is split into years, ordered by instant (and by line for the
@@ -95,5 +125,9 @@ API reference
    :show-inheritance:
 
 .. automodule:: src.apps.imports.lightnings.catalonia_meteocat.readers
+   :members:
+   :show-inheritance:
+
+.. automodule:: src.apps.imports.lightnings.common
    :members:
    :show-inheritance:

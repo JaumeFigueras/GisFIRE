@@ -453,3 +453,269 @@ def test_the_imported_strokes_appear_in_the_views(database, tmp_path):
 
     assert row.n == len(ROWS_2009)
     assert 300_000 < row.x < 700_000
+
+
+# --------------------------------------------------------------------------
+# Thunderstorms built on the strokes
+#
+# A thunderstorm experiment is computed from a provider's strokes over a period.
+# Replacing a year of strokes under it would change its input silently — and the
+# strokes in its thunderstorms cannot be deleted at all (RESTRICT). So a year an
+# experiment covers is refused, unless ``--drop-thunderstorms`` says to delete
+# those experiments, whole, first.
+# --------------------------------------------------------------------------
+
+def an_experiment(engine, first_year: int, last_year: int, *, provider: str = "MeteoCat",
+                  algorithm: str = "DBSCAN", strokes_of: int | None = None) -> int:
+    """A complete experiment over ``first_year``-``last_year`` (whole UTC years).
+
+    With ``strokes_of``, it has one thunderstorm made of MeteoCat's strokes of that
+    year, a tracking and a window: something for a cascade to delete.
+    """
+    from src.data_model.thunderstorm import Thunderstorm
+    from src.data_model.thunderstorm import ThunderstormEvolution
+    from src.data_model.thunderstorm import ThunderstormExperiment
+    from src.data_model.thunderstorm import ThunderstormLightning
+    from src.data_model.thunderstorm import ThunderstormTracking
+
+    with Session(engine) as session:
+        owner = session.scalars(select(DataProvider).where(DataProvider.name == provider)).first()
+        if owner is None:
+            owner = DataProvider(name=provider, product="Network", full_name=provider)
+            session.add(owner)
+            session.flush()
+        experiment = ThunderstormExperiment(
+            data_provider_id=owner.id, algorithm=algorithm, parameters={"eps_m": 10000},
+            date_time_start=datetime.datetime(first_year, 1, 1, tzinfo=UTC),
+            date_time_end=datetime.datetime(last_year + 1, 1, 1, tzinfo=UTC),
+            software_version="test", status="complete",
+            completed_at=datetime.datetime(2026, 11, 8, tzinfo=UTC))
+        session.add(experiment)
+        if strokes_of is not None:
+            members = [stroke for stroke in session.scalars(select(MeteocatLightning)).all()
+                       if stroke.date_time.astimezone(UTC).year == strokes_of]
+            storm = Thunderstorm(
+                experiment=experiment, label=0, number_of_lightnings=len(members),
+                date_time_start=min(stroke.date_time for stroke in members),
+                date_time_end=max(stroke.date_time for stroke in members),
+                lightning_links=[ThunderstormLightning(lightning=stroke) for stroke in members])
+            tracking = ThunderstormTracking(
+                experiment=experiment, window_length=datetime.timedelta(minutes=10),
+                window_step=datetime.timedelta(minutes=2), software_version="test")
+            session.add_all([storm, tracking, ThunderstormEvolution(
+                tracking=tracking, thunderstorm=storm, sequence=1,
+                window_start=storm.date_time_start,
+                window_end=storm.date_time_start + datetime.timedelta(minutes=10),
+                number_of_lightnings=1, centre="SRID=4326;POINT(2 41)")])
+        session.commit()
+        return experiment.id
+
+
+def experiments(engine) -> set[int]:
+    with Session(engine) as session:
+        return set(session.scalars(text("SELECT id FROM thunderstorm_experiment")))
+
+
+def test_a_year_covered_by_an_experiment_is_not_replaced(database, tmp_path, caplog):
+    engine, url = database
+    assert run(url, extract_2009(tmp_path)) == 0
+    stored_ids = {stroke.id for stroke in strokes(engine)}
+    experiment_id = an_experiment(engine, 2009, 2009, strokes_of=2009)
+
+    with caplog.at_level(logging.WARNING):
+        assert run(url, extract_2009(tmp_path)) == 1
+
+    assert {stroke.id for stroke in strokes(engine)} == stored_ids
+    assert experiments(engine) == {experiment_id}
+    assert f"experiment(s) {experiment_id}" in caplog.text
+    assert "--drop-thunderstorms" in caplog.text
+
+
+def test_a_covered_year_is_refused_even_with_no_stroke_in_a_storm(database, tmp_path):
+    """RESTRICT alone would let this through: the experiment's input would change."""
+    engine, url = database
+    assert run(url, extract_2009(tmp_path)) == 0
+    stored_ids = {stroke.id for stroke in strokes(engine)}
+    an_experiment(engine, 2009, 2009)
+
+    assert run(url, extract_2009(tmp_path)) == 1
+    assert {stroke.id for stroke in strokes(engine)} == stored_ids
+
+
+def test_the_other_years_still_import_when_one_is_covered(database, tmp_path):
+    engine, url = database
+    assert run(url, extract_2009(tmp_path)) == 0
+    stored_ids = {stroke.id for stroke in strokes(engine)}
+    an_experiment(engine, 2009, 2009)
+
+    assert run(url, extract_2009(tmp_path), extract_2010(tmp_path)) == 1
+
+    years = [stroke.date_time.astimezone(UTC).year for stroke in strokes(engine)]
+    assert years.count(2010) == len(ROWS_2010)
+    assert {stroke.id for stroke in strokes(engine)} >= stored_ids
+
+
+@pytest.mark.parametrize(("first_year", "last_year", "provider"), [
+    pytest.param(2009, 2009, "Other", id="another-providers-experiment"),
+    pytest.param(2008, 2008, "MeteoCat", id="ends-exactly-at-new-year"),
+    pytest.param(2010, 2012, "MeteoCat", id="starts-exactly-after-the-year"),
+])
+def test_an_experiment_that_does_not_cover_the_year_does_not_block_it(
+        database, tmp_path, first_year, last_year, provider):
+    engine, url = database
+    assert run(url, extract_2009(tmp_path)) == 0
+    experiment_id = an_experiment(engine, first_year, last_year, provider=provider)
+
+    assert run(url, extract_2009(tmp_path)) == 0
+    assert experiments(engine) == {experiment_id}
+
+
+def test_drop_thunderstorms_deletes_the_covering_experiments_whole(database, tmp_path, caplog):
+    """The whole run goes, not the year's storms: a run is one consistent result."""
+    engine, url = database
+    assert run(url, extract_2009(tmp_path), extract_2010(tmp_path)) == 0
+    first_ids = {stroke.id for stroke in strokes(engine)}
+    covering = an_experiment(engine, 2008, 2011, strokes_of=2009)
+    unrelated = an_experiment(engine, 2015, 2015, algorithm="HDBSCAN")
+
+    with caplog.at_level(logging.INFO):
+        assert run(url, extract_2009(tmp_path), extra=["--drop-thunderstorms"]) == 0
+
+    assert experiments(engine) == {unrelated}
+    for table in ("thunderstorm", "thunderstorm_lightning", "thunderstorm_tracking",
+                  "thunderstorm_evolution"):
+        assert count(engine, table) == 0, table
+    replaced = {stroke.id for stroke in strokes(engine)
+                if stroke.date_time.astimezone(UTC).year == 2009}
+    assert len(replaced) == len(ROWS_2009)
+    assert replaced.isdisjoint(first_ids)
+    assert f"Dropping thunderstorm experiment {covering}" in caplog.text
+    assert "1 thunderstorm(s), 1 tracking(s)" in caplog.text
+    assert "dropped 1 thunderstorm experiment(s)" in caplog.text
+
+
+def test_an_experiment_holding_the_years_strokes_outside_its_period_blocks_it(database,
+                                                                             tmp_path):
+    """A builder bug, but the strokes are what RESTRICT protects: found by its links."""
+    engine, url = database
+    assert run(url, extract_2009(tmp_path)) == 0
+    experiment_id = an_experiment(engine, 2015, 2015, strokes_of=2009)
+
+    assert run(url, extract_2009(tmp_path)) == 1
+    assert run(url, extract_2009(tmp_path), extra=["--drop-thunderstorms"]) == 0
+    assert experiment_id not in experiments(engine)
+
+
+def test_a_dry_run_with_drop_thunderstorms_lists_what_would_go(database, tmp_path, caplog):
+    engine, url = database
+    assert run(url, extract_2009(tmp_path)) == 0
+    stored_ids = {stroke.id for stroke in strokes(engine)}
+    experiment_id = an_experiment(engine, 2009, 2009, strokes_of=2009)
+
+    with caplog.at_level(logging.INFO):
+        assert run(url, extract_2009(tmp_path), extra=["--dry-run", "--drop-thunderstorms"]) == 0
+
+    assert f"Would drop thunderstorm experiment {experiment_id}" in caplog.text
+    assert experiments(engine) == {experiment_id}
+    assert {stroke.id for stroke in strokes(engine)} == stored_ids
+
+
+def test_a_stroke_in_a_storm_is_never_deleted_from_under_it(database, tmp_path, monkeypatch,
+                                                            caplog):
+    """The safety net: if the check missed an experiment, RESTRICT refuses the delete,
+    the year is rolled back and the message says why."""
+    from src.apps.imports.lightnings import common as lightning_common
+
+    engine, url = database
+    assert run(url, extract_2009(tmp_path)) == 0
+    stored_ids = {stroke.id for stroke in strokes(engine)}
+    an_experiment(engine, 2009, 2009, strokes_of=2009)
+    monkeypatch.setattr(lightning_common, "covering_experiments", lambda *args, **kwargs: [])
+
+    with caplog.at_level(logging.ERROR):
+        assert run(url, extract_2009(tmp_path)) == 1
+
+    assert {stroke.id for stroke in strokes(engine)} == stored_ids
+    assert "are in thunderstorms" in caplog.text
+
+
+# --------------------------------------------------------------------------
+# Added in the review of the thunderstorm tests
+# --------------------------------------------------------------------------
+
+@pytest.mark.parametrize("status", ["running", "failed"])
+def test_an_unfinished_experiment_blocks_the_year_too(database, tmp_path, status):
+    """A run being built reads the strokes now; a failed one is still in the way."""
+    from src.data_model.thunderstorm import ThunderstormExperiment
+
+    engine, url = database
+    assert run(url, extract_2009(tmp_path)) == 0
+    experiment_id = an_experiment(engine, 2009, 2009)
+    with Session(engine) as session:
+        experiment = session.get(ThunderstormExperiment, experiment_id)
+        experiment.status, experiment.completed_at = status, None
+        session.commit()
+
+    assert run(url, extract_2009(tmp_path)) == 1
+    assert experiments(engine) == {experiment_id}
+
+
+def test_a_failed_year_keeps_the_experiments_it_would_have_dropped(database, tmp_path,
+                                                                   monkeypatch):
+    """The drop and the replacement are one transaction."""
+    engine, url = database
+    assert run(url, extract_2009(tmp_path)) == 0
+    stored_ids = {stroke.id for stroke in strokes(engine)}
+    experiment_id = an_experiment(engine, 2009, 2009, strokes_of=2009)
+
+    monkeypatch.setattr(app, "INSERT_SQL", "SELECT 1 / 0")
+    assert run(url, extract_2009(tmp_path), extra=["--drop-thunderstorms"]) == 1
+
+    assert experiments(engine) == {experiment_id}
+    assert count(engine, "thunderstorm_lightning") == len(ROWS_2009)
+    assert {stroke.id for stroke in strokes(engine)} == stored_ids
+
+
+def test_every_covering_experiment_is_dropped_and_counted(database, tmp_path, caplog):
+    engine, url = database
+    assert run(url, extract_2009(tmp_path)) == 0
+    an_experiment(engine, 2009, 2009, strokes_of=2009)
+    an_experiment(engine, 2006, 2020, algorithm="HDBSCAN", strokes_of=2009)
+
+    with caplog.at_level(logging.INFO):
+        assert run(url, extract_2009(tmp_path), extra=["--drop-thunderstorms"]) == 0
+
+    assert experiments(engine) == set()
+    assert "Also dropped 2 thunderstorm experiment(s)" in caplog.text
+
+
+def test_the_flag_changes_nothing_when_no_experiment_is_in_the_way(database, tmp_path, caplog):
+    engine, url = database
+    unrelated = an_experiment(engine, 2015, 2015)
+
+    with caplog.at_level(logging.INFO):
+        assert run(url, extract_2009(tmp_path), extra=["--drop-thunderstorms"]) == 0
+
+    assert experiments(engine) == {unrelated}
+    assert count(engine, "lightning") == len(ROWS_2009)
+    assert "dropped" not in caplog.text.lower()
+
+
+def test_a_dry_run_with_the_flag_on_a_database_without_meteocat_lists_nothing(database,
+                                                                              tmp_path):
+    """MeteoCat's row is created by the first real import; a dry run creates nothing."""
+    engine, url = database
+    assert run(url, extract_2009(tmp_path), extra=["--dry-run", "--drop-thunderstorms"]) == 0
+    assert count(engine, "data_provider") == 0
+
+
+def test_a_database_without_the_thunderstorm_tables_is_refused(database, tmp_path, caplog):
+    """The check reads them, so a database not migrated that far is refused up front."""
+    engine, url = database
+    with engine.begin() as connection:
+        connection.execute(text("DROP TABLE thunderstorm_lightning"))
+
+    with caplog.at_level(logging.ERROR):
+        assert run(url, extract_2009(tmp_path)) == 1
+    assert "thunderstorm_lightning" in caplog.text
+    assert count(engine, "lightning") == 0

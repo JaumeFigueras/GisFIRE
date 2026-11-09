@@ -10,6 +10,7 @@ PostgreSQL and compare the result with the models.
 """
 
 import datetime
+import math
 
 import pytest
 
@@ -119,6 +120,24 @@ VIEWS = {
     "v_meteocat_lightning_4326": ("geometry", "POINT", 4326),
     "v_meteocat_lightning_4258": ("geometry", "POINT", 4258),
     "v_meteocat_lightning_25831": ("geometry", "POINT", 25831),
+    # Thunderstorms, inferred from the strokes: seven layers, each in EPSG:4326 and
+    # in UTM 31N. Only the 4326 concave hulls and centres are selected straight from
+    # a table; every other geometry is computed and cast back. See revision
+    # 7a1c4e9b2d56.
+    "v_thunderstorm": ("geometry", "POLYGON", 4326),
+    "v_thunderstorm_25831": ("geometry", "POLYGON", 25831),
+    "v_thunderstorm_convex_hull": ("geometry", "POLYGON", 4326),
+    "v_thunderstorm_convex_hull_25831": ("geometry", "POLYGON", 25831),
+    "v_thunderstorm_evolution": ("geometry", "POINT", 4326),
+    "v_thunderstorm_evolution_25831": ("geometry", "POINT", 25831),
+    "v_thunderstorm_evolution_hull": ("geometry", "POLYGON", 4326),
+    "v_thunderstorm_evolution_hull_25831": ("geometry", "POLYGON", 25831),
+    "v_thunderstorm_evolution_convex_hull": ("geometry", "POLYGON", 4326),
+    "v_thunderstorm_evolution_convex_hull_25831": ("geometry", "POLYGON", 25831),
+    "v_thunderstorm_vector": ("geometry", "LINESTRING", 4326),
+    "v_thunderstorm_vector_25831": ("geometry", "LINESTRING", 25831),
+    "v_thunderstorm_path": ("geometry", "LINESTRING", 4326),
+    "v_thunderstorm_path_25831": ("geometry", "LINESTRING", 25831),
 }
 
 #: Dataset views with no geometry column, loaded by QGIS as plain tables. They are
@@ -183,7 +202,9 @@ def test_migrations_match_the_models(alembic_config):
     assert differences == []
 
 
-@pytest.mark.parametrize("table", ["wildfire", "ignition", "lightning"])
+@pytest.mark.parametrize("table", ["wildfire", "ignition", "lightning", "thunderstorm_experiment",
+                                   "thunderstorm", "thunderstorm_tracking",
+                                   "thunderstorm_evolution"])
 def test_the_sequence_backed_ids_have_a_usable_sequence(alembic_config, table):
     """The wildfire importers draw ids with ``nextval(pg_get_serial_sequence(...))``.
 
@@ -850,3 +871,329 @@ def test_a_conaf_geometry_belongs_to_exactly_one_grid(alembic_config):
         assert connection.execute(text(
             "SELECT count(*) FROM conaf_ignition")).scalar() == 2
     engine.dispose()
+
+
+# --------------------------------------------------------------------------
+# Thunderstorms
+# --------------------------------------------------------------------------
+
+#: Three windows of one storm, 2 min apart (W = 10 min, S = 2 min): north by
+#: 0.01°, then east by 0.01°.
+_CENTRES = [(2.0, 41.0), (2.0, 41.01), (2.01, 41.01)]
+_STORM_START = datetime.datetime(2015, 7, 1, 14, 0, tzinfo=datetime.timezone.utc)
+#: An L: area 3 square units, convex hull area 3.5.
+_L_HULL = ("POLYGON((1.6 41.3, 1.8 41.3, 1.8 41.4, 1.7 41.4, 1.7 41.5, 1.6 41.5, 1.6 41.3))")
+
+
+def _completed(status: str) -> datetime.datetime | None:
+    """A run has a completion instant exactly when it is complete."""
+    return _STORM_START + datetime.timedelta(days=200) if status == "complete" else None
+
+
+def _a_thunderstorm_run(connection, *, centres=_CENTRES, experiment_status="complete",
+                        tracking_status="complete", algorithm="DBSCAN"):
+    """An experiment with one storm and one tracking of it; returns their ids."""
+    provider_id = connection.execute(text(
+        "INSERT INTO data_provider (name, product, full_name) VALUES ('MeteoCat', 'XDDE', 'SMC') "
+        "ON CONFLICT (name, product) DO UPDATE SET name = EXCLUDED.name RETURNING id")).scalar()
+    experiment_id = connection.execute(text(
+        "INSERT INTO thunderstorm_experiment (data_provider_id, algorithm, parameters, "
+        "lightning_filter, hull_parameters, date_time_start, date_time_end, software_version, "
+        "status, completed_at) VALUES (:provider_id, :algorithm, '{\"eps_m\": 10000}', '{}', "
+        "'{\"ratio\": 0.3}', '2015-01-01Z', '2016-01-01Z', 'test', :status, :completed) "
+        "RETURNING id"),
+        {"provider_id": provider_id, "algorithm": algorithm, "status": experiment_status,
+         "completed": _completed(experiment_status)}).scalar()
+    storm_id = connection.execute(text(
+        "INSERT INTO thunderstorm (experiment_id, label, date_time_start, date_time_end, "
+        "number_of_lightnings, concave_hull) VALUES (:experiment_id, 0, '2015-07-01T14:00Z', "
+        "'2015-07-01T14:42Z', 120, ST_GeomFromText(:hull, 4326)) RETURNING id"),
+        {"experiment_id": experiment_id, "hull": _L_HULL}).scalar()
+    tracking_id = connection.execute(text(
+        "INSERT INTO thunderstorm_tracking (experiment_id, window_length, window_step, "
+        "hull_parameters, software_version, status, completed_at) VALUES (:experiment_id, "
+        "'10 min', '2 min', '{}', 'test', :status, :completed) RETURNING id"),
+        {"experiment_id": experiment_id, "status": tracking_status,
+         "completed": _completed(tracking_status)}).scalar()
+    windows = []
+    for sequence, (x, y) in enumerate(centres, start=1):
+        start = _STORM_START + datetime.timedelta(minutes=2 * (sequence - 1))
+        windows.append(connection.execute(text(
+            "INSERT INTO thunderstorm_evolution (tracking_id, thunderstorm_id, experiment_id, "
+            "sequence, window_start, window_end, number_of_lightnings, centre, concave_hull) "
+            "VALUES (:tracking_id, :storm_id, :experiment_id, :sequence, :start, :end, 10, "
+            "ST_SetSRID(ST_MakePoint(:x, :y), 4326), ST_GeomFromText(:hull, 4326)) RETURNING id"),
+            {"tracking_id": tracking_id, "storm_id": storm_id, "experiment_id": experiment_id,
+             "sequence": sequence, "start": start, "end": start + datetime.timedelta(minutes=10),
+             "x": x, "y": y, "hull": _L_HULL}).scalar())
+    return experiment_id, storm_id, tracking_id, windows
+
+
+def test_the_thunderstorm_view_summarises_a_storm(alembic_config):
+    config, url = alembic_config
+    upgrade(config, "head")
+
+    engine = create_engine(url)
+    with engine.begin() as connection:
+        experiment_id, storm_id, _, _ = _a_thunderstorm_run(connection)
+    with engine.connect() as connection:
+        row = connection.execute(text(
+            "SELECT id, experiment_id, algorithm, data_provider_name, label, duration_s, "
+            "number_of_lightnings, lightnings_per_minute, ST_Area(geometry) AS area "
+            "FROM v_thunderstorm")).one()
+    engine.dispose()
+
+    assert (row.id, row.experiment_id, row.label) == (storm_id, experiment_id, 0)
+    assert (row.algorithm, row.data_provider_name) == ("DBSCAN", "MeteoCat")
+    assert row.duration_s == 42 * 60
+    assert row.number_of_lightnings == 120
+    assert row.lightnings_per_minute == pytest.approx(120 / 42)
+    assert row.area == pytest.approx(0.03)
+
+
+def test_the_convex_hull_views_fill_in_the_concave_hull(alembic_config):
+    """The L's convex hull closes its notch: 3.5 squares instead of 3, and no point lost."""
+    config, url = alembic_config
+    upgrade(config, "head")
+
+    engine = create_engine(url)
+    with engine.begin() as connection:
+        _a_thunderstorm_run(connection)
+    with engine.connect() as connection:
+        ratios = {view: connection.execute(text(
+            f"SELECT ST_Area(c.geometry) / ST_Area(h.geometry) FROM {view} c "
+            f"JOIN {hull} h ON h.id = c.id")).scalar()
+            for view, hull in (("v_thunderstorm_convex_hull", "v_thunderstorm"),
+                               ("v_thunderstorm_evolution_convex_hull",
+                                "v_thunderstorm_evolution_hull"))}
+        contains = connection.execute(text(
+            "SELECT ST_Contains(c.geometry, h.geometry) FROM v_thunderstorm_convex_hull c "
+            "JOIN v_thunderstorm h ON h.id = c.id")).scalar()
+    engine.dispose()
+
+    assert ratios == {view: pytest.approx(3.5 / 3) for view in ratios}
+    assert contains is True
+
+
+def test_the_evolution_view_measures_each_move_on_the_spheroid(alembic_config):
+    """Distances and bearings agree with an independent geodesic (pyproj, WGS 84)."""
+    from pyproj import Geod
+
+    config, url = alembic_config
+    upgrade(config, "head")
+
+    engine = create_engine(url)
+    with engine.begin() as connection:
+        _, _, _, windows = _a_thunderstorm_run(connection)
+    with engine.connect() as connection:
+        rows = connection.execute(text(
+            "SELECT id, sequence, date_time, displacement_m, elapsed_s, speed_m_s, bearing_deg, "
+            "u_m_s, v_m_s, ST_X(geometry) AS x, ST_Y(geometry) AS y "
+            "FROM v_thunderstorm_evolution ORDER BY sequence")).all()
+    engine.dispose()
+
+    geod = Geod(ellps="WGS84")
+    assert [row.id for row in rows] == windows
+    # A window stands for its midpoint.
+    assert [row.date_time for row in rows] == [
+        _STORM_START + datetime.timedelta(minutes=minute) for minute in (5, 7, 9)]
+    assert [(row.x, row.y) for row in rows] == _CENTRES
+    first = rows[0]
+    assert (first.displacement_m, first.elapsed_s, first.speed_m_s, first.bearing_deg,
+            first.u_m_s, first.v_m_s) == (None,) * 6
+    for row, (previous, current) in zip(rows[1:], zip(_CENTRES, _CENTRES[1:])):
+        azimuth, _, distance = geod.inv(*previous, *current)
+        assert row.elapsed_s == 120
+        assert row.displacement_m == pytest.approx(distance, abs=0.01)
+        assert row.bearing_deg == pytest.approx(azimuth % 360, abs=1e-3)
+        assert row.speed_m_s == pytest.approx(distance / 120, abs=1e-4)
+        assert row.u_m_s == pytest.approx(row.speed_m_s * math.sin(math.radians(azimuth)), abs=1e-4)
+        assert row.v_m_s == pytest.approx(row.speed_m_s * math.cos(math.radians(azimuth)), abs=1e-4)
+    # North, then east.
+    assert rows[1].bearing_deg == pytest.approx(0, abs=1e-3)
+    assert rows[2].bearing_deg == pytest.approx(90, abs=0.01)
+
+
+def test_a_centre_that_does_not_move_has_zero_velocity(alembic_config):
+    config, url = alembic_config
+    upgrade(config, "head")
+
+    engine = create_engine(url)
+    with engine.begin() as connection:
+        _a_thunderstorm_run(connection, centres=[(2.0, 41.0), (2.0, 41.0)])
+    with engine.connect() as connection:
+        row = connection.execute(text(
+            "SELECT displacement_m, speed_m_s, u_m_s, v_m_s FROM v_thunderstorm_evolution "
+            "WHERE sequence = 2")).one()
+    engine.dispose()
+
+    assert tuple(row) == (0, 0, 0, 0)
+
+
+def test_the_vector_view_draws_each_move_from_the_previous_centre(alembic_config):
+    config, url = alembic_config
+    upgrade(config, "head")
+
+    engine = create_engine(url)
+    with engine.begin() as connection:
+        _, _, _, windows = _a_thunderstorm_run(connection)
+    with engine.connect() as connection:
+        rows = connection.execute(text(
+            "SELECT id, ST_AsText(geometry) AS line FROM v_thunderstorm_vector "
+            "ORDER BY sequence")).all()
+    engine.dispose()
+
+    # The first window has no vector; each vector carries the id of its head.
+    assert [row.id for row in rows] == windows[1:]
+    assert [row.line for row in rows] == ["LINESTRING(2 41,2 41.01)",
+                                          "LINESTRING(2 41.01,2.01 41.01)"]
+
+
+def test_the_path_view_joins_the_centres_and_sums_the_motion(alembic_config):
+    from pyproj import Geod
+
+    config, url = alembic_config
+    upgrade(config, "head")
+
+    engine = create_engine(url)
+    with engine.begin() as connection:
+        _, storm_id, tracking_id, windows = _a_thunderstorm_run(connection)
+    with engine.connect() as connection:
+        path = connection.execute(text(
+            "SELECT *, ST_AsText(geometry) AS line FROM v_thunderstorm_path")).one()
+        speeds = connection.execute(text(
+            "SELECT u_m_s, v_m_s FROM v_thunderstorm_evolution WHERE sequence > 1 "
+            "ORDER BY sequence")).all()
+    engine.dispose()
+
+    geod = Geod(ellps="WGS84")
+    legs = [geod.inv(*a, *b)[2] for a, b in zip(_CENTRES, _CENTRES[1:])]
+    net = geod.inv(*_CENTRES[0], *_CENTRES[-1])[2]
+    mean_u = sum(u for u, _ in speeds) / 2
+    mean_v = sum(v for _, v in speeds) / 2
+
+    assert (path.id, path.tracking_id, path.thunderstorm_id) == (windows[0], tracking_id, storm_id)
+    assert path.number_of_windows == 3
+    assert path.date_time_start == _STORM_START + datetime.timedelta(minutes=5)
+    assert path.date_time_end == _STORM_START + datetime.timedelta(minutes=9)
+    assert path.duration_s == 240
+    assert path.distance_m == pytest.approx(sum(legs), abs=0.01)
+    assert path.net_displacement_m == pytest.approx(net, abs=0.01)
+    assert path.mean_speed_m_s == pytest.approx(sum(legs) / 240, abs=1e-4)
+    assert (path.mean_u_m_s, path.mean_v_m_s) == (pytest.approx(mean_u), pytest.approx(mean_v))
+    # North-east-ish: the mean velocity, not the mean of 0° and 90°'s neighbours.
+    assert path.bearing_deg == pytest.approx(math.degrees(math.atan2(mean_u, mean_v)), abs=1e-6)
+    assert path.line == "LINESTRING(2 41,2 41.01,2.01 41.01)"
+
+
+def test_a_storm_seen_in_one_window_has_no_path(alembic_config):
+    config, url = alembic_config
+    upgrade(config, "head")
+
+    engine = create_engine(url)
+    with engine.begin() as connection:
+        _a_thunderstorm_run(connection, centres=[(2.0, 41.0)])
+    with engine.connect() as connection:
+        counts = [connection.execute(text(f"SELECT count(*) FROM {view}")).scalar()
+                  for view in ("v_thunderstorm_evolution", "v_thunderstorm_vector",
+                               "v_thunderstorm_path")]
+    engine.dispose()
+
+    assert counts == [1, 0, 0]
+
+
+@pytest.mark.parametrize(("experiment_status", "tracking_status", "storms", "windows"), [
+    pytest.param("running", "complete", 0, 0, id="experiment-running"),
+    pytest.param("failed", "complete", 0, 0, id="experiment-failed"),
+    pytest.param("complete", "running", 1, 0, id="tracking-running"),
+    pytest.param("complete", "failed", 1, 0, id="tracking-failed"),
+])
+def test_the_thunderstorm_views_show_complete_runs_only(alembic_config, experiment_status,
+                                                        tracking_status, storms, windows):
+    config, url = alembic_config
+    upgrade(config, "head")
+
+    engine = create_engine(url)
+    with engine.begin() as connection:
+        _a_thunderstorm_run(connection, experiment_status=experiment_status,
+                            tracking_status=tracking_status)
+    with engine.connect() as connection:
+        counts = {view: connection.execute(text(f"SELECT count(*) FROM {view}")).scalar()
+                  for view in VIEWS if view.startswith("v_thunderstorm")}
+    engine.dispose()
+
+    for view, number in counts.items():
+        storm_level = view.startswith(("v_thunderstorm_25831", "v_thunderstorm_convex")) or \
+            view == "v_thunderstorm"
+        assert number == (storms if storm_level else windows), view
+
+
+def test_the_thunderstorm_25831_views_are_on_the_utm_grid(alembic_config):
+    """Reprojected, not relabelled: the Penedès is some 400 km east, 4,540 km north."""
+    config, url = alembic_config
+    upgrade(config, "head")
+
+    engine = create_engine(url)
+    with engine.begin() as connection:
+        _a_thunderstorm_run(connection)
+    with engine.connect() as connection:
+        extents = {view: connection.execute(text(
+            f"SELECT ST_XMin(ST_Extent(geometry)), ST_YMin(ST_Extent(geometry)) FROM {view}")).one()
+            for view in VIEWS if view.startswith("v_thunderstorm") and view.endswith("_25831")}
+    engine.dispose()
+
+    assert len(extents) == 7
+    for view, (x, y) in extents.items():
+        assert 380_000 < x < 420_000, view
+        assert 4_530_000 < y < 4_580_000, view
+
+
+def test_the_thunderstorm_checks_are_migrated(alembic_config):
+    """``compare_metadata`` ignores CHECK constraints, so their names are compared here."""
+    from src.data_model import thunderstorm
+
+    config, url = alembic_config
+    upgrade(config, "head")
+
+    tables = [model.__table__ for model in (
+        thunderstorm.ThunderstormExperiment, thunderstorm.Thunderstorm,
+        thunderstorm.ThunderstormLightning, thunderstorm.ThunderstormTracking,
+        thunderstorm.ThunderstormEvolution)]
+    expected = {constraint.name for table in tables for constraint in table.constraints
+                if constraint.__class__.__name__ == "CheckConstraint"}
+    engine = create_engine(url)
+    with engine.connect() as connection:
+        migrated = set(connection.execute(text(
+            "SELECT conname FROM pg_constraint WHERE contype = 'c' "
+            "AND conrelid::regclass::text LIKE 'thunderstorm%'")).scalars())
+    engine.dispose()
+
+    assert migrated == expected
+    assert len(expected) == 21
+
+
+@pytest.mark.parametrize(("table", "referenced", "action"), [
+    pytest.param("thunderstorm", "thunderstorm_experiment", "c", id="storm-goes-with-experiment"),
+    pytest.param("thunderstorm_tracking", "thunderstorm_experiment", "c",
+                 id="tracking-goes-with-experiment"),
+    pytest.param("thunderstorm_lightning", "thunderstorm", "c", id="link-goes-with-storm"),
+    pytest.param("thunderstorm_lightning", "lightning", "r", id="stroke-in-a-storm-stays"),
+    pytest.param("thunderstorm_evolution", "thunderstorm", "c", id="window-goes-with-storm"),
+    pytest.param("thunderstorm_evolution", "thunderstorm_tracking", "c",
+                 id="window-goes-with-tracking"),
+])
+def test_the_thunderstorm_foreign_keys_delete_as_designed(alembic_config, table, referenced,
+                                                          action):
+    """The importer's ``--drop-thunderstorms`` relies on these; ``r`` is RESTRICT."""
+    config, url = alembic_config
+    upgrade(config, "head")
+
+    engine = create_engine(url)
+    with engine.connect() as connection:
+        actions = connection.execute(text(
+            "SELECT confdeltype FROM pg_constraint WHERE contype = 'f' "
+            "AND conrelid = CAST(:table AS regclass) AND confrelid = CAST(:referenced AS regclass)"),
+            {"table": table, "referenced": referenced}).scalars().all()
+    engine.dispose()
+
+    assert actions == [action]

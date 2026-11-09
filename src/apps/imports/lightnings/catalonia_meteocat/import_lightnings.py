@@ -46,6 +46,21 @@ thousands of vertices, and testing six million points against it would take days
 Strokes at sea, most of them, get none; so does every stroke when no boundaries are
 imported, which is warned about and does not stop the import.
 
+Thunderstorms built on the strokes
+----------------------------------
+
+A thunderstorm experiment (:mod:`src.data_model.thunderstorm`) is computed from
+MeteoCat's strokes over a period, so replacing a year under it would change its
+input, and the strokes in its thunderstorms cannot be deleted at all (``ON DELETE
+RESTRICT``). Before replacing a year the import looks for the experiments that
+depend on it — MeteoCat's experiments whose period overlaps the year, and any
+experiment holding one of the year's strokes — and **refuses the year** if there
+is one: it is logged and skipped, the other years are imported, and the run ends
+with an error. ``--drop-thunderstorms`` deletes those experiments instead, whole
+and in the year's transaction, before replacing it; ``--dry-run
+--drop-thunderstorms`` connects only to list them. See
+:mod:`src.apps.imports.lightnings.common`.
+
 What is refused
 ---------------
 
@@ -57,7 +72,8 @@ skipped with a warning in a ``--directory``.
 
 Database settings come from the environment (``.env``, see :mod:`src.settings`);
 every one of them can be overridden with a command-line argument. ``--dry-run``
-reads, checks and reports without connecting to a database at all.
+reads, checks and reports without connecting to a database at all, unless
+``--drop-thunderstorms`` asks it to list the experiments a real run would drop.
 """
 
 from __future__ import annotations
@@ -74,6 +90,7 @@ from sqlalchemy import Connection
 from sqlalchemy import Engine
 from sqlalchemy import create_engine
 from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 import src.settings  # noqa: F401  (imported for the side effect of loading .env)
@@ -81,6 +98,8 @@ import src.settings  # noqa: F401  (imported for the side effect of loading .env
 from src.apps.imports import common
 from src.apps.imports.common import ArchiveLogger
 from src.apps.imports.common import Spinner
+from src.apps.imports.lightnings import common as lightning_common
+from src.apps.imports.lightnings.common import YearInUse
 from src.apps.imports.lightnings.catalonia_meteocat import readers
 from src.apps.imports.lightnings.catalonia_meteocat.readers import Extract
 from src.apps.imports.lightnings.catalonia_meteocat.readers import StrokeRecord
@@ -235,6 +254,10 @@ class YearOutcome:
         self.flashes = 0
         self.without_boundary: int | None = None
         self.versions: Counter[int] = Counter()
+        #: The thunderstorm experiments dropped (or, in a dry run, that would be).
+        self.dropped = 0
+        #: The experiments that stopped the year, if they did.
+        self.refused: list[int] | None = None
 
     def count(self, records: list[StrokeRecord]) -> None:
         """Count the records written (or, in a dry run, that would be)."""
@@ -243,6 +266,8 @@ class YearOutcome:
         self.versions.update(record.network_version for record in records)
 
     def describe(self) -> str:
+        if self.refused is not None:
+            return f"{self.year}: not imported"
         versions = ", ".join(f"version {version}: {count}"
                              for version, count in sorted(self.versions.items()))
         boundary = ("" if self.without_boundary is None
@@ -285,26 +310,63 @@ def stage(connection: Connection, records: list[StrokeRecord]) -> None:
 
 def import_year(connection: Connection, year: int, records: list[StrokeRecord], name: str,
                 provider_id: int, boundary_provider_id: int | None,
-                log: logging.LoggerAdapter) -> YearOutcome:
-    """Replace one UTC year with its records, in one transaction."""
+                log: logging.LoggerAdapter, drop: bool = False) -> YearOutcome:
+    """Replace one UTC year with its records, in one transaction.
+
+    The thunderstorm experiments depending on the year are dropped first when
+    ``drop`` is set, in the same transaction.
+
+    Raises
+    ------
+    YearInUse
+        If experiments depend on the year and ``drop`` is not set — or if one
+        holding its strokes was missed and ``RESTRICT`` refused the delete. The
+        transaction is rolled back either way: nothing of the year changes.
+    """
     outcome = YearOutcome(year, name)
     bounds = year_range(year)
-    with connection.begin():
-        outcome.deleted = connection.execute(
-            text(DELETE_YEAR_SQL), {"provider_id": provider_id, **bounds}).rowcount
-        if outcome.deleted:
-            log.info("Replacing %d stroke(s) already stored for %d", outcome.deleted, year)
-        stage(connection, records)
-        connection.execute(text(CREATE_PARTS_SQL),
-                           {"boundary_provider_id": boundary_provider_id, **extent(records)})
-        connection.execute(text(CREATE_PARTS_INDEX_SQL))
-        connection.execute(text(ANALYZE_SQL))
-        with Spinner(f"{name}: writing {len(records):,} stroke(s) of {year}", log.logger):
-            connection.execute(text(INSERT_SQL), {"provider_id": provider_id})
-        outcome.without_boundary = connection.execute(
-            text(WITHOUT_BOUNDARY_SQL), {"provider_id": provider_id, **bounds}).scalar()
+    try:
+        with connection.begin():
+            covering = lightning_common.covering_experiments(connection, provider_id, **bounds)
+            if covering and not drop:
+                for experiment in covering:
+                    log.warning("%d is used by thunderstorm experiment %s", year,
+                                experiment.describe())
+                raise YearInUse(year, [experiment.id for experiment in covering])
+            outcome.dropped = lightning_common.drop_experiments(connection, covering, log)
+            _replace_year(connection, year, records, name, provider_id, boundary_provider_id,
+                          bounds, outcome, log)
+    except IntegrityError as error:
+        if "thunderstorm_lightning" not in str(error.orig):
+            raise
+        with connection.begin():
+            holding = lightning_common.holding_experiments(connection, provider_id, **bounds)
+        ids = ", ".join(str(identifier) for identifier in holding)
+        raise YearInUse(year, holding, (
+            f"{year} not replaced: its strokes are in thunderstorms of experiment(s) {ids}, "
+            f"which the check for dependent experiments did not find; nothing was deleted"
+        )) from error
     outcome.count(records)
     return outcome
+
+
+def _replace_year(connection: Connection, year: int, records: list[StrokeRecord], name: str,
+                  provider_id: int, boundary_provider_id: int | None, bounds: dict[str, str],
+                  outcome: YearOutcome, log: logging.LoggerAdapter) -> None:
+    """Delete the stored year and write its records, in the open transaction."""
+    outcome.deleted = connection.execute(
+        text(DELETE_YEAR_SQL), {"provider_id": provider_id, **bounds}).rowcount
+    if outcome.deleted:
+        log.info("Replacing %d stroke(s) already stored for %d", outcome.deleted, year)
+    stage(connection, records)
+    connection.execute(text(CREATE_PARTS_SQL),
+                       {"boundary_provider_id": boundary_provider_id, **extent(records)})
+    connection.execute(text(CREATE_PARTS_INDEX_SQL))
+    connection.execute(text(ANALYZE_SQL))
+    with Spinner(f"{name}: writing {len(records):,} stroke(s) of {year}", log.logger):
+        connection.execute(text(INSERT_SQL), {"provider_id": provider_id})
+    outcome.without_boundary = connection.execute(
+        text(WITHOUT_BOUNDARY_SQL), {"provider_id": provider_id, **bounds}).scalar()
 
 
 # --------------------------------------------------------------------------
@@ -324,11 +386,14 @@ def report_problems(extract: Extract, log: logging.LoggerAdapter) -> None:
 
 def import_extract(path: Path, engine: Engine | None, provider_id: int | None,
                    boundary_provider_id: int | None, years: set[int] | None,
-                   logger: logging.Logger) -> list[YearOutcome]:
+                   logger: logging.Logger, drop: bool = False,
+                   lookup: Engine | None = None) -> list[YearOutcome]:
     """Read one extract and import each of its years.
 
     With no ``engine`` nothing is written: the outcomes are what an import would
-    write, for ``--dry-run``.
+    write, for ``--dry-run``; with a ``lookup`` engine as well, the thunderstorm
+    experiments a real run would drop are listed from it. A year that
+    experiments depend on, without ``drop``, is logged and returned refused.
     """
     log = ArchiveLogger(logger, {"archive": path.name})
     with Spinner(f"{path.name}: reading", logger):
@@ -344,6 +409,13 @@ def import_extract(path: Path, engine: Engine | None, provider_id: int | None,
                 continue
             outcome = YearOutcome(year, extract.name)
             outcome.count(records)
+            if lookup is not None and provider_id is not None:
+                with lookup.connect() as connection:
+                    covering = lightning_common.covering_experiments(
+                        connection, provider_id, **year_range(year))
+                for experiment in covering:
+                    log.info("Would drop thunderstorm experiment %s", experiment.describe())
+                outcome.dropped = len(covering)
             outcomes.append(outcome)
             log.info("%s", outcome.describe())
     else:
@@ -351,8 +423,13 @@ def import_extract(path: Path, engine: Engine | None, provider_id: int | None,
             for year, records in grouped.items():
                 if years is not None and year not in years:
                     continue
-                outcome = import_year(connection, year, records, extract.name, provider_id,
-                                      boundary_provider_id, log)
+                try:
+                    outcome = import_year(connection, year, records, extract.name, provider_id,
+                                          boundary_provider_id, log, drop)
+                except YearInUse as refusal:
+                    log.error("%s", refusal)
+                    outcome = YearOutcome(year, extract.name)
+                    outcome.refused = refusal.experiment_ids
                 outcomes.append(outcome)
                 log.info("%s", outcome.describe())
     if not outcomes:
@@ -384,6 +461,11 @@ def parse_arguments(argv: list[str] | None = None) -> argparse.Namespace:
                         help="import only these UTC years")
     parser.add_argument("--dry-run", action="store_true",
                         help="read, check and report without touching the database")
+    parser.add_argument(lightning_common.DROP_FLAG, action="store_true",
+                        dest="drop_thunderstorms",
+                        help="delete, whole, the thunderstorm experiments that depend on a "
+                             "year before replacing it; without it such a year is refused. "
+                             "With --dry-run, connect only to list them")
 
     common.add_database_arguments(parser)
     common.add_common_arguments(parser)
@@ -434,20 +516,41 @@ def find_extracts(args: argparse.Namespace, logger: logging.Logger) -> list[Path
     return sorted(args.source)
 
 
+#: The tables a run reads or writes.
+TABLES = ["lightning", "meteocat_lightning", "data_provider", "admin_boundary",
+          "thunderstorm_experiment", "thunderstorm", "thunderstorm_lightning",
+          "thunderstorm_tracking"]
+
+#: MeteoCat's row, for a dry run, which creates nothing.
+PROVIDER_ID_SQL = "SELECT id FROM data_provider WHERE name = :name AND product = :product"
+
+
 def import_lightnings(args: argparse.Namespace, engine: Engine | None,
-                      logger: logging.Logger) -> int:
+                      logger: logging.Logger, lookup: Engine | None = None) -> int:
     """Import every extract against ``engine``, returning the strokes written.
 
-    With no ``engine`` this is a dry run.
+    With no ``engine`` this is a dry run, which reads ``lookup``, if given, to list
+    the thunderstorm experiments a real run would drop.
+
+    Raises
+    ------
+    RuntimeError
+        After importing every other year, if thunderstorm experiments stopped any.
     """
     paths = find_extracts(args, logger)
     years = set(args.years) if args.years else None
+    drop = getattr(args, "drop_thunderstorms", False)
 
     provider_id = None
     boundary_provider_id = None
+    if engine is None and lookup is not None:
+        common.require_tables(lookup, TABLES, logger)
+        with lookup.connect() as connection:
+            provider_id = connection.execute(text(PROVIDER_ID_SQL), {
+                "name": catalonia_meteocat.PROVIDER_NAME,
+                "product": catalonia_meteocat.PROVIDER_PRODUCT}).scalar()
     if engine is not None:
-        common.require_tables(engine, ["lightning", "meteocat_lightning", "data_provider",
-                                       "admin_boundary"], logger)
+        common.require_tables(engine, TABLES, logger)
         with Session(engine) as session:
             provider = common.get_or_create_data_provider(
                 session, catalonia_meteocat.PROVIDER_NAME, catalonia_meteocat.PROVIDER_PRODUCT,
@@ -464,8 +567,11 @@ def import_lightnings(args: argparse.Namespace, engine: Engine | None,
     outcomes: list[YearOutcome] = []
     for index, path in enumerate(paths, start=1):
         logger.info("[%d/%d] %s", index, len(paths), path.name)
-        outcomes += import_extract(path, engine, provider_id, boundary_provider_id, years, logger)
+        outcomes += import_extract(path, engine, provider_id, boundary_provider_id, years, logger,
+                                   drop, lookup)
 
+    refused = [outcome for outcome in outcomes if outcome.refused is not None]
+    outcomes = [outcome for outcome in outcomes if outcome.refused is None]
     seen: dict[int, str] = {}
     for outcome in outcomes:
         if outcome.year in seen:
@@ -483,6 +589,15 @@ def import_lightnings(args: argparse.Namespace, engine: Engine | None,
         time.monotonic() - started,
         ", ".join(f"version {version}: {count}" for version, count in sorted(versions.items())),
     )
+    dropped = sum(outcome.dropped for outcome in outcomes)
+    if dropped:
+        logger.info("%s %d thunderstorm experiment(s)",
+                    "Would have dropped" if engine is None else "Also dropped", dropped)
+    if refused:
+        raise RuntimeError(
+            f"{len(refused)} year(s) not imported ("
+            f"{', '.join(str(outcome.year) for outcome in refused)}): thunderstorm experiments "
+            f"depend on them; delete them first, or run again with {lightning_common.DROP_FLAG}")
     return written
 
 
@@ -500,11 +615,17 @@ def main(argv: list[str] | None = None) -> int:
             return 1
 
     if args.dry_run:
+        lookup = None
         try:
-            import_lightnings(args, None, logger)
+            if args.drop_thunderstorms:
+                lookup = create_engine(common.database_url(common.resolve_database_settings(args)))
+            import_lightnings(args, None, logger, lookup)
         except Exception as error:  # noqa: BLE001  (the CLI boundary: report, do not traceback)
             logger.error("Check failed: %s", error)
             return 1
+        finally:
+            if lookup is not None:
+                lookup.dispose()
         return 0
 
     try:
