@@ -5,7 +5,7 @@
 #   - QGIS venv (--system-site-packages): the QGIS plugin, runs in QGIS's Python
 #
 # Override the QGIS venv path if yours differs:
-QGIS_VENV ?= /opt/qgis-gisfire-dev/venv
+QGIS_VENV ?= /opt/qgis-venv/qgis-venv
 # PyQGIS (the `qgis` module) lives outside the standard site-packages, so it must
 # be added to PYTHONPATH for the venv's python to import it. QT_QPA_PLATFORM
 # keeps Qt headless during tests. Override either if your install differs:
