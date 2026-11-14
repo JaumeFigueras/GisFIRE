@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ExceptionReport xmlns="http://www.opengis.net/ows/1.1"
+		 xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xsi:schemaLocation="http://www.opengis.net/ows/1.1 http://schemas.opengis.net/ows/1.1.0/owsExceptionReport.xsd"
+  version="2.0.0" xml:lang="eng">
+
+
+  <Exception exceptionCode="OperationProcessingFailed">
+    <ExceptionText>Too long time interval requested!</ExceptionText>
+    <ExceptionText>No more than 168.000000 hours allowed.</ExceptionText>
+    <ExceptionText>URI: /wfs?endtime=2018-07-08T00%3A00%3A01Z&amp;parameters=flash_id%2Cmultiplicity%2Cpeak_current%2Ccloud_indicator%2Csensors%2Cfreedom_degree%2Cellipse_angle%2Cellipse_major%2Cellipse_minor%2Cchi_square%2Crise_time%2Cptz_time%2Cangle_indicator%2Csignal_indicator%2Ctiming_indicator%2Cstroke_status&amp;request=getFeature&amp;service=WFS&amp;starttime=2018-07-01T00%3A00%3A00Z&amp;storedquery_id=fmi%3A%3Aobservations%3A%3Alightning%3A%3Amultipointcoverage&amp;version=2.0.0</ExceptionText>
+    
+  </Exception>
+
+</ExceptionReport>

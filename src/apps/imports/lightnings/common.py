@@ -3,18 +3,19 @@
 """What every lightning import shares: the thunderstorms built on the strokes.
 
 A :class:`~src.data_model.thunderstorm.ThunderstormExperiment` is computed from
-one provider's strokes over a period. An import that replaces a year of strokes
+one provider's strokes over a period. An import that replaces a period of strokes
 (deleting them and inserting them again with new identifiers) would change an
 experiment's input under it, and the strokes in its thunderstorms cannot be
 deleted at all: ``thunderstorm_lightning.lightning_id`` is ``ON DELETE
 RESTRICT``.
 
-So before replacing a year an import asks :func:`covering_experiments` which
-experiments depend on it, and either refuses the year (:class:`YearInUse`) or,
+So before replacing a period — a year for MeteoCat, a month for FMI — an import
+asks :func:`covering_experiments` which experiments depend on it, and either
+refuses the period (:class:`PeriodInUse`; :class:`YearInUse` for a year) or,
 when told to, deletes those experiments with :func:`drop_experiments` in the
 same transaction. An experiment is deleted **whole** — its thunderstorms, their
 strokes' links, its trackings and their windows go by cascade — never just the
-year: a run is one consistent result, and cutting a year out of it would leave
+period: a run is one consistent result, and cutting a year out of it would leave
 thunderstorms that crossed New Year half built.
 
 These helpers are provider-agnostic, for the next lightning import to reuse.
@@ -90,16 +91,28 @@ class CoveringExperiment:
                 f"{self.thunderstorms} thunderstorm(s), {self.trackings} tracking(s)")
 
 
-class YearInUse(RuntimeError):
+class PeriodInUse(RuntimeError):
+    """A period cannot be replaced: thunderstorm experiments depend on its strokes.
+
+    ``period`` is how the import names its unit — a year for MeteoCat, a month
+    (``YYYY-MM``) for FMI.
+    """
+
+    def __init__(self, period: str, experiment_ids: list[int], reason: str | None = None) -> None:
+        self.period = period
+        self.experiment_ids = experiment_ids
+        ids = ", ".join(str(identifier) for identifier in experiment_ids) or "unknown"
+        super().__init__(
+            reason or f"{period} not replaced: thunderstorm experiment(s) {ids} depend on its "
+                      f"strokes; delete them first, or run again with {DROP_FLAG}")
+
+
+class YearInUse(PeriodInUse):
     """A year cannot be replaced: thunderstorm experiments depend on its strokes."""
 
     def __init__(self, year: int, experiment_ids: list[int], reason: str | None = None) -> None:
         self.year = year
-        self.experiment_ids = experiment_ids
-        ids = ", ".join(str(identifier) for identifier in experiment_ids) or "unknown"
-        super().__init__(
-            reason or f"{year} not replaced: thunderstorm experiment(s) {ids} depend on its "
-                      f"strokes; delete them first, or run again with {DROP_FLAG}")
+        super().__init__(str(year), experiment_ids, reason)
 
 
 def covering_experiments(connection: Connection, provider_id: int, start: str,

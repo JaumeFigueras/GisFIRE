@@ -134,6 +134,9 @@ PROVIDER_DESCRIPTION = (
 #: The licence of FMI open data.
 LICENCE = "CC BY 4.0 (https://en.ilmatieteenlaitos.fi/open-data-licence)"
 
+#: How to credit the data, wherever it is redistributed (test fixtures included).
+ATTRIBUTION = "Finnish Meteorological Institute (FMI), open data, CC BY 4.0"
+
 #: The WFS endpoint.
 WFS_URL = "https://opendata.fmi.fi/wfs"
 
@@ -148,6 +151,14 @@ PARAMETERS = ("flash_id", "multiplicity", "peak_current", "cloud_indicator", "se
               "freedom_degree", "ellipse_angle", "ellipse_major", "ellipse_minor",
               "chi_square", "rise_time", "ptz_time", "angle_indicator", "signal_indicator",
               "timing_indicator", "stroke_status")
+
+#: The name every monthly file of the downloader starts with:
+#: ``fmi_lightning_YYYY-MM.csv.gz`` and its ``fmi_lightning_YYYY-MM.meta.json``.
+FILE_STEM = "fmi_lightning"
+
+#: The header of a monthly file: the Unix time and the position as served
+#: (latitude first), then every parameter in :data:`PARAMETERS` order.
+FILE_COLUMNS = ("unixtime", "latitude", "longitude") + PARAMETERS
 
 #: The CRS the coordinates are published in: ETRS89 geographic. Kept unchanged on
 #: :attr:`~src.providers.finland_fmi.lightning.FmiLightning.geometry_etrs89`.

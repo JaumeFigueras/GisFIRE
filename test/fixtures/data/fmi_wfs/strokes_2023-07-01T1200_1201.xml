@@ -1,0 +1,152 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<wfs:FeatureCollection
+  timeStamp="2026-11-14T14:50:04Z"
+  numberMatched="1"
+  numberReturned="1"
+  xmlns:wfs="http://www.opengis.net/wfs/2.0"
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+
+  xmlns:xlink="http://www.w3.org/1999/xlink"
+  xmlns:om="http://www.opengis.net/om/2.0"
+  xmlns:ompr="http://inspire.ec.europa.eu/schemas/ompr/3.0"
+  xmlns:omso="http://inspire.ec.europa.eu/schemas/omso/3.0"
+  xmlns:gml="http://www.opengis.net/gml/3.2"
+  xmlns:gmd="http://www.isotc211.org/2005/gmd"
+  xmlns:gco="http://www.isotc211.org/2005/gco"
+  xmlns:swe="http://www.opengis.net/swe/2.0"
+  xmlns:gmlcov="http://www.opengis.net/gmlcov/1.0"
+  xmlns:sam="http://www.opengis.net/sampling/2.0"
+  xmlns:sams="http://www.opengis.net/samplingSpatial/2.0"
+  xmlns:target="http://xml.fmi.fi/namespace/om/atmosphericfeatures/1.1"
+  xsi:schemaLocation="http://www.opengis.net/wfs/2.0 http://schemas.opengis.net/wfs/2.0/wfs.xsd
+  http://www.opengis.net/gmlcov/1.0 http://schemas.opengis.net/gmlcov/1.0/gmlcovAll.xsd
+  http://www.opengis.net/sampling/2.0 http://schemas.opengis.net/sampling/2.0/samplingFeature.xsd
+  http://www.opengis.net/samplingSpatial/2.0 http://schemas.opengis.net/samplingSpatial/2.0/spatialSamplingFeature.xsd
+  http://www.opengis.net/swe/2.0 http://schemas.opengis.net/sweCommon/2.0/swe.xsd
+  http://inspire.ec.europa.eu/schemas/ompr/3.0 https://inspire.ec.europa.eu/schemas/ompr/3.0/Processes.xsd
+  http://inspire.ec.europa.eu/schemas/omso/3.0 https://inspire.ec.europa.eu/schemas/omso/3.0/SpecialisedObservations.xsd
+  http://xml.fmi.fi/namespace/om/atmosphericfeatures/1.1 https://xml.fmi.fi/schema/om/atmosphericfeatures/1.1/atmosphericfeatures.xsd">
+
+  <wfs:member>
+    <omso:GridSeriesObservation gml:id="WFS-3kvPr9MP2lBUuu3b78C9YdVzv2qJTowsIWbbpdOt.Lnl5dsPTTv3c3TrZpz6Om7TuzunW3rs6aeG_Tu6Y9_bLyw58sLSxZc.ndU07ctqf.FOhYJqoTWxb.u7Jp3Z4W_xgMzMzMzMzASAJqZmZmZ2UhAE1MzMzM7KCgBmZmZmZkZSQDGx8udakWhTjunTRk1cM7LuyVNO3Lan_hToXyeqE3tuXpl30MPLDty9MvLnWhm2Yeei_pyVsbeuzpp4bNOPT081scMuHXfx9eXLLu6VvY9m_rkv6d2TTjw9N_Ks7nl3c9_LnW5m5ZcuTftv5Muflly1tZdmzTw55b.Hdn2Za2suzZp4c8t_bh1b.VbWXZs08OeW_t07t_KtTHo03.fHrh5Za0uWnnlv9NO3LWhw6er_TTty1vYd2fZlv6d2TTjw9N_KuDnpz7sOy_p3ZNOPD038q4Omnbp3Z7.ndk048PTfyra59OW_Xlv8.mHp15tzn038suTj1y8vN_TkrhCzbdLp1vxc8vLth6ad.7m6dbNOfR03ad2d0629dnTTw36d3THv7ZeWHPlaHTTty2t.7LWNVqQw">
+           <om:phenomenonTime>
+        <gml:TimePeriod gml:id="time1-1">
+          <gml:beginPosition>2023-07-01T12:00:00Z</gml:beginPosition>
+          <gml:endPosition>2023-07-01T12:01:00Z</gml:endPosition>
+        </gml:TimePeriod>
+      </om:phenomenonTime>
+      <om:resultTime>
+        <gml:TimeInstant gml:id="time-1-1">
+          <gml:timePosition>2023-07-01T12:01:00Z</gml:timePosition>
+        </gml:TimeInstant>
+      </om:resultTime>
+
+     <om:procedure xlink:href="http://xml.fmi.fi/inspire/process/lightning"/>
+     <om:observedProperty  xlink:href="https://opendata.fmi.fi/meta?observableProperty=forecast&amp;param=flash_id,multiplicity,peak_current,cloud_indicator,sensors,freedom_degree,ellipse_angle,ellipse_major,ellipse_minor,chi_square,rise_time,ptz_time,angle_indicator,signal_indicator,timing_indicator,stroke_status&amp;language=eng"/>
+                 <om:featureOfInterest>
+                <sams:SF_SpatialSamplingFeature gml:id="enn-s-1-">
+          <sam:sampledFeature>
+                   <target:SurfaceWeatherTargetArea gml:id="area-1">
+                        <target:geometry>
+                            <gml:Polygon gml:id="polygon-1" srsName="http://www.opengis.net/def/crs/EPSG/0/4258" srsDimension="2">
+                                <gml:exterior>
+                                    <gml:LinearRing>
+                                        <gml:coordinates>
+                                            49.7 2.3
+                                            73.1 2.3
+                                            73.1 35.7
+                                            49.7 35.7
+                                            49.7 2.3
+                                        </gml:coordinates>
+                                    </gml:LinearRing>
+                                </gml:exterior>
+                            </gml:Polygon>
+                        </target:geometry>
+                        <target:observableProperty  xlink:href="https://opendata.fmi.fi/meta?observableProperty=forecast&amp;param=flash_id,multiplicity,peak_current,cloud_indicator,sensors,freedom_degree,ellipse_angle,ellipse_major,ellipse_minor,chi_square,rise_time,ptz_time,angle_indicator,signal_indicator,timing_indicator,stroke_status&amp;language=eng"/>
+                    </target:SurfaceWeatherTargetArea>
+ 	   	</sam:sampledFeature>
+                <sams:shape />
+            </sams:SF_SpatialSamplingFeature>
+        </om:featureOfInterest>
+
+
+           <om:result>
+        <gmlcov:MultiPointCoverage gml:id="mpcv1-1">
+          <gml:domainSet>
+            <gmlcov:SimpleMultiPoint gml:id="mp1-1" srsName="http://xml.fmi.fi/gml/crs/compoundCRS.php?crs=4258&amp;time=unixtime" srsDimension="3">
+              <gmlcov:positions>
+                61.09450 29.18070 1688212800
+61.09160 29.14880 1688212800
+60.69610 13.60920 1688212813
+60.64030 13.87650 1688212813
+60.66370 13.75710 1688212813
+59.70940 31.85540 1688212815
+59.71730 31.82490 1688212815
+59.72920 31.80560 1688212815
+59.71800 31.84100 1688212815
+61.09900 29.31690 1688212824
+61.17700 25.61030 1688212840
+61.22210 25.70730 1688212840
+61.18950 25.63370 1688212840
+61.31780 25.50090 1688212840
+61.21310 28.91890 1688212855
+61.21710 28.69000 1688212855
+61.18740 28.60320 1688212855
+</gmlcov:positions>
+            </gmlcov:SimpleMultiPoint>
+          </gml:domainSet>
+          <gml:rangeSet>
+            <gml:DataBlock>
+              <gml:rangeParameters/>
+              <gml:doubleOrNilReasonTupleList>
+                30645782 1 8 1 3 3 61.6 2.5 0.4 1.7 5.1 1.4 1 0 1 17
+30645783 1 9 1 4 5 96.5 0.3 0.1 0.4 23.2 1.2 1 0 1 17
+30645784 1 9 0 4 5 101.8 0.4 0.1 0.3 24.1 15.2 1 0 1 17
+30645785 1 -19 0 3 3 116 0.4 0.1 0.1 10.3 30.4 1 0 1 17
+30645786 1 7 1 5 7 37.5 0.3 0.1 0.9 20.1 6.5 1 0 1 17
+30645787 4 -83 0 10 7 109.9 0.7 0.1 0.4 8.9 30.4 1 0 1 17
+30645787 0 -27 0 5 7 120.3 0.8 0.3 1.5 18.4 13.7 1 0 1 17
+30645787 0 -13 0 4 5 85.3 1.9 0.4 0.7 3.6 17 1 0 1 17
+30645787 0 -12 0 3 3 55.8 6.3 1.1 0.2 7.9 9.1 1 0 1 17
+30645788 1 5 1 2 1 120.4 9.1 0.3 4.4 4.6 1.3 1 0 1 17
+30645789 1 2 1 2 1 42.4 3.3 0.4 0.5 8.3 1 1 0 1 17
+30645790 1 2 1 2 1 42 2.7 0.4 0.9 9.8 1.4 1 0 1 17
+30645791 1 5 0 3 3 4.2 1.1 0.2 1.4 5.6 24.2 1 0 1 17
+30645792 1 -6 0 2 1 2.6 2.5 0.2 4.3 10 26.9 1 0 1 17
+30645793 1 5 1 2 1 88.6 12.7 1.1 0.6 5.7 0.7 1 0 1 17
+30645794 1 4 1 2 1 88.5 12 1.2 0.5 5.5 1 1 0 1 17
+30645795 1 13 0 8 13 92.5 0.3 0.1 0.7 6.8 17 1 0 1 17
+</gml:doubleOrNilReasonTupleList>
+            </gml:DataBlock>
+          </gml:rangeSet>
+          <gml:coverageFunction>
+            <gml:CoverageMappingRule>
+              <gml:ruleDefinition>Linear</gml:ruleDefinition>
+            </gml:CoverageMappingRule>
+          </gml:coverageFunction>
+          <gmlcov:rangeType>
+            <swe:DataRecord>
+              <swe:field name="flash_id"  xlink:href="https://opendata.fmi.fi/meta?observableProperty=forecast&amp;param=flash_id&amp;language=eng"/>
+              <swe:field name="multiplicity"  xlink:href="https://opendata.fmi.fi/meta?observableProperty=forecast&amp;param=multiplicity&amp;language=eng"/>
+              <swe:field name="peak_current"  xlink:href="https://opendata.fmi.fi/meta?observableProperty=forecast&amp;param=peak_current&amp;language=eng"/>
+              <swe:field name="cloud_indicator"  xlink:href="https://opendata.fmi.fi/meta?observableProperty=forecast&amp;param=cloud_indicator&amp;language=eng"/>
+              <swe:field name="sensors"  xlink:href="https://opendata.fmi.fi/meta?observableProperty=forecast&amp;param=sensors&amp;language=eng"/>
+              <swe:field name="freedom_degree"  xlink:href="https://opendata.fmi.fi/meta?observableProperty=forecast&amp;param=freedom_degree&amp;language=eng"/>
+              <swe:field name="ellipse_angle"  xlink:href="https://opendata.fmi.fi/meta?observableProperty=forecast&amp;param=ellipse_angle&amp;language=eng"/>
+              <swe:field name="ellipse_major"  xlink:href="https://opendata.fmi.fi/meta?observableProperty=forecast&amp;param=ellipse_major&amp;language=eng"/>
+              <swe:field name="ellipse_minor"  xlink:href="https://opendata.fmi.fi/meta?observableProperty=forecast&amp;param=ellipse_minor&amp;language=eng"/>
+              <swe:field name="chi_square"  xlink:href="https://opendata.fmi.fi/meta?observableProperty=forecast&amp;param=chi_square&amp;language=eng"/>
+              <swe:field name="rise_time"  xlink:href="https://opendata.fmi.fi/meta?observableProperty=forecast&amp;param=rise_time&amp;language=eng"/>
+              <swe:field name="ptz_time"  xlink:href="https://opendata.fmi.fi/meta?observableProperty=forecast&amp;param=ptz_time&amp;language=eng"/>
+              <swe:field name="angle_indicator"  xlink:href="https://opendata.fmi.fi/meta?observableProperty=forecast&amp;param=angle_indicator&amp;language=eng"/>
+              <swe:field name="signal_indicator"  xlink:href="https://opendata.fmi.fi/meta?observableProperty=forecast&amp;param=signal_indicator&amp;language=eng"/>
+              <swe:field name="timing_indicator"  xlink:href="https://opendata.fmi.fi/meta?observableProperty=forecast&amp;param=timing_indicator&amp;language=eng"/>
+              <swe:field name="stroke_status"  xlink:href="https://opendata.fmi.fi/meta?observableProperty=forecast&amp;param=stroke_status&amp;language=eng"/>
+              </swe:DataRecord>
+          </gmlcov:rangeType>
+        </gmlcov:MultiPointCoverage>
+      </om:result>
+
+    </omso:GridSeriesObservation>
+  </wfs:member>
+</wfs:FeatureCollection>
