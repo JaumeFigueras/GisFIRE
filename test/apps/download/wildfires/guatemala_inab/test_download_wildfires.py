@@ -394,6 +394,15 @@ def test_the_client_identifies_itself():
     assert "GisFIRE" in fake.session.headers["User-Agent"]
 
 
+def test_a_real_session_sends_our_user_agent():
+    """A requests.Session starts with "python-requests/x.y": the client must replace
+    it, not merely set one where there is none — the fake sessions start empty and
+    would not show the difference."""
+    real = app.ArcGisClient()
+    assert isinstance(real.session, requests.Session)
+    assert real.session.headers["User-Agent"] == app.USER_AGENT
+
+
 def test_the_delay_is_enforced_between_requests(monkeypatch):
     slept = []
     monkeypatch.setattr(app.time, "sleep", slept.append)

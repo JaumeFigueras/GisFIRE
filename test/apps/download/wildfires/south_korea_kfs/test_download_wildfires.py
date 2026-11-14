@@ -105,6 +105,15 @@ def test_client_sends_key_and_paging():
     assert c.session.headers["User-Agent"] == app.USER_AGENT
 
 
+def test_a_real_session_sends_our_user_agent():
+    """A requests.Session starts with "python-requests/x.y": the client must replace
+    it, not merely set one where there is none — the fake sessions start empty and
+    would not show the difference."""
+    c = app.SafemapClient(service_key=KEY)
+    assert isinstance(c.session, requests.Session)
+    assert c.session.headers["User-Agent"] == app.USER_AGENT
+
+
 def test_client_unregistered_key_is_not_retried_and_says_what_to_do():
     c = client([refused("30", "SERVICE_KEY_IS_NOT_REGISTERED_ERROR")])
     with pytest.raises(app.DownloadError, match="사용신청"):

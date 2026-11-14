@@ -240,7 +240,9 @@ class SafemapClient:
     def __post_init__(self) -> None:
         if self.session is None:
             self.session = requests.Session()
-        self.session.headers.setdefault("User-Agent", USER_AGENT)
+        # Assigned, not set by default: a requests.Session already carries a
+        # "python-requests/x.y" User-Agent, which setdefault would leave in place.
+        self.session.headers["User-Agent"] = USER_AGENT
 
     def _wait(self) -> None:
         """Sleep until :attr:`delay` seconds have passed since the last request."""
