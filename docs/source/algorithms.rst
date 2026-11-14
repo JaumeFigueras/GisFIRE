@@ -112,6 +112,15 @@ apart. For an algorithm whose cells close after that gap — Cellsearch with its
 time *T* — the pieces can be clustered one after the other with the same result as the
 whole, which is what lets a run over years fit in memory.
 
+**Flash grouping** (:func:`~gisfire_algorithms.thunderstorm.flash_grouping.group_strokes`).
+For a network that publishes strokes but not flashes — the Alaska Lightning Detection
+Network — strokes are grouped with the rule of the U.S. National Lightning Detection
+Network (Cummins et al. 1998): a stroke joins a flash within 1 s of its first stroke,
+0.5 s of its previous one and 10 km of its first one, the nearest such flash when
+several are open, and only a flash of its own kind (cloud-to-ground and cloud strokes
+apart). The limits are
+:class:`~gisfire_algorithms.thunderstorm.flash_grouping.FlashGroupingParameters`.
+
 API reference
 -------------
 
@@ -127,5 +136,9 @@ API reference
    :show-inheritance:
 
 .. automodule:: gisfire_algorithms.thunderstorm.chunking
+   :members:
+   :show-inheritance:
+
+.. automodule:: gisfire_algorithms.thunderstorm.flash_grouping
    :members:
    :show-inheritance:

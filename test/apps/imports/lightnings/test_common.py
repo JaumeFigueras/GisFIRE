@@ -159,3 +159,180 @@ def test_with_no_boundary_provider_the_pieces_are_empty(database, boundaries):
         common.ensure_boundary_pieces(
             connection, TABLE, None, common.clipping_box((10, 52, 30, 58), [], 1.0), log)
         assert connection.execute(text(f"SELECT count(*) FROM {TABLE}")).scalar() == 0
+
+
+# --------------------------------------------------------------------------
+# Across the antimeridian
+# --------------------------------------------------------------------------
+
+#: An area crossing 180, written past it as ``alaska_uswfs.NETWORK_AREA`` is:
+#: 168.8 E to 96.9 W.
+ACROSS = (168.8, 46.1, 263.1, 79.4)
+
+
+def test_a_stroke_across_180_joins_the_box_in_the_area_frame():
+    """A stroke at 170 W is 190 in the area's frame, inside it: the box does not
+    become the whole globe, as the least and greatest longitude would make it."""
+    box = common.clipping_box(ACROSS, [Point(-170.0, 60.0), Point(175.0, 55.0)], 1.0)
+    assert box == pytest.approx({"xmin": 167.8, "ymin": 45.1, "xmax": 264.1, "ymax": 80.4})
+
+
+def test_a_stroke_past_the_area_widens_the_box_on_its_side():
+    box = common.clipping_box(ACROSS, [Point(166.0, 60.0), Point(-90.0, 60.0)], 1.0)
+    assert box == pytest.approx({"xmin": 165.0, "ymin": 45.1, "xmax": 271.0, "ymax": 80.4})
+
+
+def test_the_usual_areas_keep_their_frame():
+    """MeteoCat's and FMI's boxes are what they were before the frame existed."""
+    assert common.clipping_box((-6.5, 35.6, 9.5, 47.1), [Point(-7.0, 40.0)], 1.0) == \
+        pytest.approx({"xmin": -8.0, "ymin": 34.6, "xmax": 10.5, "ymax": 48.1})
+
+
+@pytest.mark.parametrize(("box", "expected"), [
+    pytest.param({"xmin": 9.0, "ymin": 49.0, "xmax": 21.0, "ymax": 61.0},
+                 [(9.0, 49.0, 21.0, 61.0)], id="one"),
+    pytest.param({"xmin": 167.8, "ymin": 45.1, "xmax": 264.1, "ymax": 80.4},
+                 [(167.8, 45.1, 180.0, 80.4), (-180.0, 45.1, -95.9, 80.4)], id="across-180"),
+    pytest.param({"xmin": -185.0, "ymin": 50.0, "xmax": -170.0, "ymax": 60.0},
+                 [(175.0, 50.0, 180.0, 60.0), (-180.0, 50.0, -170.0, 60.0)], id="across-minus-180"),
+    pytest.param({"xmin": 190.0, "ymin": 50.0, "xmax": 200.0, "ymax": 60.0},
+                 [(-170.0, 50.0, -160.0, 60.0)], id="past-180-only"),
+    pytest.param({"xmin": -180.0, "ymin": -90.0, "xmax": 180.0, "ymax": 90.0},
+                 [(-180.0, -90.0, 180.0, 90.0)], id="globe"),
+])
+def test_the_envelopes_of_a_box(box, expected):
+    result = common.envelopes(box)
+    assert len(result) == len(expected)
+    for envelope, wanted in zip(result, expected):
+        assert envelope == pytest.approx(wanted)
+
+
+@pytest.mark.parametrize(("inner", "holds"), [
+    pytest.param((170.0, 175.0), True, id="east-of-180"),
+    pytest.param((-175.0, -160.0), True, id="west-of-180-other-frame"),
+    pytest.param((185.0, 200.0), True, id="west-of-180-same-frame"),
+    pytest.param((179.0, 181.0), True, id="across-180"),
+    pytest.param((100.0, 110.0), False, id="outside"),
+    pytest.param((-100.0, -90.0), False, id="past-east-edge"),
+])
+def test_a_box_across_180_holds_boxes_in_either_frame(inner, holds):
+    outer = {"xmin": 167.8, "ymin": 45.1, "xmax": 264.1, "ymax": 80.4}
+    box = {"xmin": inner[0], "ymin": 50.0, "xmax": inner[1], "ymax": 60.0}
+    assert common.box_holds(outer, box) is holds
+
+
+def test_a_box_never_holds_one_reaching_further_north_or_south():
+    outer = {"xmin": 167.8, "ymin": 45.1, "xmax": 264.1, "ymax": 80.4}
+    assert not common.box_holds(outer, {"xmin": 170.0, "ymin": 40.0, "xmax": 175.0, "ymax": 60.0})
+
+
+def test_the_globe_holds_everything():
+    globe = {"xmin": -180.0, "ymin": -90.0, "xmax": 180.0, "ymax": 90.0}
+    assert common.box_holds(globe, {"xmin": 167.8, "ymin": 45.1, "xmax": 264.1, "ymax": 80.4})
+
+
+def test_the_union_across_180_stays_in_the_first_frame():
+    first = {"xmin": 167.8, "ymin": 45.1, "xmax": 264.1, "ymax": 80.4}
+    second = {"xmin": -100.0, "ymin": 40.0, "xmax": -90.0, "ymax": 50.0}
+    assert common.box_union(first, second) == pytest.approx(
+        {"xmin": 167.8, "ymin": 40.0, "xmax": 270.0, "ymax": 80.4})
+
+
+def test_the_union_goes_the_shorter_way_round():
+    """0..170 and -170..-5: -170..170 (340°), not 0..355."""
+    first = {"xmin": 0.0, "ymin": 0.0, "xmax": 170.0, "ymax": 10.0}
+    second = {"xmin": -170.0, "ymin": 0.0, "xmax": -5.0, "ymax": 10.0}
+    assert common.box_union(first, second) == {"xmin": -170.0, "ymin": 0.0, "xmax": 170.0, "ymax": 10.0}
+
+
+def test_a_union_a_turn_wide_is_the_globe():
+    """0..200 and -170..10 (190..370 in the first's frame) leave no gap."""
+    first = {"xmin": 0.0, "ymin": 0.0, "xmax": 200.0, "ymax": 10.0}
+    second = {"xmin": -170.0, "ymin": 0.0, "xmax": 10.0, "ymax": 10.0}
+    assert common.box_union(first, second) == {"xmin": -180.0, "ymin": 0.0, "xmax": 180.0, "ymax": 10.0}
+
+
+@pytest.fixture
+def boundaries_across_180(database):
+    """Countries round the antimeridian; the provider's id.
+
+    ``Chukotka`` lies on both sides of 180; ``Alaska`` has a part in the box and a
+    far one at 80-70 W that the box leaves out; ``Faraway`` is in Europe.
+    """
+    with Session(database) as session:
+        provider = DataProvider(name=ocha.PROVIDER_NAME, product=ocha.PROVIDER_PRODUCT,
+                                full_name="OCHA")
+        session.add(provider)
+        session.flush()
+        for code, wkt in (
+                ("Chukotka", "MULTIPOLYGON(((170 60, 180 60, 180 70, 170 70, 170 60)),"
+                             "((-180 60, -169 60, -169 70, -180 70, -180 60)))"),
+                ("Alaska", "MULTIPOLYGON(((-168 55, -141 55, -141 71, -168 71, -168 55)),"
+                           "((-80 30, -70 30, -70 40, -80 40, -80 30)))"),
+                ("Faraway", "MULTIPOLYGON(((10 40, 20 40, 20 50, 10 50, 10 40)))")):
+            session.add(AdminBoundary(data_provider_id=provider.id, source_id=code, level=0,
+                                      name=code, geometry=f"SRID=4326;{wkt}"))
+        session.commit()
+        return provider.id
+
+
+def extent_per_country(connection) -> dict[str, tuple[float, float, int]]:
+    """Per country in the pieces: its least and greatest longitude, and its pieces."""
+    rows = connection.execute(text(
+        f"SELECT b.name, min(ST_XMin(p.geometry)), max(ST_XMax(p.geometry)), count(*) "
+        f"FROM {TABLE} p JOIN admin_boundary b ON b.id = p.admin_boundary_id GROUP BY b.name"))
+    return {name: (west, east, pieces) for name, west, east, pieces in rows}
+
+
+def test_the_pieces_across_180_are_clipped_on_both_sides(database, boundaries_across_180):
+    box = common.clipping_box(ACROSS, [], 1.0)
+    with database.connect() as connection, connection.begin():
+        assert common.ensure_boundary_pieces(connection, TABLE, boundaries_across_180, box, log)
+        extents = extent_per_country(connection)
+        east_side, west_side = connection.execute(text(
+            f"SELECT count(*) FILTER (WHERE ST_XMin(p.geometry) >= 170), "
+            f"count(*) FILTER (WHERE ST_XMax(p.geometry) <= -169) "
+            f"FROM {TABLE} p JOIN admin_boundary b ON b.id = p.admin_boundary_id "
+            f"WHERE b.name = 'Chukotka'")).one()
+    assert set(extents) == {"Alaska", "Chukotka"}
+    assert (east_side, west_side) == (1, 1)
+    # Alaska's far part, at 80-70 W, is past the box's east edge (95.9 W).
+    assert extents["Alaska"][:2] == (-168.0, -141.0)
+
+
+def test_a_stroke_either_side_of_180_finds_its_country(database, boundaries_across_180):
+    box = common.clipping_box(ACROSS, [], 1.0)
+    with database.connect() as connection, connection.begin():
+        common.ensure_boundary_pieces(connection, TABLE, boundaries_across_180, box, log)
+        found = connection.execute(text(
+            f"SELECT point.longitude, b.name FROM (VALUES (175.0), (-175.0), (-150.0)) "
+            f"AS point (longitude) "
+            f"JOIN {TABLE} p ON ST_Intersects(p.geometry, ST_SetSRID(ST_MakePoint(point.longitude, 65), 4326)) "
+            f"JOIN admin_boundary b ON b.id = p.admin_boundary_id ORDER BY point.longitude")).all()
+    assert [tuple(row) for row in found] == [(-175.0, "Chukotka"), (-150.0, "Alaska"),
+                                            (175.0, "Chukotka")]
+
+
+def test_the_pieces_across_180_are_reused_for_a_box_in_the_other_frame(database,
+                                                                        boundaries_across_180):
+    with database.connect() as connection, connection.begin():
+        assert common.ensure_boundary_pieces(
+            connection, TABLE, boundaries_across_180, common.clipping_box(ACROSS, [], 1.0), log)
+        other_frame = {"xmin": -175.0, "ymin": 55.0, "xmax": -150.0, "ymax": 70.0}
+        assert not common.ensure_boundary_pieces(
+            connection, TABLE, boundaries_across_180, other_frame, log)
+
+
+def test_the_pieces_are_cut_again_over_a_union_across_180(database, boundaries_across_180):
+    """First a box from 170 E to 160 W, then strokes at 120 W: cut again over 169..241."""
+    with database.connect() as connection, connection.begin():
+        common.ensure_boundary_pieces(connection, TABLE, boundaries_across_180,
+                                      common.clipping_box((170.0, 55.0, 200.0, 70.0), [], 1.0), log)
+        assert set(extent_per_country(connection)) == {"Alaska", "Chukotka"}
+        further = common.clipping_box((170.0, 55.0, 200.0, 70.0), [Point(-120.0, 60.0)], 1.0)
+        assert common.ensure_boundary_pieces(connection, TABLE, boundaries_across_180, further, log)
+        stored = connection.execute(text(f"SELECT west, south, east, north FROM {TABLE}_box")).one()
+        extents = extent_per_country(connection)
+    assert tuple(stored) == pytest.approx((169.0, 54.0, 241.0, 71.0))
+    # Before, Alaska was cut at the box's edge, 159 W; now it is whole up to 141 W.
+    assert extents["Alaska"][1] == -141.0

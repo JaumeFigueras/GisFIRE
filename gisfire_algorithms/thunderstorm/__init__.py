@@ -3,6 +3,8 @@
 """Grouping of lightning into thunderstorms.
 
 - :mod:`.flashes`: strokes and flashes, the input of the flash-based algorithms.
+- :mod:`.flash_grouping`: strokes grouped into flashes (NLDN rule), for networks
+  that publish strokes only.
 - :mod:`.cell_statistics`: area (Tuomi & Larjavaara 2005, appendix), lifetime,
   flash rate and density of a group of flashes.
 - :mod:`.chunking`: split a time-ordered sequence at quiet gaps.
@@ -20,6 +22,8 @@ from .cellsearch_tuomi_larjavaara import CellsearchResult
 from .cellsearch_tuomi_larjavaara import cellsearch
 from .cellsearch_tuomi_larjavaara import merge_summaries
 from .chunking import split_at_gaps
+from .flash_grouping import FlashGroupingParameters
+from .flash_grouping import group_strokes
 from .flashes import Flashes
 from .flashes import Strokes
 from .flashes import discard_by_error
@@ -30,6 +34,7 @@ __all__ = [
     "CellsearchCancelled",
     "CellsearchParameters",
     "CellsearchResult",
+    "FlashGroupingParameters",
     "Flashes",
     "Strokes",
     "cell_area_km2",
@@ -37,6 +42,7 @@ __all__ = [
     "density_per_100km2",
     "discard_by_error",
     "flash_rate_per_min",
+    "group_strokes",
     "lifetime_min",
     "merge_summaries",
     "split_at_gaps",

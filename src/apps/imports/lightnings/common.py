@@ -37,12 +37,23 @@ each. A period whose strokes reach outside the box already cut gets the pieces
 cut again over the larger box, so no stroke can lose its country to the
 clipping. The margin keeps the clipping's edge, where ``ST_ClipByBox2D`` may
 leave invalid rings, away from every stroke.
+
+A box may cross the antimeridian: the Alaska network's strokes run from 168.8 E
+to 97.0 W. Taking the least and greatest longitude would then give a box round
+the whole globe — cutting the United States, Canada and Russia whole again — so
+a box is kept in its **area's own longitude frame**: the area is written past
+180 when it crosses it (``alaska_uswfs.NETWORK_AREA`` ends at 263.1, which is
+96.9 W), each stroke's longitude is moved by 360° to the side of the area's
+centre, and the box is clipped with two envelopes, one each side of 180°, when it
+crosses. MeteoCat's and FMI's areas are far from 180°, so for them nothing
+changes.
 """
 
 from __future__ import annotations
 
 import datetime
 import logging
+import math
 
 from collections.abc import Iterable
 from dataclasses import dataclass
@@ -170,26 +181,32 @@ def holding_experiments(connection: Connection, provider_id: int, start: str,
 #: How finely the boundaries are cut before the lookup (the PostGIS recipe).
 SUBDIVIDE_VERTICES = 256
 
-#: The pieces: the OCHA level-0 boundaries whose box touches the clipping box,
-#: clipped to it and cut. A temporary table of the session, not of the
-#: transaction, so a run's periods share it. With no boundary provider
-#: ``:boundary_provider_id`` is NULL and the table is empty.
+#: The pieces: the OCHA level-0 boundaries whose box touches an envelope of the
+#: clipping box, clipped to it and cut; ``{envelopes}`` is one ``ST_MakeEnvelope``
+#: per envelope (:func:`envelopes`: two when the box crosses the antimeridian). A
+#: temporary table of the session, not of the transaction, so a run's periods share
+#: it. With no boundary provider ``:boundary_provider_id`` is NULL and the table is
+#: empty.
 CREATE_PIECES_SQL = """
 CREATE TEMPORARY TABLE {table} AS
 SELECT clipped.admin_boundary_id,
        ST_Subdivide(clipped.geometry, {vertices}) AS geometry
 FROM (SELECT boundary.id AS admin_boundary_id,
-             ST_ClipByBox2D(boundary.geometry,
-                            ST_MakeEnvelope(:xmin, :ymin, :xmax, :ymax, 4326)) AS geometry
+             ST_ClipByBox2D(boundary.geometry, envelope.geometry) AS geometry
       FROM admin_boundary AS boundary
+      JOIN (VALUES {envelopes}) AS envelope (geometry)
+        ON boundary.geometry && envelope.geometry
       WHERE boundary.level = 0
-        AND boundary.data_provider_id = :boundary_provider_id
-        AND boundary.geometry && ST_MakeEnvelope(:xmin, :ymin, :xmax, :ymax, 4326)) AS clipped
+        AND boundary.data_provider_id = :boundary_provider_id) AS clipped
 WHERE NOT ST_IsEmpty(clipped.geometry)
 """
 
-#: The box the pieces were cut for, beside them, in the same transaction. Its
-#: columns are not ``xmin``/``xmax``: those are PostgreSQL system column names.
+#: One envelope of :data:`CREATE_PIECES_SQL`, its binds numbered.
+ENVELOPE_SQL = "(ST_MakeEnvelope(:west_{n}, :south_{n}, :east_{n}, :north_{n}, 4326))"
+
+#: The box the pieces were cut for, beside them, in the same transaction, in its
+#: own longitude frame. Its columns are not ``xmin``/``xmax``: those are PostgreSQL
+#: system column names.
 CREATE_PIECES_BOX_SQL = """
 CREATE TEMPORARY TABLE {table}_box AS
 SELECT CAST(:xmin AS double precision) AS west, CAST(:ymin AS double precision) AS south,
@@ -197,19 +214,74 @@ SELECT CAST(:xmin AS double precision) AS west, CAST(:ymin AS double precision) 
 """
 
 
+def _turns(longitude: float, centre: float) -> float:
+    """The multiple of 360° that brings ``longitude`` within half a turn of ``centre``."""
+    return 360.0 * math.floor((centre - longitude) / 360.0 + 0.5)
+
+
 def clipping_box(area: tuple[float, float, float, float], records: Iterable,
                  margin: float) -> dict[str, float]:
     """The box strokes can fall in: ``area`` joined with the records' extent, plus ``margin``.
 
-    ``area`` is ``(west, south, east, north)``; the records need ``longitude`` and
-    ``latitude``. The result is what :data:`CREATE_PIECES_SQL` binds.
+    ``area`` is ``(west, south, east, north)``, with ``east`` past 180 when the area
+    crosses the antimeridian; the records need ``longitude`` and ``latitude``. The
+    box is in the area's longitude frame: a record's longitude is moved by 360° to
+    the side of the area's centre, so a stroke at 170 W joins an area of 168..263
+    as 190. A box a turn wide or wider is the whole globe, -180..180.
     """
     west, south, east, north = area
+    centre = (west + east) / 2.0
     for record in records:
-        west, east = min(west, record.longitude), max(east, record.longitude)
+        longitude = record.longitude + _turns(record.longitude, centre)
+        west, east = min(west, longitude), max(east, longitude)
         south, north = min(south, record.latitude), max(north, record.latitude)
-    return {"xmin": max(west - margin, -180.0), "ymin": max(south - margin, -90.0),
-            "xmax": min(east + margin, 180.0), "ymax": min(north + margin, 90.0)}
+    west, east = west - margin, east + margin
+    if east - west >= 360.0:
+        west, east = -180.0, 180.0
+    return {"xmin": west, "ymin": max(south - margin, -90.0),
+            "xmax": east, "ymax": min(north + margin, 90.0)}
+
+
+def envelopes(box: dict[str, float]) -> list[tuple[float, float, float, float]]:
+    """``box`` as ``(west, south, east, north)`` envelopes within -180..180.
+
+    One, or two when the box crosses the antimeridian: from its west edge to 180,
+    and from -180 to its east edge.
+    """
+    west, east, south, north = box["xmin"], box["xmax"], box["ymin"], box["ymax"]
+    if east - west >= 360.0:
+        return [(-180.0, south, 180.0, north)]
+    shift = 360.0 * math.floor((west + 180.0) / 360.0)
+    west, east = west - shift, east - shift
+    if east <= 180.0:
+        return [(west, south, east, north)]
+    return [(west, south, 180.0, north), (-180.0, south, east - 360.0, north)]
+
+
+def _aligned(box: dict[str, float], reference: dict[str, float]) -> dict[str, float]:
+    """``box`` moved by whole turns so its centre is within half a turn of ``reference``'s."""
+    shift = _turns((box["xmin"] + box["xmax"]) / 2.0, (reference["xmin"] + reference["xmax"]) / 2.0)
+    return {**box, "xmin": box["xmin"] + shift, "xmax": box["xmax"] + shift}
+
+
+def box_holds(outer: dict[str, float], inner: dict[str, float]) -> bool:
+    """Whether ``outer`` holds ``inner``, whichever longitude frame each is in."""
+    if not (outer["ymin"] <= inner["ymin"] and inner["ymax"] <= outer["ymax"]):
+        return False
+    if outer["xmax"] - outer["xmin"] >= 360.0:
+        return True
+    inner = _aligned(inner, outer)
+    return outer["xmin"] <= inner["xmin"] and inner["xmax"] <= outer["xmax"]
+
+
+def box_union(first: dict[str, float], second: dict[str, float]) -> dict[str, float]:
+    """The smallest box holding both, in ``first``'s longitude frame."""
+    second = _aligned(second, first)
+    west, east = min(first["xmin"], second["xmin"]), max(first["xmax"], second["xmax"])
+    if east - west >= 360.0:
+        west, east = -180.0, 180.0
+    return {"xmin": west, "ymin": min(first["ymin"], second["ymin"]),
+            "xmax": east, "ymax": max(first["ymax"], second["ymax"])}
 
 
 def pieces_exist(connection: Connection, table: str) -> bool:
@@ -227,20 +299,26 @@ def ensure_boundary_pieces(connection: Connection, table: str,
     Run inside a period's transaction: if it is rolled back, the pieces go with
     it and the next period cuts them again; once committed, they stay for the
     session. Pieces cut for a box that does not hold ``box`` are cut again, over
-    both boxes together.
+    both boxes together. A box crossing the antimeridian is clipped with two
+    envelopes (:func:`envelopes`).
     """
     if pieces_exist(connection, table):
-        built = connection.execute(text(f"SELECT west, south, east, north FROM {table}_box")).one()
-        if (built.west <= box["xmin"] and built.south <= box["ymin"]
-                and built.east >= box["xmax"] and built.north >= box["ymax"]):
+        row = connection.execute(text(f"SELECT west, south, east, north FROM {table}_box")).one()
+        built = {"xmin": row.west, "ymin": row.south, "xmax": row.east, "ymax": row.north}
+        if box_holds(built, box):
             return False
-        box = {"xmin": min(built.west, box["xmin"]), "ymin": min(built.south, box["ymin"]),
-               "xmax": max(built.east, box["xmax"]), "ymax": max(built.north, box["ymax"])}
+        box = box_union(built, box)
         drop_boundary_pieces(connection, table)
     logger = log.logger if isinstance(log, logging.LoggerAdapter) else log
+    parts = envelopes(box)
+    binds: dict[str, float | int | None] = {"boundary_provider_id": boundary_provider_id}
+    for n, (west, south, east, north) in enumerate(parts):
+        binds.update({f"west_{n}": west, f"south_{n}": south, f"east_{n}": east, f"north_{n}": north})
+    sql = CREATE_PIECES_SQL.format(
+        table=table, vertices=SUBDIVIDE_VERTICES,
+        envelopes=", ".join(ENVELOPE_SQL.format(n=n) for n in range(len(parts))))
     with Spinner("Cutting the boundaries the strokes can fall in (once per run)", logger):
-        connection.execute(text(CREATE_PIECES_SQL.format(table=table, vertices=SUBDIVIDE_VERTICES)),
-                           {"boundary_provider_id": boundary_provider_id, **box})
+        connection.execute(text(sql), binds)
         connection.execute(text(f"CREATE INDEX ON {table} USING gist (geometry)"))
         connection.execute(text(f"ANALYZE {table}"))
         connection.execute(text(CREATE_PIECES_BOX_SQL.format(table=table)), box)
