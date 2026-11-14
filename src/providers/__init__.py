@@ -66,3 +66,5 @@ from src.providers.new_zealand_wod.weather import WodWeather  # noqa: E402,F401
 from src.providers.south_korea_kfs.wildfire import KfsWildfire  # noqa: E402,F401
 from src.providers.catalonia_meteocat.lightning import MeteocatLightning  # noqa: E402,F401
 from src.providers.finland_fmi.lightning import FmiLightning  # noqa: E402,F401
+# Also attaches a partial index to ``lightning`` (the projected point of its views).
+from src.providers.alaska_uswfs.lightning import AlaskaUswfsLightning  # noqa: E402,F401

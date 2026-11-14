@@ -144,6 +144,8 @@ View                                            Flattens                        
 ``v_fmi_lightning_4326``                        ``lightning`` + ``fmi_lightning``           ``POINT``, 4326
 ``v_fmi_lightning_4258``                        ``lightning`` + ``fmi_lightning``           ``POINT``, 4258
 ``v_fmi_lightning_3067``                        ``lightning`` + ``fmi_lightning``           ``POINT``, 3067
+``v_alaska_uswfs_lightning_4326``               ``lightning`` + ``alaska_uswfs_lightning``  ``POINT``, 4326
+``v_alaska_uswfs_lightning_3338``               ``lightning`` + ``alaska_uswfs_lightning``  ``POINT``, 3338
 ``v_thunderstorm``                              ``thunderstorm`` + run                      ``POLYGON``, 4326
 ``v_thunderstorm_25831``                        ``thunderstorm`` + run                      ``POLYGON``, 25831
 ``v_thunderstorm_3067``                         ``thunderstorm`` + run                      ``POLYGON``, 3067
@@ -254,6 +256,18 @@ FMI's lightning strokes get the same three views, built the same way (revision
 (EPSG:3067), Finland's national grid, computed, cast back to ``geometry(Point,3067)`` and
 backed by the expression index ``idx_fmi_lightning_geometry_3067`` of revision
 ``fe72ef3ef7c8``.
+
+The Alaska Lightning Detection Network's strokes (USWFS) get **two** views (revision
+``fdc1d32daef2``): the release is in WGS 84, so the EPSG:4326 point *is* the one
+published and there is no third view for it. The other is NAD83 / Alaska Albers
+(EPSG:3338), computed and cast back to ``geometry(Point,3338)`` like the two above. The
+point it reprojects lives on ``lightning``, not on ``alaska_uswfs_lightning``, so its
+expression index, ``idx_lightning_alaska_uswfs_geometry_3338`` (revision
+``a686e4263b1c``), is on ``lightning`` too, and **partial** — ``WHERE type =
+'alaska_uswfs_lightning'`` — so it does not index every other provider's strokes. The
+planner takes a partial index only when the query implies its condition, and the join
+does not, so both views also filter on ``lightning.type``; the expression, the filter and
+the index change together, and ``test/test_migrations.py`` checks the 3338 view uses it.
 
 Thunderstorms get **twenty-seven** views: nine layers, each in EPSG:4326, in ETRS89 /
 UTM 31N (EPSG:25831), the grid of MeteoCat, and in ETRS89 / TM35FIN (EPSG:3067), the

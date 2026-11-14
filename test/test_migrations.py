@@ -126,6 +126,12 @@ VIEWS = {
     "v_fmi_lightning_4326": ("geometry", "POINT", 4326),
     "v_fmi_lightning_4258": ("geometry", "POINT", 4258),
     "v_fmi_lightning_3067": ("geometry", "POINT", 3067),
+    # The Alaska network's strokes (USWFS): two views, not three — the release is in
+    # WGS 84, so the 4326 point is the one published. The 3338 one (NAD83 / Alaska
+    # Albers) is computed, cast back and backed by a *partial* expression index on
+    # ``lightning``, where the point lives. See revision fdc1d32daef2.
+    "v_alaska_uswfs_lightning_4326": ("geometry", "POINT", 4326),
+    "v_alaska_uswfs_lightning_3338": ("geometry", "POINT", 3338),
     # Thunderstorms, inferred from the strokes: seven layers, each in EPSG:4326 and
     # in UTM 31N. Only the 4326 concave hulls and centres are selected straight from
     # a table; every other geometry is computed and cast back. See revision
@@ -673,6 +679,107 @@ def test_the_fmi_lightning_checks_are_migrated(alembic_config):
 
     assert migrated == expected
     assert len(expected) == 11
+
+
+def test_the_alaska_uswfs_lightning_views_flatten_a_stroke(alembic_config):
+    """One stroke, inserted across its two tables, comes back whole in both views.
+
+    The 3338 view computes its point, so it is the one that can be wrong: the stroke
+    has to arrive on Alaska Albers, not with its degrees relabelled.
+    """
+    config, url = alembic_config
+    upgrade(config, "head")
+
+    engine = create_engine(url)
+    with engine.begin() as connection:
+        provider_id = connection.execute(text(
+            "INSERT INTO data_provider (name, product, full_name) "
+            "VALUES ('USWFS', 'ALDN', 'U.S. Wildland Fire Service, Alaska Geographic Area') "
+            "RETURNING id")).scalar()
+        stroke_id = connection.execute(text(
+            "INSERT INTO lightning (type, data_provider_id, date_time, geometry, peak_current, "
+            "cloud_to_ground) VALUES ('alaska_uswfs_lightning', :provider_id, "
+            "'2025-07-01T22:42:58.009Z', ST_GeomFromText('POINT(-141.6709543 65.3145394)', 4326), "
+            "-17.1, true) RETURNING id"), {"provider_id": provider_id}).scalar()
+        connection.execute(text(
+            "INSERT INTO alaska_uswfs_lightning (id, flash_id, multiplicity, stroke_index, "
+            "network_code, sequence_number, gdop, ellipse_semi_major_axis, "
+            "ellipse_semi_minor_axis, ellipse_angle) "
+            "VALUES (:id, :id, 3, 1, 0, 53586, 3, 3000, 1000, 72)"), {"id": stroke_id})
+
+    with engine.connect() as connection:
+        rows = {
+            view: connection.execute(text(
+                f"SELECT id, flash_id, multiplicity, stroke_index, peak_current, "
+                f"network_code, sequence_number, gdop, ellipse_semi_major_axis, "
+                f"ellipse_semi_minor_axis, ellipse_angle, data_provider_name, "
+                f"data_provider_product, admin_boundary_name, date_time, "
+                f"ST_SRID(geometry) AS srid, ST_X(geometry) AS x, ST_Y(geometry) AS y "
+                f"FROM {view}")).one()
+            for view in ("v_alaska_uswfs_lightning_4326", "v_alaska_uswfs_lightning_3338")
+        }
+    engine.dispose()
+
+    for row in rows.values():
+        assert (row.id, row.flash_id, row.multiplicity, row.stroke_index) == (stroke_id, stroke_id, 3, 1)
+        assert (row.peak_current, row.network_code, row.sequence_number, row.gdop) == (-17.1, 0, 53586, 3)
+        assert (row.ellipse_semi_major_axis, row.ellipse_semi_minor_axis, row.ellipse_angle) == \
+            (3000, 1000, 72)
+        assert (row.data_provider_name, row.data_provider_product) == ("USWFS", "ALDN")
+        # LEFT JOIN: a stroke at sea has no boundary and must not vanish.
+        assert row.admin_boundary_name is None
+        assert row.date_time == datetime.datetime(2025, 7, 1, 22, 42, 58, 9000,
+                                                  tzinfo=datetime.timezone.utc)
+    assert [rows[v].srid for v in sorted(rows)] == [3338, 4326]
+    assert (rows["v_alaska_uswfs_lightning_4326"].x, rows["v_alaska_uswfs_lightning_4326"].y) == \
+        (-141.6709543, 65.3145394)
+    # Near the Alaska-Yukon border on Alaska Albers: about 572 km east, 1,759 km north.
+    projected = rows["v_alaska_uswfs_lightning_3338"]
+    assert 571_000 < projected.x < 573_000
+    assert 1_758_000 < projected.y < 1_761_000
+
+
+def test_the_alaska_uswfs_3338_view_uses_its_partial_index(alembic_config):
+    """A bounding-box filter on the computed geometry is answered from the index on
+    ``lightning`` — which the planner only takes because the view filters on the type
+    the index is restricted to."""
+    config, url = alembic_config
+    upgrade(config, "head")
+
+    engine = create_engine(url)
+    with engine.connect() as connection:
+        definition = connection.execute(text(
+            "SELECT indexdef FROM pg_indexes "
+            "WHERE indexname = 'idx_lightning_alaska_uswfs_geometry_3338'")).scalar()
+        connection.execute(text("SET enable_seqscan = off"))
+        plan = "\n".join(connection.execute(text(
+            "EXPLAIN SELECT id FROM v_alaska_uswfs_lightning_3338 WHERE geometry && "
+            "ST_MakeEnvelope(250000, 1600000, 350000, 1700000, 3338)")).scalars())
+    engine.dispose()
+
+    assert " ON public.lightning USING gist " in definition
+    assert definition.endswith("WHERE ((type)::text = 'alaska_uswfs_lightning'::text)")
+    assert "idx_lightning_alaska_uswfs_geometry_3338" in plan
+
+
+def test_the_alaska_uswfs_lightning_checks_are_migrated(alembic_config):
+    """``compare_metadata`` ignores CHECK constraints, so their names are compared here."""
+    from src.providers.alaska_uswfs.lightning import AlaskaUswfsLightning
+
+    config, url = alembic_config
+    upgrade(config, "head")
+
+    expected = {constraint.name for constraint in AlaskaUswfsLightning.__table__.constraints
+                if constraint.__class__.__name__ == "CheckConstraint"}
+    engine = create_engine(url)
+    with engine.connect() as connection:
+        migrated = set(connection.execute(text(
+            "SELECT conname FROM pg_constraint WHERE contype = 'c' "
+            "AND conrelid = 'alaska_uswfs_lightning'::regclass")).scalars())
+    engine.dispose()
+
+    assert migrated == expected
+    assert len(expected) == 9
 
 
 @pytest.mark.parametrize("table", ["wod_terrain", "wod_weather"])
