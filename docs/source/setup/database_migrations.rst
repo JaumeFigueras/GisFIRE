@@ -146,22 +146,31 @@ View                                            Flattens                        
 ``v_fmi_lightning_3067``                        ``lightning`` + ``fmi_lightning``           ``POINT``, 3067
 ``v_thunderstorm``                              ``thunderstorm`` + run                      ``POLYGON``, 4326
 ``v_thunderstorm_25831``                        ``thunderstorm`` + run                      ``POLYGON``, 25831
+``v_thunderstorm_3067``                         ``thunderstorm`` + run                      ``POLYGON``, 3067
 ``v_thunderstorm_convex_hull``                  ``thunderstorm`` + run                      ``POLYGON``, 4326
 ``v_thunderstorm_convex_hull_25831``            ``thunderstorm`` + run                      ``POLYGON``, 25831
+``v_thunderstorm_convex_hull_3067``             ``thunderstorm`` + run                      ``POLYGON``, 3067
 ``v_thunderstorm_evolution``                    ``thunderstorm_evolution`` + run            ``POINT``, 4326
 ``v_thunderstorm_evolution_25831``              ``thunderstorm_evolution`` + run            ``POINT``, 25831
+``v_thunderstorm_evolution_3067``               ``thunderstorm_evolution`` + run            ``POINT``, 3067
 ``v_thunderstorm_evolution_hull``               ``thunderstorm_evolution`` + run            ``POLYGON``, 4326
 ``v_thunderstorm_evolution_hull_25831``         ``thunderstorm_evolution`` + run            ``POLYGON``, 25831
+``v_thunderstorm_evolution_hull_3067``          ``thunderstorm_evolution`` + run            ``POLYGON``, 3067
 ``v_thunderstorm_evolution_convex_hull``        ``thunderstorm_evolution`` + run            ``POLYGON``, 4326
 ``v_thunderstorm_evolution_convex_hull_25831``  ``thunderstorm_evolution`` + run            ``POLYGON``, 25831
+``v_thunderstorm_evolution_convex_hull_3067``   ``thunderstorm_evolution`` + run            ``POLYGON``, 3067
 ``v_thunderstorm_vector``                       ``thunderstorm_evolution`` + run            ``LINESTRING``, 4326
 ``v_thunderstorm_vector_25831``                 ``thunderstorm_evolution`` + run            ``LINESTRING``, 25831
+``v_thunderstorm_vector_3067``                  ``thunderstorm_evolution`` + run            ``LINESTRING``, 3067
 ``v_thunderstorm_path``                         ``thunderstorm_evolution`` + run            ``LINESTRING``, 4326
 ``v_thunderstorm_path_25831``                   ``thunderstorm_evolution`` + run            ``LINESTRING``, 25831
+``v_thunderstorm_path_3067``                    ``thunderstorm_evolution`` + run            ``LINESTRING``, 3067
 ``v_thunderstorm_cellsearch_centre``            ``thunderstorm_cellsearch_flash`` + run     ``POINT``, 4326
 ``v_thunderstorm_cellsearch_centre_25831``      ``thunderstorm_cellsearch_flash`` + run     ``POINT``, 25831
+``v_thunderstorm_cellsearch_centre_3067``       ``thunderstorm_cellsearch_flash`` + run     ``POINT``, 3067
 ``v_thunderstorm_cellsearch_path``              ``thunderstorm_cellsearch_flash`` + run     ``LINESTRING``, 4326
 ``v_thunderstorm_cellsearch_path_25831``        ``thunderstorm_cellsearch_flash`` + run     ``LINESTRING``, 25831
+``v_thunderstorm_cellsearch_path_3067``         ``thunderstorm_cellsearch_flash`` + run     ``LINESTRING``, 3067
 ==============================================  ==========================================  =======================
 
 Portugal, Catalonia, Andalusia and Canada each appear twice, because a QGIS layer takes a
@@ -246,8 +255,10 @@ FMI's lightning strokes get the same three views, built the same way (revision
 backed by the expression index ``idx_fmi_lightning_geometry_3067`` of revision
 ``fe72ef3ef7c8``.
 
-Thunderstorms get **eighteen** views: nine layers, each in EPSG:4326 and in ETRS89 /
-UTM 31N (EPSG:25831), the grid of MeteoCat, the first lightning provider. "Run" in the table
+Thunderstorms get **twenty-seven** views: nine layers, each in EPSG:4326, in ETRS89 /
+UTM 31N (EPSG:25831), the grid of MeteoCat, and in ETRS89 / TM35FIN (EPSG:3067), the
+grid of FMI (revision ``5353369ebdc8``, the same SQL as the 25831 ones). Every layer
+shows every run, whichever provider it was built from. "Run" in the table
 is the experiment — and, for the window layers, the tracking — the rows belong to; see
 :doc:`../data_model/thunderstorm`. A view takes one geometry, so the concave and the
 convex hull of a storm are two layers, and so are a window's centre and its hulls:

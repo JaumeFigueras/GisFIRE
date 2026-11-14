@@ -41,6 +41,9 @@ Usage
     without its unit, ``attraction_radius_km`` becoming ``--attraction-radius KM``, with
     the field's type and default. A flag left out takes its default, and the experiment
     stores every parameter, defaults included. ``--algorithm NAME --help`` lists them.
+    One default comes from the **provider**, not the algorithm: ``--srid``, the projected
+    CRS the algorithm works in, is the provider's own grid when not given — EPSG:25831
+    (ETRS89 / UTM 31N) for MeteoCat, EPSG:3067 (ETRS89 / TM35FIN) for FMI.
 ``--dry-run``
     Does everything — reads, clusters, writes — in one transaction and rolls it back, and
     logs what it would have stored. It still connects, and still refuses a configuration
@@ -52,7 +55,8 @@ Usage
 Settings are read from the environment (``.env``, see :doc:`../setup/configuration`) and
 each can be overridden with ``--db-host``, ``--db-port``, ``--db-name``, ``--db-user``
 and ``--db-password``. The database must be at revision ``e7147a41b62b`` or later
-(``make migrate``); the run stops before anything else if a table is missing.
+(``5353369ebdc8`` for FMI's strokes and the ``_3067`` views; ``make migrate``); the run
+stops before anything else if a table is missing.
 
 What it does
 ------------
@@ -78,6 +82,25 @@ For MeteoCat:
   a network's strokes are **dropped from the first stroke of any newer network on**.
   That instant is read from the database, not from the run window, so September 2009
   is version 2 only whichever period is asked for.
+
+For FMI:
+
+- the **flash** is ``flash_id`` alone: FMI numbers its flashes in one sequence since
+  1998;
+- the **location error** is ``ellipse_major_axis`` in metres (FMI publishes kilometres;
+  the import converts them);
+- the **coordinates** are the ETRS89 point projected to the algorithm's CRS — for
+  EPSG:3067, exactly the expression of the indexed ``v_fmi_lightning_3067``;
+- there is no filter, ``lightning_filter = {}``: one network;
+- the times are **whole seconds**, so many strokes share one; the ``id`` that breaks
+  those ties follows the import's content order, so a month imported again is read, and
+  clustered, the same way.
+
+FMI's location errors have a heavier tail than MeteoCat's: over 2018, the default E_max
+of 10 km discards 3.9 % of FMI's flashes (in Finland as elsewhere), against 0.7 % on
+MeteoCat's regression day. Neither provider says whether its "major axis" is a whole axis
+or a semi-axis, nor its confidence level; choose ``--max-location-error`` for FMI with
+that in mind.
 
 Every stroke is read: the database holds only cloud-to-ground strokes, and there is no
 polarity filter.
@@ -202,8 +225,8 @@ A run's thunderstorms are the ``v_thunderstorm`` (concave hull) and
 ``v_thunderstorm_convex_hull`` layers, with each storm's flashes, area and density; a
 Cellsearch run adds ``v_thunderstorm_cellsearch_centre`` (the centre after each flash)
 and ``v_thunderstorm_cellsearch_path`` (one line per cell, with its lifetime and flash
-rate). Each comes in EPSG:4326 and in EPSG:25831 (``_25831``), and shows complete runs
-only. Filter on ``experiment_id`` to look at one run; see :ref:`migrations-views`.
+rate). Each comes in EPSG:4326, in EPSG:25831 (``_25831``) and in EPSG:3067
+(``_3067``), whatever the run's provider, and shows complete runs only. Filter on ``experiment_id`` to look at one run; see :ref:`migrations-views`.
 
 API reference
 -------------

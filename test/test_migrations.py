@@ -150,6 +150,17 @@ VIEWS = {
     "v_thunderstorm_cellsearch_centre_25831": ("geometry", "POINT", 25831),
     "v_thunderstorm_cellsearch_path": ("geometry", "LINESTRING", 4326),
     "v_thunderstorm_cellsearch_path_25831": ("geometry", "LINESTRING", 25831),
+    # The nine thunderstorm layers again in ETRS89 / TM35FIN, FMI's grid: the
+    # same SQL as their 25831 twins. See revision 5353369ebdc8.
+    "v_thunderstorm_3067": ("geometry", "POLYGON", 3067),
+    "v_thunderstorm_convex_hull_3067": ("geometry", "POLYGON", 3067),
+    "v_thunderstorm_evolution_3067": ("geometry", "POINT", 3067),
+    "v_thunderstorm_evolution_hull_3067": ("geometry", "POLYGON", 3067),
+    "v_thunderstorm_evolution_convex_hull_3067": ("geometry", "POLYGON", 3067),
+    "v_thunderstorm_vector_3067": ("geometry", "LINESTRING", 3067),
+    "v_thunderstorm_path_3067": ("geometry", "LINESTRING", 3067),
+    "v_thunderstorm_cellsearch_centre_3067": ("geometry", "POINT", 3067),
+    "v_thunderstorm_cellsearch_path_3067": ("geometry", "LINESTRING", 3067),
 }
 
 #: Dataset views with no geometry column, loaded by QGIS as plain tables. They are
@@ -1266,10 +1277,11 @@ def test_the_thunderstorm_views_show_complete_runs_only(alembic_config, experime
     engine.dispose()
 
     for view, number in counts.items():
-        storm_level = view.startswith(("v_thunderstorm_25831", "v_thunderstorm_convex",
-                                       "v_thunderstorm_cellsearch_path")) or \
-            view == "v_thunderstorm"
-        if view.startswith("v_thunderstorm_cellsearch_centre"):
+        # The layer, whatever its CRS: v_thunderstorm_3067 is v_thunderstorm.
+        layer = view.removesuffix("_25831").removesuffix("_3067")
+        storm_level = layer in ("v_thunderstorm", "v_thunderstorm_convex_hull",
+                                "v_thunderstorm_cellsearch_path")
+        if layer == "v_thunderstorm_cellsearch_centre":
             # One row per flash; they hang off the experiment, not the tracking.
             assert number == _FLASHES * storms, view
         else:
@@ -1294,6 +1306,31 @@ def test_the_thunderstorm_25831_views_are_on_the_utm_grid(alembic_config):
     for view, (x, y) in extents.items():
         assert 380_000 < x < 420_000, view
         assert 4_530_000 < y < 4_580_000, view
+
+
+def test_the_thunderstorm_3067_views_are_the_4326_ones_on_tm35fin(alembic_config):
+    """Each 3067 view is its 4326 twin reprojected, row for row: same ids, and the
+    extent of the twin's geometries transformed to EPSG:3067."""
+    config, url = alembic_config
+    upgrade(config, "head")
+
+    engine = create_engine(url)
+    with engine.begin() as connection:
+        _a_thunderstorm_run(connection)
+    views = [view for view in VIEWS if view.startswith("v_thunderstorm") and view.endswith("_3067")]
+    with engine.connect() as connection:
+        for view in views:
+            twin = view.removesuffix("_3067")
+            ids, extent = connection.execute(text(
+                f"SELECT array_agg(id ORDER BY id), ST_Extent(geometry)::text FROM {view}")).one()
+            twin_ids, twin_extent = connection.execute(text(
+                f"SELECT array_agg(id ORDER BY id), ST_Extent(ST_Transform(geometry, 3067))::text "
+                f"FROM {twin}")).one()
+            assert ids == twin_ids and ids, view
+            assert extent == twin_extent, view
+    engine.dispose()
+
+    assert len(views) == 9
 
 
 def test_the_thunderstorm_views_show_flashes_area_and_density(alembic_config):

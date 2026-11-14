@@ -11,14 +11,16 @@ The core is tested on its own in ``test/algorithms``; what is pinned down here
 is what the adapter adds: which strokes are read, how a run is stored (cells,
 every stroke linked, centres, hull over the representative strokes, area,
 summary, status), the window truncation flags, the run's life cycle (duplicate,
-failure, dry run) and one real day of MeteoCat data. That day is not in the
-repository, since MeteoCat's data is not licensed for redistribution: its tests
-run where the files are present and are skipped elsewhere.
+failure, dry run) and two real days. MeteoCat's is not in the repository, since
+its data is not licensed for redistribution: its tests run where the files are
+present and are skipped elsewhere. FMI's is (CC BY 4.0), loaded through the FMI
+importer, and its tests always run.
 """
 
 import csv
 import dataclasses
 import datetime
+import gzip
 import hashlib
 import json
 import logging
@@ -37,11 +39,15 @@ import gisfire_algorithms
 from gisfire_algorithms.thunderstorm import CellsearchParameters
 from gisfire_algorithms.thunderstorm import Strokes
 from gisfire_algorithms.thunderstorm import cell_area_km2
+from src.apps.imports.common import ArchiveLogger
+from src.apps.imports.lightnings.finland_fmi import import_lightnings as fmi_import
+from src.apps.imports.lightnings.finland_fmi import readers as fmi_readers
 from src.apps.thunderstorms import build_thunderstorms as app
 from src.apps.thunderstorms import readers
 from src.apps.thunderstorms import writers
 from src.data_model import Base
 from src.providers import catalonia_meteocat
+from src.providers import finland_fmi
 
 UTC = datetime.timezone.utc
 
@@ -154,14 +160,14 @@ def a_storm(first_flash: int, start: datetime.datetime, count: int, *, dx: float
 
 
 def run(url: str, *extra: str, start: datetime.datetime = DAY,
-        end: datetime.datetime = NEXT_DAY) -> int:
+        end: datetime.datetime = NEXT_DAY, provider: str = "MeteoCat") -> int:
     """Run the application exactly as the command line would."""
     info = url.split("//", 1)[1]
     credentials, host_part = info.split("@", 1)
     user, _, password = credentials.partition(":")
     host_port, _, name = host_part.partition("/")
     host, _, port = host_port.partition(":")
-    argv = ["--provider", "MeteoCat", "--algorithm", ALGORITHM,
+    argv = ["--provider", provider, "--algorithm", ALGORITHM,
             "--from", start.isoformat(), "--to", end.isoformat(),
             "--db-host", host, "--db-port", port or "5432", "--db-name", name,
             "--db-user", user, "--log-level", "DEBUG"]
@@ -784,6 +790,157 @@ def test_the_reader_only_reads_its_provider(database, provider):
 
 
 # --------------------------------------------------------------------------
+# FMI: its reader, its default CRS, a run
+#
+# FMI's strokes are stored in fmi_lightning; its reader keys flashes by
+# flash_id alone and projects to EPSG:3067 unless told otherwise. A run over
+# them without --srid must work in TM35FIN, not in MeteoCat's UTM 31N.
+# --------------------------------------------------------------------------
+
+#: Where the synthetic FMI storms are, in EPSG:3067 metres (near Helsinki).
+FMI_ORIGIN = (385_000.0, 6_672_000.0)
+
+INSERT_FMI_STROKE_SQL = """
+WITH point AS (
+    SELECT ST_Transform(ST_SetSRID(ST_MakePoint(:x, :y), 3067), 4258) AS etrs89
+), parent AS (
+    INSERT INTO lightning (type, data_provider_id, date_time, geometry, peak_current,
+                           cloud_to_ground)
+    SELECT 'fmi_lightning', :provider_id, :at, ST_Transform(point.etrs89, 4326), -20.0, true
+    FROM point
+    RETURNING id
+)
+INSERT INTO fmi_lightning (id, flash_id, multiplicity, stroke_index, published_multiplicity,
+                           number_of_sensors, degrees_of_freedom, chi_squared,
+                           ellipse_major_axis, ellipse_minor_axis, ellipse_angle, rise_time,
+                           peak_to_zero_time, stroke_status, angle_indicator, signal_indicator,
+                           timing_indicator, geometry_etrs89)
+SELECT parent.id, :flash, 1, 1, 1, 4, 5, 0.5, :error, 0, 0, 5, 20, 17, 1, 0, 1, point.etrs89
+FROM parent, point
+RETURNING id
+"""
+
+
+@pytest.fixture
+def fmi_provider(database):
+    """FMI's provider row; its id."""
+    engine, _ = database
+    with engine.begin() as connection:
+        return connection.execute(text(
+            "INSERT INTO data_provider (name, product, full_name) VALUES (:n, :p, :f) RETURNING id"),
+            {"n": finland_fmi.PROVIDER_NAME, "p": finland_fmi.PROVIDER_PRODUCT,
+             "f": finland_fmi.PROVIDER_FULL_NAME}).scalar_one()
+
+
+def add_fmi_strokes(engine, provider_id: int, strokes: list[Stroke]) -> list[Stroke]:
+    """Store the strokes as FMI's, positions in metres from FMI_ORIGIN, whole seconds."""
+    with engine.begin() as connection:
+        for stroke in strokes:
+            stroke.id = connection.execute(text(INSERT_FMI_STROKE_SQL), {
+                "x": FMI_ORIGIN[0] + stroke.dx, "y": FMI_ORIGIN[1] + stroke.dy,
+                "provider_id": provider_id, "at": stroke.at.replace(microsecond=0),
+                "flash": stroke.flash, "error": stroke.error}).scalar_one()
+    return strokes
+
+
+def read_fmi(engine, provider_id, start, end, srid=3067, fetch_size=None):
+    with engine.connect() as connection:
+        return list(readers.read_fmi_strokes(connection, provider_id, start, end, srid,
+                                             fetch_size))
+
+
+def test_the_fmi_reader_is_registered_with_its_crs_and_no_filter():
+    reader = readers.READERS["FMI"]
+    assert (reader.provider_name, reader.provider_product) == (finland_fmi.PROVIDER_NAME,
+                                                               finland_fmi.PROVIDER_PRODUCT)
+    assert reader.lightning_filter == {}
+    assert reader.default_srid == 3067
+    assert readers.READERS["MeteoCat"].default_srid == 25831
+
+
+def test_the_fmi_reader_gives_metres_seconds_flash_ids_and_errors(database, fmi_provider):
+    engine, _ = database
+    stroke, = add_fmi_strokes(engine, fmi_provider, [Stroke(STORM, 1234.5, -678.9, 30645787,
+                                                             error=700.0)])
+    batch, = read_fmi(engine, fmi_provider, DAY, NEXT_DAY)
+    assert batch.ids.tolist() == [stroke.id]
+    # The flash id alone: FMI numbers its flashes in one sequence.
+    assert batch.flash_keys.tolist() == [30645787]
+    assert batch.t.tolist() == [STORM.timestamp()]
+    assert batch.x[0] == pytest.approx(FMI_ORIGIN[0] + 1234.5, abs=1e-6)
+    assert batch.y[0] == pytest.approx(FMI_ORIGIN[1] - 678.9, abs=1e-6)
+    assert batch.error.tolist() == [700.0]
+
+
+def test_the_fmi_reader_uses_the_indexed_expression_for_3067():
+    assert finland_fmi.lightning.GEOMETRY_3067.format(column="f.geometry_etrs89") in \
+        readers.fmi_strokes_sql(3067)
+    assert "ST_Transform(f.geometry_etrs89, 3035)" in readers.fmi_strokes_sql(3035)
+
+
+def test_the_fmi_reader_projects_to_another_crs(database, fmi_provider):
+    engine, _ = database
+    add_fmi_strokes(engine, fmi_provider, [Stroke(STORM, 0.0, 0.0, 1)])
+    batch, = read_fmi(engine, fmi_provider, DAY, NEXT_DAY, srid=3035)
+    expected = scalar(engine, """SELECT ST_X(ST_Transform(ST_Transform(
+        ST_SetSRID(ST_MakePoint(:x, :y), 3067), 4258), 3035))""", x=FMI_ORIGIN[0], y=FMI_ORIGIN[1])
+    assert batch.x[0] == pytest.approx(expected, abs=1e-6)
+
+
+def test_the_fmi_reader_breaks_ties_of_one_second_by_id(database, fmi_provider):
+    """Whole seconds: strokes of one second come in identifier order, in batches."""
+    engine, _ = database
+    strokes = add_fmi_strokes(engine, fmi_provider,
+                              [Stroke(STORM, 10.0 * k, 0.0, 100 + k) for k in range(5)])
+    batches = read_fmi(engine, fmi_provider, DAY, NEXT_DAY, fetch_size=2)
+    assert [len(batch) for batch in batches] == [2, 2, 1]
+    assert np.concatenate([batch.ids for batch in batches]).tolist() == [s.id for s in strokes]
+
+
+def test_the_fmi_reader_only_reads_fmi(database, provider, fmi_provider):
+    engine, _ = database
+    add_strokes(engine, provider, [Stroke(STORM, 0, 0, 1)])
+    add_fmi_strokes(engine, fmi_provider, [Stroke(STORM, 0, 0, 2)])
+    assert len(read_fmi(engine, fmi_provider, DAY, NEXT_DAY)[0]) == 1
+
+
+@pytest.mark.parametrize(("provider_name", "extra", "srid"), [
+    pytest.param("FMI", [], 3067, id="fmi-default"),
+    pytest.param("MeteoCat", [], 25831, id="meteocat-default"),
+    pytest.param("FMI", ["--srid", "3035"], 3035, id="fmi-explicit"),
+    pytest.param("MeteoCat", ["--srid", "3067"], 3067, id="meteocat-explicit"),
+])
+def test_the_srid_defaults_to_the_providers(provider_name, extra, srid):
+    args = app.parse_arguments(["--provider", provider_name, "--from", "2018-07-01", "--to",
+                                "2018-07-02", "--algorithm", ALGORITHM, *extra])
+    assert app.parameters_from(args, app.ALGORITHMS[ALGORITHM]).srid == srid
+
+
+def test_the_srid_help_names_each_providers_default():
+    help_text = " ".join(app.build_parser(ALGORITHM).format_help().split())
+    assert "(default: the provider's, FMI 3067, MeteoCat 25831)" in help_text
+
+
+def test_a_run_over_fmis_strokes_works_in_tm35fin(database, fmi_provider):
+    engine, url = database
+    add_fmi_strokes(engine, fmi_provider, a_storm(100, STORM, 6))
+    assert run(url, provider="FMI") == 0
+
+    stored = experiment(engine)
+    assert stored.status == "complete"
+    assert stored.parameters == CellsearchParameters(srid=3067).to_dict()
+    assert stored.lightning_filter == {}
+    assert stored.hull_parameters == {"ratio": 0.3, "allow_holes": False, "srid": 3067}
+    assert count(engine, "thunderstorm") == 1
+    # The hull was built in TM35FIN and stored in EPSG:4326, around the storm.
+    x, y = rows(engine, """SELECT ST_X(ST_Centroid(ST_Transform(concave_hull, 3067))),
+                                  ST_Y(ST_Centroid(ST_Transform(concave_hull, 3067)))
+                           FROM thunderstorm""")[0]
+    assert x == pytest.approx(FMI_ORIGIN[0], abs=1_000)
+    assert y == pytest.approx(FMI_ORIGIN[1], abs=1_000)
+
+
+# --------------------------------------------------------------------------
 # Regression: MeteoCat, 2020-07-13
 # --------------------------------------------------------------------------
 
@@ -890,6 +1047,18 @@ def _expected() -> dict:
         return json.load(handle)
 
 
+def assert_same_result(actual: dict, expected: dict) -> None:
+    """A run's :func:`stored_result` equals a frozen one: exactly, but for the area
+    and the last centre, which are floats computed in the database."""
+    assert actual["summary"] == expected["summary"]
+    assert len(actual["thunderstorms"]) == len(expected["thunderstorms"])
+    for got, want in zip(actual["thunderstorms"], expected["thunderstorms"]):
+        assert got["area"] == pytest.approx(want["area"], rel=1e-9)
+        assert got["last_centre"] == pytest.approx(want["last_centre"], abs=1e-9)
+        exact = {key: value for key, value in want.items() if key not in ("area", "last_centre")}
+        assert {key: got[key] for key in exact} == exact
+
+
 #: The values of C frozen, as the keys of :data:`EXPECTED`'s runs.
 LIMITS = ("None", "10", "15", "25", "50", "100", "200")
 
@@ -918,15 +1087,7 @@ def test_regression_2020_07_13(database, meteocat_2020_07_13, limit):
         None if limit == "None" else float(limit))
     with engine.connect() as connection:
         actual = stored_result(connection, stored.id)
-    expected = _expected()["runs"][limit]
-
-    assert actual["summary"] == expected["summary"]
-    assert len(actual["thunderstorms"]) == len(expected["thunderstorms"])
-    for got, want in zip(actual["thunderstorms"], expected["thunderstorms"]):
-        assert got["area"] == pytest.approx(want["area"], rel=1e-9)
-        assert got["last_centre"] == pytest.approx(want["last_centre"], abs=1e-9)
-        exact = {key: value for key, value in want.items() if key not in ("area", "last_centre")}
-        assert {key: got[key] for key in exact} == exact
+    assert_same_result(actual, _expected()["runs"][limit])
 
     summary = actual["summary"]
     assert summary["strokes_total"] == 2947
@@ -935,3 +1096,118 @@ def test_regression_2020_07_13(database, meteocat_2020_07_13, limit):
     assert count(engine, "thunderstorm_cellsearch_flash") == summary["flashes_kept"]
     assert count(engine, "thunderstorm_lightning") == sum(
         storm["number_of_lightnings"] for storm in actual["thunderstorms"])
+
+
+# --------------------------------------------------------------------------
+# Regression: FMI, 2018-07-03
+#
+# A real day that can be published (FMI open data, CC BY 4.0), so its tests
+# always run. It is loaded through the FMI importer, as a monthly file, so the
+# strokes get their identifiers in the importer's content order — the order
+# that breaks ties between strokes of the same second — exactly as they would
+# in gisfire_db. The file also holds the hour before the day, which a real
+# database has too and the look-back before the window reads.
+# --------------------------------------------------------------------------
+
+#: FMI's strokes of 2018-07-02 23:00 to 2018-07-04 00:00 UTC, as the downloader
+#: wrote them. Source: Finnish Meteorological Institute (FMI), open data, CC BY 4.0.
+FMI_DAY = Path(__file__).parents[2] / "fixtures" / "data" / "fmi_regression" / "fmi_lightning_2018-07-03.csv"
+
+#: What the seven runs of 2018-07-03 stored, written by
+#: ``test/fixtures/data/fmi_regression/freeze_cellsearch_2018-07-03.py``; see
+#: its README. Regenerate it only for a deliberate change of output, together
+#: with a bump of ``gisfire_algorithms.__version__``.
+FMI_EXPECTED = FMI_DAY.with_name("cellsearch_2018-07-03_expected.json")
+
+FMI_DAY_START = datetime.datetime(2018, 7, 3, tzinfo=UTC)
+FMI_DAY_END = FMI_DAY_START + datetime.timedelta(days=1)
+
+
+def load_fmi_day(engine, provider_id: int, directory: Path, source: Path = FMI_DAY) -> int:
+    """Import the FMI regression day with the FMI importer; how many strokes it holds.
+
+    The importer reads monthly files, so the day (``source``, the fixture by
+    default) is written to ``directory`` as the month's file first.
+    """
+    path = directory / f"{finland_fmi.FILE_STEM}_2018-07.csv.gz"
+    with gzip.open(path, "wb") as handle:
+        handle.write(source.read_bytes())
+    content = fmi_readers.read_month(path)
+    if content.problems:
+        raise RuntimeError(f"the regression day has refused rows: {content.problems[:3]}")
+    log = ArchiveLogger(logging.getLogger("fmi-regression-day"), {"archive": path.name})
+    with engine.connect() as connection:
+        fmi_import.import_month(connection, content, provider_id, None, log)
+    return len(content.records)
+
+
+@pytest.fixture
+def fmi_2018_07_03(database, fmi_provider, tmp_path):
+    """FMI's strokes of the regression day, imported."""
+    engine, _ = database
+    return load_fmi_day(engine, fmi_provider, tmp_path)
+
+
+def _fmi_expected() -> dict:
+    with FMI_EXPECTED.open() as handle:
+        return json.load(handle)
+
+
+def test_every_frozen_fmi_run_is_tested():
+    assert sorted(_fmi_expected()["runs"]) == sorted(LIMITS)
+
+
+def test_the_fmi_runs_were_frozen_with_the_current_version():
+    """A change of output comes with a version bump and a new frozen file."""
+    expected = _fmi_expected()
+    assert expected["software_version"] == gisfire_algorithms.__version__
+    assert expected["parameters_but_c"] == {
+        key: value for key, value in CellsearchParameters(srid=3067).to_dict().items()
+        if key != "time_distance_limit_min_km"}
+
+
+@pytest.mark.parametrize("limit", LIMITS)
+def test_regression_fmi_2018_07_03(database, fmi_2018_07_03, limit):
+    """A real FMI day gives exactly the frozen result for each value of C."""
+    engine, url = database
+    assert fmi_2018_07_03 == 3178
+    extra = () if limit == "None" else ("--time-distance-limit", limit)
+    assert run(url, *extra, start=FMI_DAY_START, end=FMI_DAY_END, provider="FMI") == 0
+
+    stored = experiment(engine)
+    assert stored.status == "complete"
+    assert stored.parameters["srid"] == 3067
+    assert stored.parameters["time_distance_limit_min_km"] == (
+        None if limit == "None" else float(limit))
+    with engine.connect() as connection:
+        actual = stored_result(connection, stored.id)
+    assert_same_result(actual, _fmi_expected()["runs"][limit])
+
+    summary = actual["summary"]
+    # The hour before the day is read only as look-back: a storm was going on.
+    assert summary["activity_before_start"] is True
+    assert count(engine, "thunderstorm_cellsearch_flash") == summary["flashes_kept"]
+    assert count(engine, "thunderstorm_lightning") == sum(
+        storm["number_of_lightnings"] for storm in actual["thunderstorms"])
+
+
+@pytest.mark.parametrize("limit", ["None", "50"])
+def test_the_fmi_regression_does_not_depend_on_the_order_of_the_file(database, fmi_provider,
+                                                                     tmp_path, limit):
+    """FMI returns a second's strokes in no stable order: a second download of the
+    day holds the same rows in another order, and must give the same result."""
+    import random
+
+    engine, url = database
+    header, *rows = FMI_DAY.read_text().splitlines()
+    random.Random(2018).shuffle(rows)
+    shuffled = tmp_path / "shuffled.csv"
+    shuffled.write_text("\n".join([header, *rows]) + "\n")
+    assert load_fmi_day(engine, fmi_provider, tmp_path, shuffled) == 3178
+
+    extra = () if limit == "None" else ("--time-distance-limit", limit)
+    assert run(url, *extra, start=FMI_DAY_START, end=FMI_DAY_END, provider="FMI") == 0
+    with engine.connect() as connection:
+        actual = stored_result(connection, experiment(engine).id)
+    assert_same_result(actual, _fmi_expected()["runs"][limit])
+

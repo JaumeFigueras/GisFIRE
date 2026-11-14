@@ -277,6 +277,14 @@ ALGORITHMS: dict[str, Algorithm] = {
 # The command line
 # --------------------------------------------------------------------------
 
+#: Parameters whose default depends on the provider, not on the dataclass: when
+#: the flag is not given, the value comes from the provider's reader. The CRS is
+#: one — the dataclass's 25831 is MeteoCat's grid, and an FMI run must not fall
+#: back to it. The stored configuration records the value used either way.
+PROVIDER_DEFAULTS: dict[str, Callable[[StrokeReader], Any]] = {
+    "srid": lambda reader: reader.default_srid,
+}
+
 #: Unit suffixes left out of a parameter's flag.
 UNIT_SUFFIXES = ("_min_km", "_km", "_min")
 
@@ -311,12 +319,18 @@ def add_algorithm_arguments(parser: argparse.ArgumentParser, key: str, algorithm
     group = parser.add_argument_group(f"{key} parameters")
     hints = typing.get_type_hints(algorithm.parameters)
     for field in dataclasses.fields(algorithm.parameters):
-        default = field.default
         description = algorithm.flag_help.get(field.name, field.name)
+        if field.name in PROVIDER_DEFAULTS:
+            default = None
+            shown = "the provider's, " + ", ".join(
+                f"{name} {PROVIDER_DEFAULTS[field.name](reader)}"
+                for name, reader in sorted(READERS.items()))
+        else:
+            default = shown = field.default
         group.add_argument(flag_name(field.name), dest=f"param_{field.name}",
                            type=_value_type(hints[field.name]), default=default,
                            metavar=flag_metavar(field.name),
-                           help=f"{description} (default: {default})")
+                           help=f"{description} (default: {shown})")
 
 
 def parse_instant(value: str) -> datetime.datetime:
@@ -369,9 +383,16 @@ def parse_arguments(argv: list[str] | None = None) -> argparse.Namespace:
 
 
 def parameters_from(args: argparse.Namespace, algorithm: Algorithm) -> Any:
-    """The algorithm's parameters from the flags; ``ValueError`` if invalid."""
+    """The algorithm's parameters from the flags; ``ValueError`` if invalid.
+
+    A parameter of :data:`PROVIDER_DEFAULTS` whose flag was not given takes the
+    value of ``--provider``'s reader.
+    """
     values = {field.name: getattr(args, f"param_{field.name}")
               for field in dataclasses.fields(algorithm.parameters)}
+    for name, default in PROVIDER_DEFAULTS.items():
+        if name in values and values[name] is None:
+            values[name] = default(READERS[args.provider])
     return algorithm.parameters(**values)
 
 
