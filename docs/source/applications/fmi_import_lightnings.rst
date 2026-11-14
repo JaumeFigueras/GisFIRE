@@ -92,9 +92,21 @@ than their ``published_multiplicity``, and a few have no first stroke at all.
 reprojected to EPSG:4326 on ``lightning``.
 
 **The country is resolved by spatial join** against the OCHA level-0 boundaries, cut
-with ``ST_Subdivide`` into pieces of at most 256 vertices, as for MeteoCat. Strokes at
-sea get none. Without the OCHA boundaries every stroke is stored with no country and a
-warning: import them first with :doc:`ocha_import_admin_boundaries`.
+with ``ST_Subdivide`` into pieces of at most 256 vertices. Strokes at sea get none.
+Without the OCHA boundaries every stroke is stored with no country and a warning: import
+them first with :doc:`ocha_import_admin_boundaries`.
+
+The boundaries are **clipped to FMI's served area** (joined with the strokes being
+imported, plus a degree) and **cut once per run**, into a temporary table the run's
+months share — see :mod:`src.apps.imports.lightnings.common`, which MeteoCat's import
+uses too. FMI's area takes in Norway,
+Sweden, Finland and Russia, whose OCHA polygons are millions of vertices each, and a
+bounding-box test also selects countries whose overseas territories stretch their boxes
+over it — the United States, France, the Netherlands, the United Kingdom: 23 countries
+and 32 million vertices. Cutting them whole took more than three minutes, and the first
+version of this import did it for every month, so a month of 27 strokes took three
+minutes. Clipped, it is 77 seconds, once; on 2018, every one of the 2,144,941 strokes
+gets the same country as with the whole polygons.
 
 **A month thunderstorms depend on is refused**, exactly as a year is for MeteoCat (see
 :doc:`meteocat_import_lightnings`): FMI's experiments whose period overlaps the month,
@@ -102,16 +114,19 @@ and any experiment holding one of its strokes, stop the month unless
 ``--drop-thunderstorms`` deletes them whole first, in the month's transaction.
 
 The run ends with the strokes and flashes per month and, when writing, how many found no
-country. 2018 — 2,144,941 strokes in 1,712,147 flashes — imports in about four minutes
-without boundaries (July alone, 906,338 strokes, in 19 s of reading and 80 s of
-writing), and takes about 1 GB in the database, some 505 bytes a stroke with its
-indexes:
+country. 2018 — 2,144,941 strokes in 1,712,147 flashes — imports with the OCHA
+boundaries in under eight minutes: the cut once, 77 s, then the months (July, 906,338
+strokes, in about 20 s of reading and 130 s of writing). It takes about 1 GB in the
+database, some 505 bytes a stroke with its indexes:
 
 .. code-block:: text
 
-   fmi_lightning_2018-07.csv.gz: 906338 stroke(s) read
-   fmi_lightning_2018-07.csv.gz: 2018-07: 906338 stroke(s) in 709590 flash(es), 906338 with no country
-   Imported 2144941 stroke(s) in 1712147 flash(es) over 12 month(s) in 236s
+   Cutting the boundaries of FMI's served area (once per run): done in 77s
+   fmi_lightning_2018-01.csv.gz: 2018-01: 241 stroke(s) in 215 flash(es), 112 with no country
+   ...
+   fmi_lightning_2018-07.csv.gz: writing 906,338 stroke(s): done in 130s
+   ...
+   Imported 2144941 stroke(s) in 1712147 flash(es) over 12 month(s) in 467s
 
 In QGIS the strokes are the ``v_fmi_lightning_4326``, ``v_fmi_lightning_4258`` and
 ``v_fmi_lightning_3067`` views — the same rows in three CRSs, the last on Finland's

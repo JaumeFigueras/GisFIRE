@@ -235,6 +235,35 @@ def test_strokes_on_land_get_the_country_and_at_sea_none(database, catalonia, tm
         assert stroke.admin_boundary_id == expected, stroke.peak_current
 
 
+def test_the_boundaries_are_cut_once_per_run(database, catalonia, tmp_path, monkeypatch):
+    """Cut whole for every year they took two minutes a year on the real boundaries:
+    clipped, once a run, and every year still finds its country."""
+    engine, url = database
+    built = []
+    real = app.lightning_common.ensure_boundary_pieces
+
+    def spy(*args, **kwargs):
+        built.append(real(*args, **kwargs))
+        return built[-1]
+
+    monkeypatch.setattr(app.lightning_common, "ensure_boundary_pieces", spy)
+    assert run(url, extract_2009(tmp_path), extract_2010(tmp_path)) == 0
+
+    assert built == [True, False]
+    years = {stroke.date_time.astimezone(UTC).year: stroke.admin_boundary_id
+             for stroke in strokes(engine) if stroke.admin_boundary_id is not None}
+    assert set(years) == {2009, 2010}
+
+
+def test_a_run_leaves_no_pieces_behind_in_its_session(database, catalonia, tmp_path):
+    """A pooled connection keeps its temporary tables: the run drops its pieces."""
+    engine, _ = database
+    args = app.parse_arguments(["-s", str(extract_2009(tmp_path))])
+    app.import_lightnings(args, engine, logging.getLogger("test-meteocat-pieces"))
+    with engine.connect() as connection:
+        assert not app.lightning_common.pieces_exist(connection, app.PIECES_TABLE)
+
+
 def test_without_boundaries_the_strokes_are_still_imported(database, tmp_path, caplog):
     engine, url = database
     with caplog.at_level(logging.WARNING):

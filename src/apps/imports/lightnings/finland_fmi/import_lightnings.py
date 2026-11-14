@@ -62,10 +62,23 @@ are streamed with ``COPY`` into a temporary table, numbered there, and one
 ``INSERT ... SELECT`` per table moves them across, drawing the identifiers,
 building the ETRS89 point, reprojecting it to EPSG:4326 and resolving the
 country: the OCHA level-0 boundary the point falls in, tested against the
-boundaries subdivided into pieces of at most :data:`SUBDIVIDE_VERTICES`
-vertices, as the MeteoCat import does. Strokes at sea get none; so does every
-stroke when no boundaries are imported, which is warned about and does not stop
-the import.
+boundaries subdivided into pieces of at most
+:data:`~src.apps.imports.lightnings.common.SUBDIVIDE_VERTICES` vertices.
+Strokes at sea get none; so does every stroke when no boundaries are imported,
+which is warned about and does not stop the import.
+
+The boundaries are cut **once per run**, not once per month, and **clipped to
+FMI's served area** (:data:`~src.providers.finland_fmi.SERVED_AREA`, joined with
+the month's strokes, plus :data:`EXTENT_MARGIN`) before they are cut, by
+:func:`~src.apps.imports.lightnings.common.ensure_boundary_pieces`. The area takes in Norway, Sweden,
+Finland and Russia, whose OCHA polygons are millions of vertices each, and a
+bounding-box test also picks countries whose overseas territories stretch their
+boxes over it (the United States, France, the Netherlands, the United Kingdom):
+cutting all of them whole took more than three minutes, which done for every
+month made a month of 27 strokes take three minutes. Clipped and cut once, it
+is a little over a minute for the whole run. The pieces live in a temporary
+table for the run's one connection; the margin keeps the clipping's edge, where
+``ST_ClipByBox2D`` may leave invalid rings, a degree away from any stroke.
 
 Thunderstorms built on the strokes
 ----------------------------------
@@ -90,6 +103,7 @@ import logging
 import sys
 import time
 
+from collections.abc import Iterable
 from pathlib import Path
 
 from sqlalchemy import Connection
@@ -117,10 +131,7 @@ LOG_FORMAT = "%(asctime)s %(levelname)s %(message)s"
 #: counted.
 MAX_REPORTED_PROBLEMS = 20
 
-#: How finely the boundaries are cut before the lookup, as for MeteoCat.
-SUBDIVIDE_VERTICES = 256
-
-#: Degrees added around a month's strokes when choosing the boundaries to cut.
+#: Degrees added around FMI's served area when clipping the boundaries.
 EXTENT_MARGIN = 1.0
 
 #: How far outside its month a straddling flash's stored strokes are looked for.
@@ -208,22 +219,15 @@ SELECT ordinal, id,
 FROM everything
 """
 
-#: The countries the month's strokes could fall in, cut into small pieces. With no
-#: boundary provider ``:boundary_provider_id`` is NULL and the table is empty.
-CREATE_PARTS_SQL = f"""
-CREATE TEMPORARY TABLE fmi_boundary_parts ON COMMIT DROP AS
-SELECT boundary.id AS admin_boundary_id,
-       ST_Subdivide(boundary.geometry, {SUBDIVIDE_VERTICES}) AS geometry
-FROM admin_boundary AS boundary
-WHERE boundary.level = 0
-  AND boundary.data_provider_id = :boundary_provider_id
-  AND boundary.geometry && ST_MakeEnvelope(:xmin, :ymin, :xmax, :ymax, 4326)
-"""
+#: The session's boundary pieces, cut once per run by
+#: :func:`~src.apps.imports.lightnings.common.ensure_boundary_pieces`.
+PIECES_TABLE = "fmi_boundary_parts"
 
-CREATE_PARTS_INDEX_SQL = "CREATE INDEX ON fmi_boundary_parts USING gist (geometry)"
+#: Whether this session has the pieces.
+PARTS_EXIST_SQL = f"SELECT to_regclass('pg_temp.{PIECES_TABLE}') IS NOT NULL"
 
 #: Temporary tables have no statistics until analysed.
-ANALYZE_SQL = "ANALYZE fmi_stroke_staging; ANALYZE fmi_flash_numbering; ANALYZE fmi_boundary_parts"
+ANALYZE_SQL = "ANALYZE fmi_stroke_staging; ANALYZE fmi_flash_numbering"
 
 #: Moves the staged month into both tables, the identifiers drawn in the month's
 #: content order — the ordered subquery is not flattened, so ``nextval`` runs over
@@ -340,12 +344,19 @@ def month_range(content: MonthFile) -> dict[str, datetime.datetime]:
     return {"start": content.start, "end": content.end}
 
 
-def extent(records: list[StrokeRecord]) -> dict[str, float]:
-    """The box the strokes cover, with :data:`EXTENT_MARGIN` around it."""
-    xs = [record.longitude for record in records]
-    ys = [record.latitude for record in records]
-    return {"xmin": max(min(xs) - EXTENT_MARGIN, -180.0), "ymin": max(min(ys) - EXTENT_MARGIN, -90.0),
-            "xmax": min(max(xs) + EXTENT_MARGIN, 180.0), "ymax": min(max(ys) + EXTENT_MARGIN, 90.0)}
+def clipping_box(records: Iterable[StrokeRecord] = ()) -> dict[str, float]:
+    """FMI's served area joined with ``records``, with :data:`EXTENT_MARGIN` around it."""
+    return lightning_common.clipping_box(finland_fmi.SERVED_AREA, records, EXTENT_MARGIN)
+
+
+def ensure_boundary_parts(connection: Connection, boundary_provider_id: int | None,
+                          log: logging.LoggerAdapter,
+                          records: Iterable[StrokeRecord] = ()) -> bool:
+    """Cut the session's boundary pieces unless it has them for the box needed; whether
+    they were cut. See :func:`~src.apps.imports.lightnings.common.ensure_boundary_pieces`.
+    """
+    return lightning_common.ensure_boundary_pieces(
+        connection, PIECES_TABLE, boundary_provider_id, clipping_box(records), log)
 
 
 # --------------------------------------------------------------------------
@@ -426,9 +437,7 @@ def _replace_month(connection: Connection, content: MonthFile, provider_id: int,
     connection.execute(text(CREATE_NUMBERING_SQL), {
         "provider_id": provider_id, **bounds,
         "before": bounds["start"] - FLASH_MARGIN, "after": bounds["end"] + FLASH_MARGIN})
-    connection.execute(text(CREATE_PARTS_SQL),
-                       {"boundary_provider_id": boundary_provider_id, **extent(content.records)})
-    connection.execute(text(CREATE_PARTS_INDEX_SQL))
+    ensure_boundary_parts(connection, boundary_provider_id, log, content.records)
     connection.execute(text(ANALYZE_SQL))
     with Spinner(f"{content.name}: writing {len(content.records):,} stroke(s)", log.logger):
         connection.execute(text(INSERT_SQL), {"provider_id": provider_id})
@@ -477,15 +486,17 @@ def sidecar_problem(content: MonthFile, log: logging.LoggerAdapter) -> str | Non
     return None
 
 
-def import_file(path: Path, engine: Engine | None, provider_id: int | None,
+def import_file(path: Path, connection: Connection | None, provider_id: int | None,
                 boundary_provider_id: int | None, logger: logging.Logger, drop: bool = False,
                 lookup: Engine | None = None) -> MonthOutcome:
-    """Read one monthly file and import its month.
+    """Read one monthly file and import its month on ``connection``.
 
-    With no ``engine`` nothing is written: the outcome is what an import would
-    write, for ``--dry-run``; with a ``lookup`` engine as well, the thunderstorm
-    experiments a real run would drop are listed from it. A month that the
-    sidecar or experiments stop is logged and returned refused.
+    The run's files share one connection, so the boundary pieces cut for the
+    first month serve them all. With no ``connection`` nothing is written: the
+    outcome is what an import would write, for ``--dry-run``; with a ``lookup``
+    engine as well, the thunderstorm experiments a real run would drop are listed
+    from it. A month that the sidecar or experiments stop is logged and returned
+    refused.
     """
     log = ArchiveLogger(logger, {"archive": path.name})
     with Spinner(f"{path.name}: reading", logger):
@@ -500,27 +511,26 @@ def import_file(path: Path, engine: Engine | None, provider_id: int | None,
         outcome.refused = refusal
         return outcome
 
-    if engine is None:
+    if connection is None:
         outcome = MonthOutcome(content.label, content.name)
         outcome.written = len(content.records)
         outcome.flashes = len({record.flash_id for record in content.records})
         if lookup is not None and provider_id is not None:
-            with lookup.connect() as connection:
+            with lookup.connect() as reading:
                 covering = lightning_common.covering_experiments(
-                    connection, provider_id, **month_range(content))
+                    reading, provider_id, **month_range(content))
             for experiment in covering:
                 log.info("Would drop thunderstorm experiment %s", experiment.describe())
             outcome.dropped = len(covering)
     else:
-        with engine.connect() as connection:
-            try:
-                outcome = import_month(connection, content, provider_id, boundary_provider_id,
-                                       log, drop)
-            except PeriodInUse as error:
-                log.error("%s", error)
-                outcome = MonthOutcome(content.label, content.name)
-                outcome.refused = (f"thunderstorm experiment(s) "
-                                   f"{', '.join(map(str, error.experiment_ids))} depend on it")
+        try:
+            outcome = import_month(connection, content, provider_id, boundary_provider_id,
+                                   log, drop)
+        except PeriodInUse as error:
+            log.error("%s", error)
+            outcome = MonthOutcome(content.label, content.name)
+            outcome.refused = (f"thunderstorm experiment(s) "
+                               f"{', '.join(map(str, error.experiment_ids))} depend on it")
     log.info("%s", outcome.describe())
     return outcome
 
@@ -654,10 +664,20 @@ def import_lightnings(args: argparse.Namespace, engine: Engine | None,
 
     started = time.monotonic()
     outcomes: list[MonthOutcome] = []
-    for index, path in enumerate(paths, start=1):
-        logger.info("[%d/%d] %s", index, len(paths), path.name)
-        outcomes.append(import_file(path, engine, provider_id, boundary_provider_id, logger,
-                                    drop, lookup))
+    # One connection for the whole run: the boundary pieces are a temporary table
+    # of its session, cut once and used by every month.
+    connection = engine.connect() if engine is not None else None
+    try:
+        for index, path in enumerate(paths, start=1):
+            logger.info("[%d/%d] %s", index, len(paths), path.name)
+            outcomes.append(import_file(path, connection, provider_id, boundary_provider_id,
+                                        logger, drop, lookup))
+    finally:
+        if connection is not None:
+            connection.rollback()
+            lightning_common.drop_boundary_pieces(connection, PIECES_TABLE)
+            connection.commit()
+            connection.close()
 
     refused = [outcome for outcome in outcomes if outcome.refused is not None]
     imported = [outcome for outcome in outcomes if outcome.refused is None]

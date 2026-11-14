@@ -41,8 +41,8 @@ Europe
     no stable order; every flash is numbered, a flash straddling two months included; the
     ellipse is converted to metres and a peak current of ``0`` stored as ``NULL``; the
     published ETRS89 point is kept beside its EPSG:4326 reprojection, and the country is
-    resolved against subdivided OCHA boundaries. 2018's 2.1 million strokes import in
-    about four minutes.
+    resolved against OCHA boundaries clipped to FMI's area and cut once per run. 2018's 2.1
+    million strokes import in under eight minutes.
 
 .. toctree::
    :maxdepth: 1

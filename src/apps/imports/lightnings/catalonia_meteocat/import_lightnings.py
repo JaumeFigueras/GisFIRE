@@ -41,10 +41,19 @@ and resolving the country.
 
 The country is the OCHA level-0 boundary the EPSG:4326 point falls in, as for every
 other dataset, tested against the boundaries **subdivided** into pieces of at most
-:data:`SUBDIVIDE_VERTICES` vertices: a whole country polygon is hundreds of
-thousands of vertices, and testing six million points against it would take days.
-Strokes at sea, most of them, get none; so does every stroke when no boundaries are
-imported, which is warned about and does not stop the import.
+:data:`~src.apps.imports.lightnings.common.SUBDIVIDE_VERTICES` vertices: a whole
+country polygon is hundreds of thousands of vertices, and testing six million points
+against it would take days. Strokes at sea, most of them, get none; so does every
+stroke when no boundaries are imported, which is warned about and does not stop the
+import.
+
+The boundaries are **clipped** to the network's area
+(:data:`~src.providers.catalonia_meteocat.NETWORK_AREA`, joined with the year's
+strokes, plus :data:`EXTENT_MARGIN`) and **cut once per run**, by
+:func:`~src.apps.imports.lightnings.common.ensure_boundary_pieces`. Cut whole for
+every year, as the first version did, they took two minutes a year: the
+bounding-box test also selects the United States and Russia, whose boxes span the
+globe. Clipped, the cut is some seventeen seconds, once.
 
 Thunderstorms built on the strokes
 ----------------------------------
@@ -111,11 +120,7 @@ LOG_FORMAT = "%(asctime)s %(levelname)s %(message)s"
 #: counted.
 MAX_REPORTED_PROBLEMS = 20
 
-#: How finely the boundaries are cut before the lookup: the CSIRO and CONAF
-#: imports' number, from the PostGIS recipe.
-SUBDIVIDE_VERTICES = 256
-
-#: Degrees added around a year's strokes when choosing the boundaries to cut.
+#: Degrees added around the network's area when clipping the boundaries.
 EXTENT_MARGIN = 1.0
 
 #: The staging table's columns, in the order each record is copied.
@@ -150,24 +155,15 @@ CREATE TEMPORARY TABLE meteocat_stroke_staging (
 
 COPY_SQL = f"COPY meteocat_stroke_staging ({', '.join(STAGING_COLUMNS)}) FROM STDIN"
 
-#: The countries the year's strokes could fall in, cut into small pieces. With no
-#: boundary provider ``:boundary_provider_id`` is NULL and the table is empty, so
-#: the insert below is the same statement either way.
-CREATE_PARTS_SQL = f"""
-CREATE TEMPORARY TABLE meteocat_boundary_parts ON COMMIT DROP AS
-SELECT boundary.id AS admin_boundary_id,
-       ST_Subdivide(boundary.geometry, {SUBDIVIDE_VERTICES}) AS geometry
-FROM admin_boundary AS boundary
-WHERE boundary.level = 0
-  AND boundary.data_provider_id = :boundary_provider_id
-  AND boundary.geometry && ST_MakeEnvelope(:xmin, :ymin, :xmax, :ymax, 4326)
-"""
-
-CREATE_PARTS_INDEX_SQL = "CREATE INDEX ON meteocat_boundary_parts USING gist (geometry)"
+#: The session's boundary pieces, cut once per run by
+#: :func:`~src.apps.imports.lightnings.common.ensure_boundary_pieces`. With no
+#: boundary provider the table is empty, so the insert below is the same statement
+#: either way.
+PIECES_TABLE = "meteocat_boundary_parts"
 
 #: Temporary tables have no statistics until analysed, and a planner that thinks
 #: the staging table is empty picks a plan for an empty table.
-ANALYZE_SQL = "ANALYZE meteocat_stroke_staging; ANALYZE meteocat_boundary_parts"
+ANALYZE_SQL = "ANALYZE meteocat_stroke_staging"
 
 #: Deletes MeteoCat's strokes of one UTC year from both tables in one statement, so
 #: the foreign key from ``meteocat_lightning.id`` to ``lightning.id`` is checked
@@ -281,12 +277,9 @@ def year_range(year: int) -> dict[str, str]:
     return {"start": f"{year}-01-01T00:00:00Z", "end": f"{year + 1}-01-01T00:00:00Z"}
 
 
-def extent(records: list[StrokeRecord]) -> dict[str, float]:
-    """The box the strokes cover, with :data:`EXTENT_MARGIN` around it."""
-    xs = [record.longitude for record in records]
-    ys = [record.latitude for record in records]
-    return {"xmin": max(min(xs) - EXTENT_MARGIN, -180.0), "ymin": max(min(ys) - EXTENT_MARGIN, -90.0),
-            "xmax": min(max(xs) + EXTENT_MARGIN, 180.0), "ymax": min(max(ys) + EXTENT_MARGIN, 90.0)}
+def clipping_box(records: list[StrokeRecord]) -> dict[str, float]:
+    """The network's area joined with ``records``, with :data:`EXTENT_MARGIN` around it."""
+    return lightning_common.clipping_box(catalonia_meteocat.NETWORK_AREA, records, EXTENT_MARGIN)
 
 
 # --------------------------------------------------------------------------
@@ -359,9 +352,8 @@ def _replace_year(connection: Connection, year: int, records: list[StrokeRecord]
     if outcome.deleted:
         log.info("Replacing %d stroke(s) already stored for %d", outcome.deleted, year)
     stage(connection, records)
-    connection.execute(text(CREATE_PARTS_SQL),
-                       {"boundary_provider_id": boundary_provider_id, **extent(records)})
-    connection.execute(text(CREATE_PARTS_INDEX_SQL))
+    lightning_common.ensure_boundary_pieces(connection, PIECES_TABLE, boundary_provider_id,
+                                            clipping_box(records), log)
     connection.execute(text(ANALYZE_SQL))
     with Spinner(f"{name}: writing {len(records):,} stroke(s) of {year}", log.logger):
         connection.execute(text(INSERT_SQL), {"provider_id": provider_id})
@@ -384,16 +376,18 @@ def report_problems(extract: Extract, log: logging.LoggerAdapter) -> None:
         log.warning("%d row(s) refused", len(extract.problems))
 
 
-def import_extract(path: Path, engine: Engine | None, provider_id: int | None,
+def import_extract(path: Path, connection: Connection | None, provider_id: int | None,
                    boundary_provider_id: int | None, years: set[int] | None,
                    logger: logging.Logger, drop: bool = False,
                    lookup: Engine | None = None) -> list[YearOutcome]:
-    """Read one extract and import each of its years.
+    """Read one extract and import each of its years on ``connection``.
 
-    With no ``engine`` nothing is written: the outcomes are what an import would
-    write, for ``--dry-run``; with a ``lookup`` engine as well, the thunderstorm
-    experiments a real run would drop are listed from it. A year that
-    experiments depend on, without ``drop``, is logged and returned refused.
+    The run's extracts share one connection, so the boundary pieces cut for the
+    first year serve them all. With no ``connection`` nothing is written: the
+    outcomes are what an import would write, for ``--dry-run``; with a ``lookup``
+    engine as well, the thunderstorm experiments a real run would drop are listed
+    from it. A year that experiments depend on, without ``drop``, is logged and
+    returned refused.
     """
     log = ArchiveLogger(logger, {"archive": path.name})
     with Spinner(f"{path.name}: reading", logger):
@@ -403,35 +397,34 @@ def import_extract(path: Path, engine: Engine | None, provider_id: int | None,
 
     outcomes = []
     grouped = readers.by_year(extract.records)
-    if engine is None:
+    if connection is None:
         for year, records in grouped.items():
             if years is not None and year not in years:
                 continue
             outcome = YearOutcome(year, extract.name)
             outcome.count(records)
             if lookup is not None and provider_id is not None:
-                with lookup.connect() as connection:
+                with lookup.connect() as reading:
                     covering = lightning_common.covering_experiments(
-                        connection, provider_id, **year_range(year))
+                        reading, provider_id, **year_range(year))
                 for experiment in covering:
                     log.info("Would drop thunderstorm experiment %s", experiment.describe())
                 outcome.dropped = len(covering)
             outcomes.append(outcome)
             log.info("%s", outcome.describe())
     else:
-        with engine.connect() as connection:
-            for year, records in grouped.items():
-                if years is not None and year not in years:
-                    continue
-                try:
-                    outcome = import_year(connection, year, records, extract.name, provider_id,
-                                          boundary_provider_id, log, drop)
-                except YearInUse as refusal:
-                    log.error("%s", refusal)
-                    outcome = YearOutcome(year, extract.name)
-                    outcome.refused = refusal.experiment_ids
-                outcomes.append(outcome)
-                log.info("%s", outcome.describe())
+        for year, records in grouped.items():
+            if years is not None and year not in years:
+                continue
+            try:
+                outcome = import_year(connection, year, records, extract.name, provider_id,
+                                      boundary_provider_id, log, drop)
+            except YearInUse as refusal:
+                log.error("%s", refusal)
+                outcome = YearOutcome(year, extract.name)
+                outcome.refused = refusal.experiment_ids
+            outcomes.append(outcome)
+            log.info("%s", outcome.describe())
     if not outcomes:
         log.warning("No strokes to import in this file")
     return outcomes
@@ -565,10 +558,20 @@ def import_lightnings(args: argparse.Namespace, engine: Engine | None,
 
     started = time.monotonic()
     outcomes: list[YearOutcome] = []
-    for index, path in enumerate(paths, start=1):
-        logger.info("[%d/%d] %s", index, len(paths), path.name)
-        outcomes += import_extract(path, engine, provider_id, boundary_provider_id, years, logger,
-                                   drop, lookup)
+    # One connection for the whole run: the boundary pieces are a temporary table
+    # of its session, cut once and used by every year.
+    connection = engine.connect() if engine is not None else None
+    try:
+        for index, path in enumerate(paths, start=1):
+            logger.info("[%d/%d] %s", index, len(paths), path.name)
+            outcomes += import_extract(path, connection, provider_id, boundary_provider_id, years,
+                                       logger, drop, lookup)
+    finally:
+        if connection is not None:
+            connection.rollback()
+            lightning_common.drop_boundary_pieces(connection, PIECES_TABLE)
+            connection.commit()
+            connection.close()
 
     refused = [outcome for outcome in outcomes if outcome.refused is not None]
     outcomes = [outcome for outcome in outcomes if outcome.refused is None]

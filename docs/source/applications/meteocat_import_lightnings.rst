@@ -95,6 +95,15 @@ stored with no country and a warning: import them first with
 :doc:`ocha_import_admin_boundaries`, since the country cannot be filled in afterwards
 without re-importing.
 
+The boundaries are **clipped to the network's area** (6.5 W to 9.5 E, 35.6 to 47.1 N,
+the box of every stroke of the delivery, joined with the strokes being imported, plus a
+degree) and **cut once per run**, into a temporary table the run's years share — see
+:mod:`src.apps.imports.lightnings.common`. The first version cut every country whose
+bounding box touched the year's strokes, whole, for every year: the United States and
+Russia among them, their boxes spanning the globe, 15 million vertices and two minutes a
+year. Clipped, the cut takes 17 seconds, once, and on 2009 and 2014 every one of the
+1,018,642 strokes gets the same country as with the whole polygons.
+
 **A row is refused** — logged with its line and the column at fault, counted and
 skipped — when it is not a reading of the format or would break a constraint: a value
 that is not a number, an impossible date, a ``nuvolterra`` other than ``t``/``f``, a
@@ -104,8 +113,9 @@ count. No row of the 2006-2020 delivery is refused.
 
 The run ends with the strokes and flashes per year and network generation, and — when
 writing — how many found no country. Reading the largest file, 2006, takes about seven
-seconds; writing 2009's 331,136 strokes takes about half a minute, so the whole delivery
-is of the order of ten minutes. A dry run over those two years reports:
+seconds; with the OCHA boundaries, writing 2009's 331,136 strokes takes 37 s and 2014's
+687,506 strokes 75 s, after the one cut of 17 s, so the whole delivery is of the order of
+a quarter of an hour. A dry run over 2006 and 2009 reports:
 
 .. code-block:: text
 

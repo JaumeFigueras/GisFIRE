@@ -19,6 +19,24 @@ period: a run is one consistent result, and cutting a year out of it would leave
 thunderstorms that crossed New Year half built.
 
 These helpers are provider-agnostic, for the next lightning import to reuse.
+
+The country of a stroke
+-----------------------
+
+A lightning import resolves each stroke's country against the OCHA level-0
+boundaries, cut into pieces of at most :data:`SUBDIVIDE_VERTICES` vertices so
+that millions of points can be tested quickly. :func:`ensure_boundary_pieces`
+cuts them **once per run**, into a temporary table of the run's single
+connection, and **clips** them first to the box the strokes can fall in — the
+provider's area joined with the strokes being imported, plus a margin. Cutting
+whole countries for every period was what made the imports slow: a
+bounding-box test also selects countries whose overseas territories stretch
+their boxes over Europe (the United States, France, the United Kingdom, the
+Netherlands), and Norway, Sweden, Finland and Russia are millions of vertices
+each. A period whose strokes reach outside the box already cut gets the pieces
+cut again over the larger box, so no stroke can lose its country to the
+clipping. The margin keeps the clipping's edge, where ``ST_ClipByBox2D`` may
+leave invalid rings, away from every stroke.
 """
 
 from __future__ import annotations
@@ -26,10 +44,13 @@ from __future__ import annotations
 import datetime
 import logging
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 
 from sqlalchemy import Connection
 from sqlalchemy import text
+
+from src.apps.imports.common import Spinner
 
 #: The experiments that depend on a provider's strokes in ``[start, end)``: those
 #: of the provider whose period overlaps it — whether or not any of those
@@ -140,3 +161,98 @@ def holding_experiments(connection: Connection, provider_id: int, start: str,
     return list(connection.execute(text(HOLDING_EXPERIMENTS_SQL),
                                    {"provider_id": provider_id, "start": start,
                                     "end": end}).scalars())
+
+
+# --------------------------------------------------------------------------
+# Boundary pieces for the country of each stroke
+# --------------------------------------------------------------------------
+
+#: How finely the boundaries are cut before the lookup (the PostGIS recipe).
+SUBDIVIDE_VERTICES = 256
+
+#: The pieces: the OCHA level-0 boundaries whose box touches the clipping box,
+#: clipped to it and cut. A temporary table of the session, not of the
+#: transaction, so a run's periods share it. With no boundary provider
+#: ``:boundary_provider_id`` is NULL and the table is empty.
+CREATE_PIECES_SQL = """
+CREATE TEMPORARY TABLE {table} AS
+SELECT clipped.admin_boundary_id,
+       ST_Subdivide(clipped.geometry, {vertices}) AS geometry
+FROM (SELECT boundary.id AS admin_boundary_id,
+             ST_ClipByBox2D(boundary.geometry,
+                            ST_MakeEnvelope(:xmin, :ymin, :xmax, :ymax, 4326)) AS geometry
+      FROM admin_boundary AS boundary
+      WHERE boundary.level = 0
+        AND boundary.data_provider_id = :boundary_provider_id
+        AND boundary.geometry && ST_MakeEnvelope(:xmin, :ymin, :xmax, :ymax, 4326)) AS clipped
+WHERE NOT ST_IsEmpty(clipped.geometry)
+"""
+
+#: The box the pieces were cut for, beside them, in the same transaction. Its
+#: columns are not ``xmin``/``xmax``: those are PostgreSQL system column names.
+CREATE_PIECES_BOX_SQL = """
+CREATE TEMPORARY TABLE {table}_box AS
+SELECT CAST(:xmin AS double precision) AS west, CAST(:ymin AS double precision) AS south,
+       CAST(:xmax AS double precision) AS east, CAST(:ymax AS double precision) AS north
+"""
+
+
+def clipping_box(area: tuple[float, float, float, float], records: Iterable,
+                 margin: float) -> dict[str, float]:
+    """The box strokes can fall in: ``area`` joined with the records' extent, plus ``margin``.
+
+    ``area`` is ``(west, south, east, north)``; the records need ``longitude`` and
+    ``latitude``. The result is what :data:`CREATE_PIECES_SQL` binds.
+    """
+    west, south, east, north = area
+    for record in records:
+        west, east = min(west, record.longitude), max(east, record.longitude)
+        south, north = min(south, record.latitude), max(north, record.latitude)
+    return {"xmin": max(west - margin, -180.0), "ymin": max(south - margin, -90.0),
+            "xmax": min(east + margin, 180.0), "ymax": min(north + margin, 90.0)}
+
+
+def pieces_exist(connection: Connection, table: str) -> bool:
+    """Whether this session has the pieces ``table``."""
+    return bool(connection.execute(text(
+        f"SELECT to_regclass('pg_temp.{table}') IS NOT NULL")).scalar())
+
+
+def ensure_boundary_pieces(connection: Connection, table: str,
+                           boundary_provider_id: int | None, box: dict[str, float],
+                           log: logging.Logger | logging.LoggerAdapter) -> bool:
+    """Cut the pieces ``table`` for ``box`` unless the session has them for a box
+    holding it; whether they were cut.
+
+    Run inside a period's transaction: if it is rolled back, the pieces go with
+    it and the next period cuts them again; once committed, they stay for the
+    session. Pieces cut for a box that does not hold ``box`` are cut again, over
+    both boxes together.
+    """
+    if pieces_exist(connection, table):
+        built = connection.execute(text(f"SELECT west, south, east, north FROM {table}_box")).one()
+        if (built.west <= box["xmin"] and built.south <= box["ymin"]
+                and built.east >= box["xmax"] and built.north >= box["ymax"]):
+            return False
+        box = {"xmin": min(built.west, box["xmin"]), "ymin": min(built.south, box["ymin"]),
+               "xmax": max(built.east, box["xmax"]), "ymax": max(built.north, box["ymax"])}
+        drop_boundary_pieces(connection, table)
+    logger = log.logger if isinstance(log, logging.LoggerAdapter) else log
+    with Spinner("Cutting the boundaries the strokes can fall in (once per run)", logger):
+        connection.execute(text(CREATE_PIECES_SQL.format(table=table, vertices=SUBDIVIDE_VERTICES)),
+                           {"boundary_provider_id": boundary_provider_id, **box})
+        connection.execute(text(f"CREATE INDEX ON {table} USING gist (geometry)"))
+        connection.execute(text(f"ANALYZE {table}"))
+        connection.execute(text(CREATE_PIECES_BOX_SQL.format(table=table)), box)
+    return True
+
+
+def drop_boundary_pieces(connection: Connection, table: str) -> None:
+    """Drop the pieces ``table`` and its box, if the session has them.
+
+    A run calls it at its end: a pooled connection keeps its session, temporary
+    tables included, for whoever takes it next.
+    """
+    connection.execute(text(f"DROP TABLE IF EXISTS {table}"))
+    connection.execute(text(f"DROP TABLE IF EXISTS {table}_box"))
+

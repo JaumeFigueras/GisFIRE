@@ -101,6 +101,12 @@ PROVIDER_DESCRIPTION = (
 #: :attr:`~src.providers.catalonia_meteocat.lightning.MeteocatLightning.geometry_etrs89`.
 SOURCE_SRID = 4258
 
+#: The area the network's strokes fall in, ``(west, south, east, north)`` in degrees:
+#: the box of every stroke of the 2006-2020 delivery (6.4970 W to 9.4390 E, 35.6199 to
+#: 47.0541 N), rounded outward. The import clips the country boundaries to it (with
+#: the strokes being imported, should a later delivery reach further).
+NETWORK_AREA = (-6.5, 35.6, 9.5, 47.1)
+
 #: The projected CRS of Catalonia, ETRS89 / UTM zone 31N. Not stored: exposed by
 #: the ``v_meteocat_lightning_25831`` view as a reprojection of the ETRS89 point.
 PROJECTED_SRID = 25831

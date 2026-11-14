@@ -495,6 +495,94 @@ def test_strokes_in_the_boundary_get_the_country_and_the_others_none(database, f
     assert located == {30645782: finland, 30645785: None, 30645787: None}
 
 
+def test_the_boundaries_are_cut_once_per_run(database, finland, tmp_path, monkeypatch):
+    """On the real OCHA boundaries the cut takes over a minute: once a run, not once a
+    month, and every month still finds its countries."""
+    engine, url = database
+    built = []
+    real = app.ensure_boundary_parts
+
+    def spy(*args, **kwargs):
+        built.append(real(*args, **kwargs))
+        return built[-1]
+
+    monkeypatch.setattr(app, "ensure_boundary_parts", spy)
+    assert run(url, june_2023(tmp_path), july_2023(tmp_path)) == 0
+
+    assert built == [True, False]
+    with Session(engine) as session:
+        located = dict(session.execute(text(
+            "SELECT to_char(date_time AT TIME ZONE 'UTC', 'YYYY-MM'), count(admin_boundary_id) "
+            "FROM lightning GROUP BY 1")).all())
+    assert located["2023-06"] == len(ROWS_2023_06)
+    assert located["2023-07"] > 0
+
+
+def test_the_pieces_go_with_a_rolled_back_transaction_and_stay_after_a_commit(database,
+                                                                             finland):
+    """They are made inside a month's transaction: rolled back, they are gone and made
+    again; committed, they stay for the session and are not made twice."""
+    engine, url = database
+    log = logging.LoggerAdapter(logging.getLogger("test-fmi-parts"), {})
+    with Session(engine) as session:
+        boundary_provider_id = session.scalar(text("SELECT data_provider_id FROM admin_boundary"))
+    with engine.connect() as connection:
+        with connection.begin() as transaction:
+            assert app.ensure_boundary_parts(connection, boundary_provider_id, log) is True
+            transaction.rollback()
+        with connection.begin():
+            assert app.ensure_boundary_parts(connection, boundary_provider_id, log) is True
+        with connection.begin():
+            assert app.ensure_boundary_parts(connection, boundary_provider_id, log) is False
+            pieces = connection.execute(text("SELECT count(*) FROM fmi_boundary_parts")).scalar()
+    assert pieces > 0
+    # Another session has none of its own (a separate engine: the pool would hand
+    # this same session back).
+    other_engine = create_engine(url)
+    with other_engine.connect() as other:
+        assert other.execute(text(app.PARTS_EXIST_SQL)).scalar() is False
+    other_engine.dispose()
+
+
+def test_a_run_leaves_no_pieces_behind_in_its_session(database, finland, tmp_path):
+    """A pooled connection keeps its temporary tables: the run drops its pieces."""
+    engine, url = database
+    assert run(url, july_2023(tmp_path)) == 0
+    # main() disposes of its engine; a run through import_lightnings on ours:
+    args = app.parse_arguments(["-s", str(july_2023(tmp_path))])
+    app.import_lightnings(args, engine, logging.getLogger("test-fmi-parts"))
+    with engine.connect() as connection:
+        assert connection.execute(text(app.PARTS_EXIST_SQL)).scalar() is False
+
+
+def test_the_pieces_are_clipped_to_the_served_area(database, tmp_path):
+    """A country reaching far beyond the area keeps only what lies inside it, and one
+    whose box overlaps the area but whose land does not is left out."""
+    engine, _ = database
+    with Session(engine) as session:
+        provider = DataProvider(name=ocha.PROVIDER_NAME, product=ocha.PROVIDER_PRODUCT,
+                                full_name="OCHA")
+        session.add(provider)
+        session.flush()
+        # From 10 E to 60 E: half of it is east of the area's 36.7 E clipping edge.
+        session.add(AdminBoundary(data_provider_id=provider.id, source_id="BIG", level=0,
+                                  name="Big", geometry="SRID=4326;MULTIPOLYGON(((10 55, 60 55, 60 65, 10 65, 10 55)))"))
+        # Two islands, one west and one east of the area: its box covers the area.
+        session.add(AdminBoundary(data_provider_id=provider.id, source_id="FAR", level=0,
+                                  name="Far", geometry="SRID=4326;MULTIPOLYGON(((-40 60, -39 60, -39 61, -40 61, -40 60)),"
+                                                       "((70 60, 71 60, 71 61, 70 61, 70 60)))"))
+        session.commit()
+        provider_id = provider.id
+    log = logging.LoggerAdapter(logging.getLogger("test-fmi-parts"), {})
+    with engine.connect() as connection, connection.begin():
+        app.ensure_boundary_parts(connection, provider_id, log)
+        names, east = connection.execute(text(
+            "SELECT array_agg(DISTINCT b.name), max(ST_XMax(p.geometry)) FROM fmi_boundary_parts p "
+            "JOIN admin_boundary b ON b.id = p.admin_boundary_id")).one()
+    assert names == ["Big"]
+    assert east == pytest.approx(finland_fmi.SERVED_AREA[2] + app.EXTENT_MARGIN)
+
+
 def test_without_boundaries_the_strokes_are_still_imported(database, tmp_path, caplog):
     engine, url = database
     with caplog.at_level(logging.WARNING):

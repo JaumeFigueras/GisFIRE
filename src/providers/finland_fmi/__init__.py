@@ -146,6 +146,10 @@ STORED_QUERY = "fmi::observations::lightning::multipointcoverage"
 #: The longest interval one request may cover, in hours.
 MAX_REQUEST_HOURS = 168
 
+#: The area the service serves, ``(west, south, east, north)`` in degrees: the
+#: polygon every response declares as its sampled feature. No stroke falls outside.
+SERVED_AREA = (2.3, 49.7, 35.7, 73.1)
+
 #: The parameters requested, in the order they are asked for and written.
 PARAMETERS = ("flash_id", "multiplicity", "peak_current", "cloud_indicator", "sensors",
               "freedom_degree", "ellipse_angle", "ellipse_major", "ellipse_minor",
