@@ -28,4 +28,5 @@ from src.data_model.geography.time_zone import TimeZone  # noqa: E402,F401
 from src.data_model.ignition import Ignition  # noqa: E402,F401
 from src.data_model.lightning import Lightning  # noqa: E402,F401
 from src.data_model.thunderstorm import Thunderstorm  # noqa: E402,F401
+from src.data_model.thunderstorm_cellsearch import ThunderstormCellsearchFlash  # noqa: E402,F401
 from src.data_model.wildfire import Wildfire  # noqa: E402,F401

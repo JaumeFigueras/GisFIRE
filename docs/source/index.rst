@@ -30,6 +30,8 @@ The documentation is organized as follows:
 - **Setup** — environments, the ``Makefile`` workflow, database and documentation.
 - **Data Model** — the generic entities and how they are mapped to the database.
 - **Data Providers** — the provider-specific models that subclass them.
+- **Algorithms** — the ``gisfire_algorithms`` package, shared by the applications and the
+  QGIS plugins: thunderstorm identification (Cellsearch) so far.
 - **Applications** — the domain command-line applications.
 - **QGIS Plugins** — the suite of QGIS v4 plugins.
 - **Auxiliary Applications** — database/DDL helper command-line tools.
@@ -43,6 +45,7 @@ The documentation is organized as follows:
    setup
    data_model
    providers
+   algorithms
    applications
    qgis_plugins
    auxiliary_applications

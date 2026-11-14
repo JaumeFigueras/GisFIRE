@@ -279,12 +279,36 @@ def test_an_experiment_refuses_a_blank(db_session, provider, blank):
         db_session.commit()
 
 
-@pytest.mark.parametrize("column", ["parameters", "lightning_filter", "hull_parameters"])
+@pytest.mark.parametrize("column", ["parameters", "lightning_filter", "hull_parameters", "summary"])
 @pytest.mark.parametrize("value", [[1, 2], 5, "eps"], ids=["array", "number", "string"])
 def test_a_json_setting_must_be_an_object(db_session, provider, column, value):
     db_session.add(an_experiment(provider, **{column: value}))
     with pytest.raises(IntegrityError, match=f"ck_thunderstorm_experiment_{column}"):
         db_session.commit()
+
+
+def test_the_summary_is_empty_by_default(db_session, experiment):
+    db_session.expire_all()
+    assert db_session.scalar(select(ThunderstormExperiment)).summary == {}
+
+
+def test_the_summary_server_default_matches_the_python_one(db_session, provider):
+    """An experiment inserted without the ORM (the CLI's raw SQL) gets ``{}`` too."""
+    db_session.execute(text(
+        "INSERT INTO thunderstorm_experiment (data_provider_id, algorithm, parameters, "
+        "lightning_filter, hull_parameters, date_time_start, date_time_end, software_version) "
+        "VALUES (:p, 'X', '{}', '{}', '{}', :s, :e, 'x')"),
+        {"p": provider.id, "s": START, "e": END})
+    assert db_session.scalar(text("SELECT summary FROM thunderstorm_experiment")) == {}
+
+
+def test_a_summary_reads_back(db_session, provider):
+    summary = {"size_classes": {"1": {"cells": 3, "flashes": 3}}, "flashes_total": 10,
+               "cells_open_at_end": 0, "activity_before_start": False}
+    db_session.add(an_experiment(provider, summary=summary))
+    db_session.commit()
+    db_session.expire_all()
+    assert db_session.scalar(select(ThunderstormExperiment)).summary == summary
 
 
 def test_the_provider_must_exist(db_session, provider):
@@ -323,6 +347,13 @@ def test_a_configuration_differing_in_one_setting_is_another_run(db_session, pro
     db_session.add(an_experiment(provider, **change))
     db_session.commit()
     assert count(db_session, ThunderstormExperiment) == 2
+
+
+def test_the_summary_is_not_part_of_the_configuration(db_session, provider, experiment):
+    """It is an output: a different summary does not make another run."""
+    db_session.add(an_experiment(provider, summary={"flashes_total": 1}))
+    with pytest.raises(IntegrityError, match="uq_thunderstorm_experiment_configuration"):
+        db_session.commit()
 
 
 def test_the_same_configuration_on_another_provider_is_another_run(db_session, other_provider,
@@ -389,6 +420,42 @@ def test_a_thunderstorm_cannot_end_before_it_starts(db_session, experiment):
 def test_a_thunderstorm_has_at_least_one_stroke(db_session, experiment):
     db_session.add(a_storm(experiment, number_of_lightnings=0))
     with pytest.raises(IntegrityError, match="ck_thunderstorm_number_of_lightnings"):
+        db_session.commit()
+
+
+def test_flashes_and_area_are_none_by_default(db_session, storm):
+    """An algorithm or a provider without flashes leaves them out."""
+    db_session.expire_all()
+    stored = db_session.scalar(select(Thunderstorm))
+    assert (stored.number_of_flashes, stored.area) == (None, None)
+
+
+def test_flashes_and_area_read_back(db_session, experiment):
+    db_session.add(a_storm(experiment, number_of_lightnings=3, number_of_flashes=2, area=123.25))
+    db_session.commit()
+    db_session.expire_all()
+    stored = db_session.scalar(select(Thunderstorm))
+    assert (stored.number_of_flashes, stored.area) == (2, 123.25)
+
+
+@pytest.mark.parametrize("flashes", [1, 3], ids=["one", "as-many-as-strokes"])
+def test_a_thunderstorm_has_between_one_flash_and_one_per_stroke(db_session, experiment, flashes):
+    db_session.add(a_storm(experiment, number_of_lightnings=3, number_of_flashes=flashes))
+    db_session.commit()
+
+
+@pytest.mark.parametrize("flashes", [0, 4], ids=["none", "more-than-strokes"])
+def test_a_thunderstorm_refuses_impossible_flash_counts(db_session, experiment, flashes):
+    db_session.add(a_storm(experiment, number_of_lightnings=3, number_of_flashes=flashes))
+    with pytest.raises(IntegrityError, match="ck_thunderstorm_number_of_flashes"):
+        db_session.commit()
+
+
+@pytest.mark.parametrize("area", [0.0, -1.0])
+def test_an_area_is_positive(db_session, experiment, area):
+    """Undefined is NULL, never 0: a zero area would make an infinite density."""
+    db_session.add(a_storm(experiment, area=area))
+    with pytest.raises(IntegrityError, match="ck_thunderstorm_area"):
         db_session.commit()
 
 

@@ -9,8 +9,8 @@ same one with other settings, give other thunderstorms. So every thunderstorm
 belongs to the run that produced it, and the run records exactly how it was
 produced.
 
-Five tables
------------
+Five tables (and one per algorithm that needs it)
+-------------------------------------------------
 
 ::
 
@@ -24,8 +24,8 @@ Five tables
     period and a filter), the algorithm and its parameters, and how the hulls
     were drawn.
 :class:`Thunderstorm`
-    One group the run found: its time span, its number of strokes and its
-    concave hull.
+    One group the run found: its time span, its number of strokes (and of
+    flashes, for flash-based algorithms), its area and its concave hull.
 :class:`ThunderstormLightning`
     Which strokes make up each thunderstorm. A stroke the algorithm left out
     (noise) has no row.
@@ -40,7 +40,12 @@ Five tables
 
 The model assumes no algorithm. :attr:`ThunderstormExperiment.algorithm` is
 free text and :attr:`ThunderstormExperiment.parameters` is JSONB, so a
-multi-step method keeps one block per step.
+multi-step method keeps one block per step. What a run reports about itself
+(counts, size classes …) goes in :attr:`ThunderstormExperiment.summary`.
+
+An algorithm gets a table of its own only for structured output no other
+algorithm produces: Cellsearch's per-flash running centres are in
+``thunderstorm_cellsearch_flash`` (:mod:`src.data_model.thunderstorm_cellsearch`).
 
 Windows
 -------
@@ -59,8 +64,11 @@ What is derived and not stored
 The direction vectors (the movement from one window's centre to the next), the
 path (the line through the centres), the speeds and bearings, and the convex
 hulls are all computed by the database views from what is stored here. They can
-never disagree with it. A concave hull contains every stroke and its vertices
-are strokes, so its convex hull *is* the convex hull of the strokes.
+never disagree with it. A concave hull contains every point it was drawn from
+and its vertices are among them, so its convex hull *is* the convex hull of
+those points. A thunderstorm's hull is drawn from the strokes the algorithm
+clustered: all of them for a stroke-based algorithm, the strokes that represent
+each flash for a flash-based one.
 
 Integrity the database enforces
 -------------------------------
@@ -100,6 +108,7 @@ from typing import Any
 from geoalchemy2 import Geometry
 from sqlalchemy import CheckConstraint
 from sqlalchemy import DateTime
+from sqlalchemy import Float
 from sqlalchemy import ForeignKey
 from sqlalchemy import ForeignKeyConstraint
 from sqlalchemy import Index
@@ -205,6 +214,10 @@ class ThunderstormExperiment(Base):
     hull_parameters : dict
         How the concave hulls were drawn, as JSONB; defaults to
         :data:`DEFAULT_HULL_PARAMETERS`.
+    summary : dict
+        What the run reports about itself, as JSONB: counts, size classes,
+        whatever the algorithm defines. ``{}`` by default. An *output*, so not
+        part of the run's identity.
     date_time_start, date_time_end : datetime.datetime
         The period of strokes read, half-open: ``start <= date_time < end``.
         Indexed with the provider, for the importer's overlap check.
@@ -237,6 +250,7 @@ class ThunderstormExperiment(Base):
         _object("thunderstorm_experiment", "parameters"),
         _object("thunderstorm_experiment", "lightning_filter"),
         _object("thunderstorm_experiment", "hull_parameters"),
+        _object("thunderstorm_experiment", "summary"),
         UniqueConstraint("data_provider_id", "algorithm", "parameters", "lightning_filter",
                          "hull_parameters", "date_time_start", "date_time_end",
                          "software_version",
@@ -252,6 +266,9 @@ class ThunderstormExperiment(Base):
     lightning_filter: Mapped[dict[str, Any]] = mapped_column(_JSON, nullable=False, default=dict)
     hull_parameters: Mapped[dict[str, Any]] = mapped_column(
         _JSON, nullable=False, default=_default_hull_parameters
+    )
+    summary: Mapped[dict[str, Any]] = mapped_column(
+        _JSON, nullable=False, default=dict, server_default=text("'{}'::jsonb")
     )
     date_time_start: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     date_time_end: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), nullable=False)
@@ -298,13 +315,24 @@ class Thunderstorm(Base):
     label : int
         The group's label in its run, unique within the run.
     date_time_start, date_time_end : datetime.datetime
-        Its first and last stroke (equal for a one-stroke group).
+        Its first and last linked stroke (equal for a one-stroke group).
     number_of_lightnings : int
-        How many strokes make it up, at least one.
+        How many strokes are linked to it, at least one.
+    number_of_flashes : int or None
+        How many flashes make it up, for a flash-based algorithm; ``None`` for
+        an algorithm or a provider without flashes. At least one, and never
+        more than ``number_of_lightnings`` (every flash has a linked stroke).
+    area : float or None
+        The area covered by the points the algorithm clustered, in km², by the
+        formula of Tuomi & Larjavaara (2005, appendix): ``12·√det(Σ)``, with Σ
+        the population covariance of their projected coordinates. Positive, or
+        ``None`` when undefined (fewer than three points, or all in a line).
     concave_hull : geoalchemy2.elements.WKBElement or None
-        The concave hull of its strokes, a ``POLYGON`` in EPSG:4326, computed
-        in the projected CRS of the experiment's hull parameters. ``None`` when
-        the hull is not a polygon — fewer than three strokes, or all in a line.
+        The concave hull of the strokes the algorithm clustered (all its strokes
+        for a stroke-based algorithm, the strokes that represent its flashes for
+        a flash-based one), a ``POLYGON`` in EPSG:4326, computed in the
+        projected CRS of the experiment's hull parameters. ``None`` when the
+        hull is not a polygon — fewer than three points, or all in a line.
         Indexed (GiST).
     lightning_links : list[ThunderstormLightning]
         Its rows in ``thunderstorm_lightning``.
@@ -321,6 +349,9 @@ class Thunderstorm(Base):
     __table_args__ = (
         CheckConstraint("date_time_end >= date_time_start", name="ck_thunderstorm_period"),
         CheckConstraint("number_of_lightnings >= 1", name="ck_thunderstorm_number_of_lightnings"),
+        CheckConstraint("number_of_flashes >= 1 AND number_of_flashes <= number_of_lightnings",
+                        name="ck_thunderstorm_number_of_flashes"),
+        CheckConstraint("area > 0", name="ck_thunderstorm_area"),
         UniqueConstraint("experiment_id", "label", name="uq_thunderstorm_experiment_label"),
         # The target of the composite foreign keys of the links and the windows.
         UniqueConstraint("id", "experiment_id", name="uq_thunderstorm_id_experiment"),
@@ -334,6 +365,8 @@ class Thunderstorm(Base):
     date_time_start: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     date_time_end: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     number_of_lightnings: Mapped[int] = mapped_column(Integer, nullable=False)
+    number_of_flashes: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    area: Mapped[float | None] = mapped_column(Float, nullable=True)
     concave_hull: Mapped[str | None] = mapped_column(
         Geometry(geometry_type="POLYGON", srid=4326), nullable=True
     )

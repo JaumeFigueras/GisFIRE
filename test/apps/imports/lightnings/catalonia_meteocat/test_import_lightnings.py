@@ -713,7 +713,9 @@ def test_a_database_without_the_thunderstorm_tables_is_refused(database, tmp_pat
     """The check reads them, so a database not migrated that far is refused up front."""
     engine, url = database
     with engine.begin() as connection:
-        connection.execute(text("DROP TABLE thunderstorm_lightning"))
+        # CASCADE drops only the foreign key thunderstorm_cellsearch_flash has on
+        # it (revision 687521539664), not that table.
+        connection.execute(text("DROP TABLE thunderstorm_lightning CASCADE"))
 
     with caplog.at_level(logging.ERROR):
         assert run(url, extract_2009(tmp_path)) == 1

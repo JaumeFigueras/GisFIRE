@@ -32,7 +32,39 @@ deliberate departure from GisFIRE2). The ``db_session`` fixture yields a SQLAlch
 without any truncation step.
 
 The test tree mirrors the source tree: ``test/data_model/`` for the generic models,
-``test/providers/<provider>/`` for the provider-specific ones.
+``test/providers/<provider>/`` for the provider-specific ones, ``test/apps/`` for the
+applications and ``test/algorithms/`` for ``gisfire_algorithms``.
+
+Algorithm tests
+^^^^^^^^^^^^^^^
+
+``test/algorithms/`` needs no database. Its tests also run with the QGIS virtual
+environment, whose numpy is older than the project's, since the plugins will run the
+same code: ``make test-algorithms-qgis`` (see :doc:`algorithms`). Coverage covers
+``gisfire_algorithms`` as well as ``src``.
+
+A thunderstorm application is tested against real data too:
+``test/fixtures/data/meteocat_lightning_2020-07-13.csv`` holds MeteoCat's 2,947 strokes
+of 2020-07-13, exported from the database, and
+``test/apps/thunderstorms/test_build_thunderstorms.py`` runs Cellsearch over them once
+per value of *C* (off, 10, 15, 25, 50, 100 and 200 min·km). Each run must give exactly
+what the same run stored in the database, checked in QGIS:
+``cellsearch_2020-07-13_expected.json`` holds, for each, the summary and every
+thunderstorm by label — counts, time span, area, a digest of its flashes' times and its
+last centre. Since the database read its own strokes and the test reads the export, it
+also shows that the fixture reproduces the database.
+
+Both files are **kept locally, not in the repository**: MeteoCat's data is not licensed
+for redistribution, so they are git-ignored, and these eight tests are skipped (with the
+reason) wherever the files are missing — in CI, for instance. Where gisfire_db is
+available they can be recreated: the export script's docstring gives the ``COPY`` that
+writes the strokes, and the script writes the reference. A synthetic day that can be
+published is planned to take the regression's place in the repository.
+
+When an algorithm's output changes **on purpose**, bump ``gisfire_algorithms.__version__``,
+run the experiments again with :doc:`applications/build_thunderstorms`, check them, and
+rewrite the reference with ``test/fixtures/data/export_cellsearch_2020-07-13.py``
+(read only), giving the experiment ids.
 
 Migration tests
 ^^^^^^^^^^^^^^^
@@ -66,8 +98,9 @@ Running the tests
 
 .. code-block:: bash
 
-   make test            # core suite + coverage
-   make test-qgis       # plugin suites + coverage
-   make test-all        # both
-   make test-full       # core, verbose + HTML coverage
-   make test-qgis-full  # plugins, verbose + HTML coverage
+   make test                  # core suite + coverage
+   make test-algorithms-qgis  # test/algorithms with the QGIS venv
+   make test-qgis             # plugin suites + coverage
+   make test-all              # all three
+   make test-full             # core, verbose + HTML coverage
+   make test-qgis-full        # plugins, verbose + HTML coverage

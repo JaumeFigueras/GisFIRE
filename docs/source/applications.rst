@@ -207,6 +207,36 @@ was arrived at. They live under ``src/apps/bindings/``, grouped like the importe
    applications/nbac_bind_nfdb_wildfires
    applications/conaf_magnitud_bind_wildfires
 
+Thunderstorms
+-------------
+
+A thunderstorm is not in any provider's data: it is inferred from lightning strokes by a
+clustering algorithm, so building one is inference, like a binding, and records how it
+was arrived at — the algorithm, its complete parameters, the strokes it read and the
+software version. The algorithms themselves are in ``gisfire_algorithms`` (see
+:doc:`algorithms`); the application that runs them over the database lives under
+``src/apps/thunderstorms/``::
+
+   src/apps/thunderstorms/build_thunderstorms.py
+   src/apps/thunderstorms/readers.py      one stroke reader per provider
+   src/apps/thunderstorms/writers.py      the generic and per-algorithm writers
+
+:doc:`applications/build_thunderstorms`
+    Clusters one provider's strokes over a half-open period with one algorithm and stores
+    the run as a thunderstorm experiment: each storm with its time span, its strokes, its
+    flashes, its area and its concave hull, plus what the algorithm stores of its own —
+    for Cellsearch, the cell's centre after each flash. The strokes are streamed in time
+    order and clustered in pieces cut at quiet gaps, each committed on its own, with
+    exactly the result of one run over everything. A configuration already stored is
+    refused, a failed run deletes what it wrote, and a storm cut by either end of the
+    period is counted and warned about. MeteoCat so far, with Cellsearch.
+
+.. toctree::
+   :maxdepth: 1
+   :hidden:
+
+   applications/build_thunderstorms
+
 Statistics
 ----------
 

@@ -223,7 +223,13 @@ __marimo__/
 PROMPTS.md
 CLAUDE.md
 TODO.md
+plans/
 .env
 .idea/
 .gitignore
 
+
+# MeteoCat lightning data is not licensed for redistribution: the real-day
+# regression fixtures stay local (the test skips without them)
+test/fixtures/data/meteocat_lightning_2020-07-13.csv
+test/fixtures/data/cellsearch_2020-07-13_expected.json

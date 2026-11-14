@@ -251,10 +251,11 @@ below as they are ported.
 
 :doc:`data_model/thunderstorm`
     A thunderstorm **inferred** from one provider's strokes by a clustering run: the run
-    (algorithm, parameters, stroke filter, period), each storm found with its concave
-    hull and its strokes, and the evolution of each storm over moving time windows —
-    gravity centres from which the views derive direction vectors, paths and convex
-    hulls.
+    (algorithm, parameters, stroke filter, period, summary), each storm found with its
+    strokes, flashes, area and concave hull, what an algorithm stores of its own (for
+    Cellsearch, the cell's centre after each flash), and the evolution of each storm over
+    moving time windows — gravity centres from which the views derive direction vectors,
+    paths and convex hulls.
 
 :doc:`data_model/geography_admin_boundary`
     An administrative division — a country, a region, a province, a municipality — as a

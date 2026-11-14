@@ -138,6 +138,12 @@ VIEWS = {
     "v_thunderstorm_vector_25831": ("geometry", "LINESTRING", 25831),
     "v_thunderstorm_path": ("geometry", "LINESTRING", 4326),
     "v_thunderstorm_path_25831": ("geometry", "LINESTRING", 25831),
+    # Cellsearch (Tuomi & Larjavaara 2005): the running centre after each flash,
+    # and the line through them per cell. See revision e7147a41b62b.
+    "v_thunderstorm_cellsearch_centre": ("geometry", "POINT", 4326),
+    "v_thunderstorm_cellsearch_centre_25831": ("geometry", "POINT", 25831),
+    "v_thunderstorm_cellsearch_path": ("geometry", "LINESTRING", 4326),
+    "v_thunderstorm_cellsearch_path_25831": ("geometry", "LINESTRING", 25831),
 }
 
 #: Dataset views with no geometry column, loaded by QGIS as plain tables. They are
@@ -204,7 +210,7 @@ def test_migrations_match_the_models(alembic_config):
 
 @pytest.mark.parametrize("table", ["wildfire", "ignition", "lightning", "thunderstorm_experiment",
                                    "thunderstorm", "thunderstorm_tracking",
-                                   "thunderstorm_evolution"])
+                                   "thunderstorm_evolution", "thunderstorm_cellsearch_flash"])
 def test_the_sequence_backed_ids_have_a_usable_sequence(alembic_config, table):
     """The wildfire importers draw ids with ``nextval(pg_get_serial_sequence(...))``.
 
@@ -890,9 +896,24 @@ def _completed(status: str) -> datetime.datetime | None:
     return _STORM_START + datetime.timedelta(days=200) if status == "complete" else None
 
 
+#: The storm's Cellsearch flashes: the running centre after each one and the
+#: minute of its representative stroke. Three flashes over 30 minutes.
+_FLASH_CENTRES = [(1.65, 41.31), (1.70, 41.33), (1.75, 41.35)]
+_FLASH_MINUTES = (0, 10, 30)
+#: The storm's flash count and area (km²): 100 · 3 / 50 = 6 flashes per 100 km².
+_FLASHES, _AREA = 3, 50.0
+
+
 def _a_thunderstorm_run(connection, *, centres=_CENTRES, experiment_status="complete",
-                        tracking_status="complete", algorithm="DBSCAN"):
-    """An experiment with one storm and one tracking of it; returns their ids."""
+                        tracking_status="complete", algorithm="DBSCAN", flashes=True,
+                        flash_minutes=_FLASH_MINUTES):
+    """An experiment with one storm and one tracking of it; returns their ids.
+
+    With ``flashes`` the storm also has a flash count, an area, four linked
+    strokes and three Cellsearch flashes (``_FLASH_CENTRES`` at
+    ``flash_minutes``) represented by the first three; without, those columns
+    are NULL and there are no strokes.
+    """
     provider_id = connection.execute(text(
         "INSERT INTO data_provider (name, product, full_name) VALUES ('MeteoCat', 'XDDE', 'SMC') "
         "ON CONFLICT (name, product) DO UPDATE SET name = EXCLUDED.name RETURNING id")).scalar()
@@ -906,9 +927,31 @@ def _a_thunderstorm_run(connection, *, centres=_CENTRES, experiment_status="comp
          "completed": _completed(experiment_status)}).scalar()
     storm_id = connection.execute(text(
         "INSERT INTO thunderstorm (experiment_id, label, date_time_start, date_time_end, "
-        "number_of_lightnings, concave_hull) VALUES (:experiment_id, 0, '2015-07-01T14:00Z', "
-        "'2015-07-01T14:42Z', 120, ST_GeomFromText(:hull, 4326)) RETURNING id"),
-        {"experiment_id": experiment_id, "hull": _L_HULL}).scalar()
+        "number_of_lightnings, number_of_flashes, area, concave_hull) VALUES (:experiment_id, 0, "
+        "'2015-07-01T14:00Z', '2015-07-01T14:42Z', 120, :flashes, :area, "
+        "ST_GeomFromText(:hull, 4326)) RETURNING id"),
+        {"experiment_id": experiment_id, "hull": _L_HULL,
+         "flashes": _FLASHES if flashes else None, "area": _AREA if flashes else None}).scalar()
+    if flashes:
+        for index, minute in enumerate((*flash_minutes, 41)):
+            stroke_id = connection.execute(text(
+                "INSERT INTO lightning (type, data_provider_id, date_time, geometry, "
+                "peak_current, cloud_to_ground) VALUES ('lightning', :provider_id, :date_time, "
+                "ST_SetSRID(ST_MakePoint(1.7, 41.4), 4326), -20.0, true) RETURNING id"),
+                {"provider_id": provider_id,
+                 "date_time": _STORM_START + datetime.timedelta(minutes=minute)}).scalar()
+            connection.execute(text(
+                "INSERT INTO thunderstorm_lightning (thunderstorm_id, lightning_id, experiment_id) "
+                "VALUES (:storm_id, :stroke_id, :experiment_id)"),
+                {"storm_id": storm_id, "stroke_id": stroke_id, "experiment_id": experiment_id})
+            if index < len(flash_minutes):
+                x, y = _FLASH_CENTRES[index]
+                connection.execute(text(
+                    "INSERT INTO thunderstorm_cellsearch_flash (thunderstorm_id, sequence, "
+                    "experiment_id, lightning_id, centre) VALUES (:storm_id, :sequence, "
+                    ":experiment_id, :stroke_id, ST_SetSRID(ST_MakePoint(:x, :y), 4326))"),
+                    {"storm_id": storm_id, "sequence": index + 1, "experiment_id": experiment_id,
+                     "stroke_id": stroke_id, "x": x, "y": y})
     tracking_id = connection.execute(text(
         "INSERT INTO thunderstorm_tracking (experiment_id, window_length, window_step, "
         "hull_parameters, software_version, status, completed_at) VALUES (:experiment_id, "
@@ -1123,9 +1166,14 @@ def test_the_thunderstorm_views_show_complete_runs_only(alembic_config, experime
     engine.dispose()
 
     for view, number in counts.items():
-        storm_level = view.startswith(("v_thunderstorm_25831", "v_thunderstorm_convex")) or \
+        storm_level = view.startswith(("v_thunderstorm_25831", "v_thunderstorm_convex",
+                                       "v_thunderstorm_cellsearch_path")) or \
             view == "v_thunderstorm"
-        assert number == (storms if storm_level else windows), view
+        if view.startswith("v_thunderstorm_cellsearch_centre"):
+            # One row per flash; they hang off the experiment, not the tracking.
+            assert number == _FLASHES * storms, view
+        else:
+            assert number == (storms if storm_level else windows), view
 
 
 def test_the_thunderstorm_25831_views_are_on_the_utm_grid(alembic_config):
@@ -1142,15 +1190,146 @@ def test_the_thunderstorm_25831_views_are_on_the_utm_grid(alembic_config):
             for view in VIEWS if view.startswith("v_thunderstorm") and view.endswith("_25831")}
     engine.dispose()
 
-    assert len(extents) == 7
+    assert len(extents) == 9
     for view, (x, y) in extents.items():
         assert 380_000 < x < 420_000, view
         assert 4_530_000 < y < 4_580_000, view
 
 
+def test_the_thunderstorm_views_show_flashes_area_and_density(alembic_config):
+    config, url = alembic_config
+    upgrade(config, "head")
+
+    engine = create_engine(url)
+    with engine.begin() as connection:
+        _a_thunderstorm_run(connection)
+    with engine.connect() as connection:
+        rows = {view: connection.execute(text(
+            f"SELECT number_of_flashes, area_km2, density_per_100km2 FROM {view}")).one()
+            for view in ("v_thunderstorm", "v_thunderstorm_25831", "v_thunderstorm_convex_hull",
+                         "v_thunderstorm_convex_hull_25831")}
+    engine.dispose()
+
+    for view, row in rows.items():
+        assert tuple(row) == (_FLASHES, _AREA, pytest.approx(6.0)), view
+
+
+def test_the_thunderstorm_views_leave_the_flash_columns_null_without_flashes(alembic_config):
+    """A stroke-based algorithm stores no flash count and no area."""
+    config, url = alembic_config
+    upgrade(config, "head")
+
+    engine = create_engine(url)
+    with engine.begin() as connection:
+        _a_thunderstorm_run(connection, flashes=False)
+    with engine.connect() as connection:
+        row = connection.execute(text(
+            "SELECT number_of_flashes, area_km2, density_per_100km2, number_of_lightnings "
+            "FROM v_thunderstorm")).one()
+    engine.dispose()
+
+    assert tuple(row) == (None, None, None, 120)
+
+
+def test_the_cellsearch_centre_view_lists_each_flash(alembic_config):
+    config, url = alembic_config
+    upgrade(config, "head")
+
+    engine = create_engine(url)
+    with engine.begin() as connection:
+        experiment_id, storm_id, _, _ = _a_thunderstorm_run(connection, algorithm="CELLSEARCH")
+        flash_ids = connection.execute(text(
+            "SELECT id FROM thunderstorm_cellsearch_flash ORDER BY sequence")).scalars().all()
+    with engine.connect() as connection:
+        rows = connection.execute(text(
+            "SELECT *, ST_X(geometry) AS x, ST_Y(geometry) AS y "
+            "FROM v_thunderstorm_cellsearch_centre ORDER BY sequence")).all()
+    engine.dispose()
+
+    assert [row.id for row in rows] == flash_ids
+    assert {(row.thunderstorm_id, row.experiment_id, row.algorithm, row.label,
+             row.cell_number_of_flashes) for row in rows} == {
+        (storm_id, experiment_id, "CELLSEARCH", 0, _FLASHES)}
+    assert [row.sequence for row in rows] == [1, 2, 3]
+    assert [row.date_time for row in rows] == [
+        _STORM_START + datetime.timedelta(minutes=minute) for minute in _FLASH_MINUTES]
+    assert [(row.x, row.y) for row in rows] == _FLASH_CENTRES
+
+
+def test_the_cellsearch_path_view_joins_the_centres_with_the_article_statistics(alembic_config):
+    from pyproj import Geod
+
+    config, url = alembic_config
+    upgrade(config, "head")
+
+    engine = create_engine(url)
+    with engine.begin() as connection:
+        experiment_id, storm_id, _, _ = _a_thunderstorm_run(connection)
+    with engine.connect() as connection:
+        path = connection.execute(text(
+            "SELECT *, ST_AsText(geometry) AS line FROM v_thunderstorm_cellsearch_path")).one()
+        utm_length = connection.execute(text(
+            "SELECT ST_Length(geometry) FROM v_thunderstorm_cellsearch_path_25831")).scalar()
+    engine.dispose()
+
+    geod = Geod(ellps="WGS84")
+    legs = [geod.inv(*a, *b)[2] for a, b in zip(_FLASH_CENTRES, _FLASH_CENTRES[1:])]
+    net = geod.inv(*_FLASH_CENTRES[0], *_FLASH_CENTRES[-1])[2]
+
+    assert (path.id, path.experiment_id, path.label) == (storm_id, experiment_id, 0)
+    assert path.number_of_flashes == _FLASHES
+    # The lifetime is the flashes' (0 to 30 min), not the storm's 42 min of strokes.
+    assert path.date_time_start == _STORM_START
+    assert path.date_time_end == _STORM_START + datetime.timedelta(minutes=30)
+    assert path.lifetime_min == 30
+    assert path.flash_rate_per_min == pytest.approx(_FLASHES / 30)
+    assert (path.area_km2, path.density_per_100km2) == (_AREA, pytest.approx(6.0))
+    assert path.path_length_m == pytest.approx(sum(legs), abs=0.01)
+    assert path.net_displacement_m == pytest.approx(net, abs=0.01)
+    assert path.line == "LINESTRING(1.65 41.31,1.7 41.33,1.75 41.35)"
+    # The UTM line is the same path, within the scale factor of the projection.
+    assert utm_length == pytest.approx(sum(legs), rel=1e-3)
+
+
+def test_a_cell_whose_flashes_are_simultaneous_has_no_flash_rate(alembic_config):
+    config, url = alembic_config
+    upgrade(config, "head")
+
+    engine = create_engine(url)
+    with engine.begin() as connection:
+        _a_thunderstorm_run(connection, flash_minutes=(5, 5, 5))
+    with engine.connect() as connection:
+        row = connection.execute(text(
+            "SELECT lifetime_min, flash_rate_per_min FROM v_thunderstorm_cellsearch_path")).one()
+    engine.dispose()
+
+    assert tuple(row) == (0, None)
+
+
+def test_downgrading_the_cellsearch_views_restores_the_previous_ones(alembic_config):
+    """Revision e7147a41b62b puts back 7a1c4e9b2d56's definitions, then reapplies cleanly."""
+    config, url = alembic_config
+    upgrade(config, "head")
+    downgrade(config, "687521539664")
+
+    engine = create_engine(url)
+    inspector = inspect(engine)
+    views = set(inspector.get_view_names())
+    columns = {column["name"] for column in inspector.get_columns("v_thunderstorm")}
+    engine.dispose()
+
+    assert not any(view.startswith("v_thunderstorm_cellsearch") for view in views)
+    assert {"v_thunderstorm", "v_thunderstorm_25831", "v_thunderstorm_convex_hull",
+            "v_thunderstorm_convex_hull_25831"} <= views
+    assert {"number_of_flashes", "area_km2", "density_per_100km2"} & columns == set()
+    assert "lightnings_per_minute" in columns
+    upgrade(config, "head")
+
+
 def test_the_thunderstorm_checks_are_migrated(alembic_config):
     """``compare_metadata`` ignores CHECK constraints, so their names are compared here."""
     from src.data_model import thunderstorm
+    from src.data_model import thunderstorm_cellsearch
 
     config, url = alembic_config
     upgrade(config, "head")
@@ -1158,7 +1337,7 @@ def test_the_thunderstorm_checks_are_migrated(alembic_config):
     tables = [model.__table__ for model in (
         thunderstorm.ThunderstormExperiment, thunderstorm.Thunderstorm,
         thunderstorm.ThunderstormLightning, thunderstorm.ThunderstormTracking,
-        thunderstorm.ThunderstormEvolution)]
+        thunderstorm.ThunderstormEvolution, thunderstorm_cellsearch.ThunderstormCellsearchFlash)]
     expected = {constraint.name for table in tables for constraint in table.constraints
                 if constraint.__class__.__name__ == "CheckConstraint"}
     engine = create_engine(url)
@@ -1169,7 +1348,9 @@ def test_the_thunderstorm_checks_are_migrated(alembic_config):
     engine.dispose()
 
     assert migrated == expected
-    assert len(expected) == 21
+    # 21 from 3e8b5d1c7f20; 687521539664 adds summary, number_of_flashes, area and
+    # the Cellsearch flash's sequence.
+    assert len(expected) == 25
 
 
 @pytest.mark.parametrize(("table", "referenced", "action"), [
@@ -1181,6 +1362,10 @@ def test_the_thunderstorm_checks_are_migrated(alembic_config):
     pytest.param("thunderstorm_evolution", "thunderstorm", "c", id="window-goes-with-storm"),
     pytest.param("thunderstorm_evolution", "thunderstorm_tracking", "c",
                  id="window-goes-with-tracking"),
+    pytest.param("thunderstorm_cellsearch_flash", "thunderstorm", "c",
+                 id="cellsearch-flash-goes-with-storm"),
+    pytest.param("thunderstorm_cellsearch_flash", "thunderstorm_lightning", "c",
+                 id="cellsearch-flash-goes-with-link"),
 ])
 def test_the_thunderstorm_foreign_keys_delete_as_designed(alembic_config, table, referenced,
                                                           action):

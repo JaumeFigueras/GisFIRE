@@ -13,7 +13,7 @@ QGIS_PYTHONPATH ?= /usr/share/qgis/python
 QGIS_QT_PLATFORM ?= offscreen
 QGIS_ENV = PYTHONPATH="$(QGIS_PYTHONPATH):$$PYTHONPATH" QT_QPA_PLATFORM=$(QGIS_QT_PLATFORM)
 
-.PHONY: help venv install install-qgis test test-qgis test-all test-full test-qgis-full \
+.PHONY: help venv install install-qgis test test-qgis test-algorithms-qgis test-all test-full test-qgis-full \
 	docs clean migrate migration migrate-down migrate-sql migrate-history
 
 help:
@@ -22,6 +22,7 @@ help:
 	@echo "make install-qgis   - install plugin dev deps into the QGIS venv"
 	@echo "make test           - run core tests + coverage (project venv)"
 	@echo "make test-qgis      - run plugin tests + coverage (QGIS venv)"
+	@echo "make test-algorithms-qgis - run the gisfire_algorithms tests with the QGIS venv"
 	@echo "make test-all       - run both suites"
 	@echo "make test-full      - core: full verbose run + HTML coverage, stop on first fail"
 	@echo "make test-qgis-full - plugin: full verbose run + HTML coverage, stop on first fail"
@@ -55,7 +56,14 @@ test:
 test-qgis:
 	cd qgis_plugins && $(QGIS_ENV) $(QGIS_VENV)/bin/python -m pytest
 
-test-all: test test-qgis
+# The pure algorithms (gisfire_algorithms) also run inside QGIS, whose numpy is
+# older than the project venv's, so their tests run with the QGIS venv too.
+# --noconftest: the root test/conftest.py needs pytest-postgresql and SQLAlchemy,
+# which the QGIS venv lacks; -o addopts= drops the coverage options of pytest.ini.
+test-algorithms-qgis:
+	$(QGIS_VENV)/bin/python -m pytest --noconftest -o addopts= -ra test/algorithms
+
+test-all: test test-algorithms-qgis test-qgis
 
 # Full verbose runs with an HTML coverage report (matches the usual manual command:
 # -x stop on first failure, -s no capture, -vv extra-verbose, HTML report dir).

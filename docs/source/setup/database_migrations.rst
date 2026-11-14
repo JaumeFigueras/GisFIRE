@@ -113,49 +113,53 @@ and the provider's own columns beside it (joined table inheritance, see
 relation with everything on it. So the schema also carries a **view per dataset**,
 flattening the two tables and resolving the foreign keys to names:
 
-==============================================  ======================================  =======================
-View                                            Flattens                                Geometry
-==============================================  ======================================  =======================
-``v_gwis_wildfire``                             ``wildfire`` + ``gwis_wildfire``        ``MULTIPOLYGON``, 4326
-``v_gfa_wildfire``                              ``wildfire`` + ``gfa_wildfire``         ``MULTIPOLYGON``, 4326
-``v_gfa_ignition``                              ``ignition`` + ``gfa_ignition``         ``POINT``, 4326
-``v_icnf_wildfire_4326``                        ``wildfire`` + ``icnf_wildfire``        ``MULTIPOLYGON``, 4326
-``v_icnf_wildfire_3763``                        ``wildfire`` + ``icnf_wildfire``        ``MULTIPOLYGON``, 3763
-``v_egif_ignition``                             ``ignition`` + ``egif_ignition``        ``POINT``, 4326
-``v_egif_wildfire``                             ``wildfire`` + ``egif_wildfire``        ``POINT``, 4326
-``v_darpa_wildfire_4326``                       ``wildfire`` + ``darpa_wildfire``       ``MULTIPOLYGON``, 4326
-``v_darpa_wildfire_25831``                      ``wildfire`` + ``darpa_wildfire``       ``MULTIPOLYGON``, 25831
-``v_rediam_wildfire_4326``                      ``wildfire`` + ``rediam_wildfire``      ``MULTIPOLYGON``, 4326
-``v_rediam_wildfire_25830``                     ``wildfire`` + ``rediam_wildfire``      ``MULTIPOLYGON``, 25830
-``v_rediam_ignition``                           ``ignition`` + ``rediam_ignition``      ``POINT``, 4326
-``v_greece_ffa_ignition``                       ``ignition`` + ``greece_ffa_ignition``  ``POINT``, 4326
-``v_greece_ffa_wildfire``                       ``wildfire`` + ``greece_ffa_wildfire``  ``POINT``, 4326
-``v_nbac_wildfire_4326``                        ``wildfire`` + ``nbac_wildfire``        ``MULTIPOLYGON``, 4326
-``v_nbac_wildfire_3978``                        ``wildfire`` + ``nbac_wildfire``        ``MULTIPOLYGON``, 3978
-``v_nfdb_ignition``                             ``ignition`` + ``nfdb_ignition``        ``POINT``, 4326
-``v_nfdb_wildfire``                             ``wildfire`` + ``nfdb_wildfire``        ``POINT``, 4326
-``v_wod_wildfire``                              ``wildfire`` + ``wod_wildfire``         ``MULTIPOLYGON``, 4326
-``v_wod_wildfire_2193``                         ``wildfire`` + ``wod_wildfire``         ``MULTIPOLYGON``, 2193
-``v_wod_ignition``                              ``ignition`` + ``wod_*`` (four tables)  ``POINT``, 4326
-``v_wod_ignition_2193``                         ``ignition`` + ``wod_*`` (four tables)  ``POINT``, 2193
-``v_meteocat_lightning_4326``                   ``lightning`` + ``meteocat_lightning``  ``POINT``, 4326
-``v_meteocat_lightning_4258``                   ``lightning`` + ``meteocat_lightning``  ``POINT``, 4258
-``v_meteocat_lightning_25831``                  ``lightning`` + ``meteocat_lightning``  ``POINT``, 25831
-``v_thunderstorm``                              ``thunderstorm`` + run                  ``POLYGON``, 4326
-``v_thunderstorm_25831``                        ``thunderstorm`` + run                  ``POLYGON``, 25831
-``v_thunderstorm_convex_hull``                  ``thunderstorm`` + run                  ``POLYGON``, 4326
-``v_thunderstorm_convex_hull_25831``            ``thunderstorm`` + run                  ``POLYGON``, 25831
-``v_thunderstorm_evolution``                    ``thunderstorm_evolution`` + run        ``POINT``, 4326
-``v_thunderstorm_evolution_25831``              ``thunderstorm_evolution`` + run        ``POINT``, 25831
-``v_thunderstorm_evolution_hull``               ``thunderstorm_evolution`` + run        ``POLYGON``, 4326
-``v_thunderstorm_evolution_hull_25831``         ``thunderstorm_evolution`` + run        ``POLYGON``, 25831
-``v_thunderstorm_evolution_convex_hull``        ``thunderstorm_evolution`` + run        ``POLYGON``, 4326
-``v_thunderstorm_evolution_convex_hull_25831``  ``thunderstorm_evolution`` + run        ``POLYGON``, 25831
-``v_thunderstorm_vector``                       ``thunderstorm_evolution`` + run        ``LINESTRING``, 4326
-``v_thunderstorm_vector_25831``                 ``thunderstorm_evolution`` + run        ``LINESTRING``, 25831
-``v_thunderstorm_path``                         ``thunderstorm_evolution`` + run        ``LINESTRING``, 4326
-``v_thunderstorm_path_25831``                   ``thunderstorm_evolution`` + run        ``LINESTRING``, 25831
-==============================================  ======================================  =======================
+==============================================  ==========================================  =======================
+View                                            Flattens                                    Geometry
+==============================================  ==========================================  =======================
+``v_gwis_wildfire``                             ``wildfire`` + ``gwis_wildfire``            ``MULTIPOLYGON``, 4326
+``v_gfa_wildfire``                              ``wildfire`` + ``gfa_wildfire``             ``MULTIPOLYGON``, 4326
+``v_gfa_ignition``                              ``ignition`` + ``gfa_ignition``             ``POINT``, 4326
+``v_icnf_wildfire_4326``                        ``wildfire`` + ``icnf_wildfire``            ``MULTIPOLYGON``, 4326
+``v_icnf_wildfire_3763``                        ``wildfire`` + ``icnf_wildfire``            ``MULTIPOLYGON``, 3763
+``v_egif_ignition``                             ``ignition`` + ``egif_ignition``            ``POINT``, 4326
+``v_egif_wildfire``                             ``wildfire`` + ``egif_wildfire``            ``POINT``, 4326
+``v_darpa_wildfire_4326``                       ``wildfire`` + ``darpa_wildfire``           ``MULTIPOLYGON``, 4326
+``v_darpa_wildfire_25831``                      ``wildfire`` + ``darpa_wildfire``           ``MULTIPOLYGON``, 25831
+``v_rediam_wildfire_4326``                      ``wildfire`` + ``rediam_wildfire``          ``MULTIPOLYGON``, 4326
+``v_rediam_wildfire_25830``                     ``wildfire`` + ``rediam_wildfire``          ``MULTIPOLYGON``, 25830
+``v_rediam_ignition``                           ``ignition`` + ``rediam_ignition``          ``POINT``, 4326
+``v_greece_ffa_ignition``                       ``ignition`` + ``greece_ffa_ignition``      ``POINT``, 4326
+``v_greece_ffa_wildfire``                       ``wildfire`` + ``greece_ffa_wildfire``      ``POINT``, 4326
+``v_nbac_wildfire_4326``                        ``wildfire`` + ``nbac_wildfire``            ``MULTIPOLYGON``, 4326
+``v_nbac_wildfire_3978``                        ``wildfire`` + ``nbac_wildfire``            ``MULTIPOLYGON``, 3978
+``v_nfdb_ignition``                             ``ignition`` + ``nfdb_ignition``            ``POINT``, 4326
+``v_nfdb_wildfire``                             ``wildfire`` + ``nfdb_wildfire``            ``POINT``, 4326
+``v_wod_wildfire``                              ``wildfire`` + ``wod_wildfire``             ``MULTIPOLYGON``, 4326
+``v_wod_wildfire_2193``                         ``wildfire`` + ``wod_wildfire``             ``MULTIPOLYGON``, 2193
+``v_wod_ignition``                              ``ignition`` + ``wod_*`` (four tables)      ``POINT``, 4326
+``v_wod_ignition_2193``                         ``ignition`` + ``wod_*`` (four tables)      ``POINT``, 2193
+``v_meteocat_lightning_4326``                   ``lightning`` + ``meteocat_lightning``      ``POINT``, 4326
+``v_meteocat_lightning_4258``                   ``lightning`` + ``meteocat_lightning``      ``POINT``, 4258
+``v_meteocat_lightning_25831``                  ``lightning`` + ``meteocat_lightning``      ``POINT``, 25831
+``v_thunderstorm``                              ``thunderstorm`` + run                      ``POLYGON``, 4326
+``v_thunderstorm_25831``                        ``thunderstorm`` + run                      ``POLYGON``, 25831
+``v_thunderstorm_convex_hull``                  ``thunderstorm`` + run                      ``POLYGON``, 4326
+``v_thunderstorm_convex_hull_25831``            ``thunderstorm`` + run                      ``POLYGON``, 25831
+``v_thunderstorm_evolution``                    ``thunderstorm_evolution`` + run            ``POINT``, 4326
+``v_thunderstorm_evolution_25831``              ``thunderstorm_evolution`` + run            ``POINT``, 25831
+``v_thunderstorm_evolution_hull``               ``thunderstorm_evolution`` + run            ``POLYGON``, 4326
+``v_thunderstorm_evolution_hull_25831``         ``thunderstorm_evolution`` + run            ``POLYGON``, 25831
+``v_thunderstorm_evolution_convex_hull``        ``thunderstorm_evolution`` + run            ``POLYGON``, 4326
+``v_thunderstorm_evolution_convex_hull_25831``  ``thunderstorm_evolution`` + run            ``POLYGON``, 25831
+``v_thunderstorm_vector``                       ``thunderstorm_evolution`` + run            ``LINESTRING``, 4326
+``v_thunderstorm_vector_25831``                 ``thunderstorm_evolution`` + run            ``LINESTRING``, 25831
+``v_thunderstorm_path``                         ``thunderstorm_evolution`` + run            ``LINESTRING``, 4326
+``v_thunderstorm_path_25831``                   ``thunderstorm_evolution`` + run            ``LINESTRING``, 25831
+``v_thunderstorm_cellsearch_centre``            ``thunderstorm_cellsearch_flash`` + run     ``POINT``, 4326
+``v_thunderstorm_cellsearch_centre_25831``      ``thunderstorm_cellsearch_flash`` + run     ``POINT``, 25831
+``v_thunderstorm_cellsearch_path``              ``thunderstorm_cellsearch_flash`` + run     ``LINESTRING``, 4326
+``v_thunderstorm_cellsearch_path_25831``        ``thunderstorm_cellsearch_flash`` + run     ``LINESTRING``, 25831
+==============================================  ==========================================  =======================
 
 Portugal, Catalonia, Andalusia and Canada each appear twice, because a QGIS layer takes a
 single geometry column and all four datasets have two perimeters: the one the provider
@@ -233,15 +237,18 @@ same expression for the planner to use it, and ``test/test_migrations.py`` check
 does. There is no ``date_time_local``: the XDDE publishes UTC, so the published reading
 is ``date_time``.
 
-Thunderstorms get **fourteen** views: seven layers, each in EPSG:4326 and in ETRS89 /
+Thunderstorms get **eighteen** views: nine layers, each in EPSG:4326 and in ETRS89 /
 UTM 31N (EPSG:25831), the grid of the only lightning provider so far. "Run" in the table
 is the experiment — and, for the window layers, the tracking — the rows belong to; see
 :doc:`../data_model/thunderstorm`. A view takes one geometry, so the concave and the
 convex hull of a storm are two layers, and so are a window's centre and its hulls:
 
 - ``v_thunderstorm`` — each storm's concave hull, with its duration and strokes per
-  minute (counting at least one minute); ``v_thunderstorm_convex_hull`` — the same rows
-  with ``ST_ConvexHull`` of that hull, which is the convex hull of the strokes.
+  minute (counting at least one minute) and, from revision ``e7147a41b62b``, its
+  ``number_of_flashes``, ``area_km2`` and ``density_per_100km2`` (100 · flashes / area,
+  as Tuomi & Larjavaara report it; all three NULL for a stroke-based algorithm or an
+  undefined area); ``v_thunderstorm_convex_hull`` — the same rows with ``ST_ConvexHull``
+  of that hull, which is the convex hull of the points it was drawn from.
 - ``v_thunderstorm_evolution`` — each window's gravity centre, stamped at the window's
   **midpoint**, with the **direction vector** that brought the storm there: computed with
   ``LAG()`` over the window sequence on the WGS 84 spheroid — ``displacement_m``,
@@ -254,13 +261,27 @@ convex hull of a storm are two layers, and so are a window's centre and its hull
 - ``v_thunderstorm_path`` — one line per tracking and storm through its centres, with
   total and net distance, mean speed, mean *u*/*v* and the bearing of the mean velocity.
   A storm seen in a single window has no path; the ``id`` is that of its first window.
+- ``v_thunderstorm_cellsearch_centre`` — for a Cellsearch run, one point per flash of a
+  kept cell: the cell's running centre right after it (the article's Fig. 8), with its
+  ``sequence``, the representative stroke and its instant.
+- ``v_thunderstorm_cellsearch_path`` — one line per Cellsearch cell through those
+  centres in sequence, with the article's statistics computed from the **flashes**:
+  ``lifetime_min`` (last − first flash), ``flash_rate_per_min`` (NULL for a lifetime of
+  zero), ``area_km2``, ``density_per_100km2``, and the geodesic ``path_length_m`` and
+  ``net_displacement_m``. Its ``id`` is the cell's. ``duration_s`` on ``v_thunderstorm``
+  spans all the linked strokes, so it can exceed ``lifetime_min`` by the span of a
+  merged flash.
 
 They show **complete runs only**: a run being built, or one that failed, is half a
 result. Only the stored 4326 hulls and centres are selected straight from a table; every
-other geometry is computed and cast back to ``geometry(<type>,<srid>)``, so all fourteen
+other geometry is computed and cast back to ``geometry(<type>,<srid>)``, so all eighteen
 register in ``geometry_columns``. None is backed by an expression index: a run is of the
-order of 60,000 storms and 600,000 windows, not six million strokes. Nothing they show is
-stored, so nothing in them can go stale — ``test/test_migrations.py`` checks their
+order of 60,000 storms and 600,000 windows, not six million strokes. The exception in
+size is ``v_thunderstorm_cellsearch_centre``, one row per kept flash, which over the
+whole archive is of the order of the strokes: its 4326 layer selects the stored centre,
+which has a GiST index, while the ``_25831`` one reprojects it and has none, so over a
+long run filter it on ``experiment_id`` and a time span, or use the 4326 layer. Nothing
+they show is stored, so nothing in them can go stale — ``test/test_migrations.py`` checks their
 distances and bearings against an independent geodesic computation.
 
 ``v_egif_wildfire`` is the odd one out: a wildfire view whose geometry is a ``POINT``.
