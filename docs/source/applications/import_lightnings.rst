@@ -7,6 +7,7 @@ provider's own table with the network's location-quality measures and flash grou
 :doc:`../providers`. They live under ``src/apps/imports/lightnings/<source>/``::
 
    src/apps/imports/lightnings/catalonia_meteocat/import_lightnings.py
+   src/apps/imports/lightnings/finland_fmi/import_lightnings.py
 
 .. note::
 
@@ -32,8 +33,20 @@ Europe
     against subdivided OCHA boundaries. ``--dry-run`` checks the extracts without a
     database.
 
+:doc:`fmi_import_lightnings`
+    Imports the Finnish Meteorological Institute's lightning strokes, from 1998, from the
+    monthly files of :doc:`fmi_download_lightnings`. A UTC month is replaced wholesale,
+    after the file is checked against its sidecar; the strokes get their identifiers in
+    an order of their own, from their values, because FMI's whole-second strokes come in
+    no stable order; every flash is numbered, a flash straddling two months included; the
+    ellipse is converted to metres and a peak current of ``0`` stored as ``NULL``; the
+    published ETRS89 point is kept beside its EPSG:4326 reprojection, and the country is
+    resolved against subdivided OCHA boundaries. 2018's 2.1 million strokes import in
+    about four minutes.
+
 .. toctree::
    :maxdepth: 1
    :hidden:
 
    meteocat_import_lightnings
+   fmi_import_lightnings

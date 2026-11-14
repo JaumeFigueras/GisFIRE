@@ -1,5 +1,5 @@
 {
- "_about": "Cellsearch on FMI's strokes of 2018-07-03 (UTC), one run per value of C, frozen on 2026-11-14 from an empty scratch database by freeze_cellsearch_2018-07-03.py. Awaiting Jaume's check in QGIS. Source of the strokes: Finnish Meteorological Institute (FMI), open data, CC BY 4.0.",
+ "_about": "Cellsearch on FMI's strokes of 2018-07-03 (UTC), one run per value of C, frozen on 2026-11-14 from an empty scratch database by freeze_cellsearch_2018-07-03.py, and checked in QGIS by Jaume on 2026-11-14. Source of the strokes: Finnish Meteorological Institute (FMI), open data, CC BY 4.0.",
  "date_time_start": "2018-07-03T00:00:00+00:00",
  "date_time_end": "2018-07-04T00:00:00+00:00",
  "software_version": "0.1.0",

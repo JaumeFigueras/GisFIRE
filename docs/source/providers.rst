@@ -1405,6 +1405,71 @@ It is UTC
    providers/meteocat_provider
    providers/meteocat_lightning
 
+FMI
+---
+
+The lightning strokes of the **Finnish Meteorological Institute** (*Ilmatieteen laitos*),
+served by its open-data WFS (``https://opendata.fmi.fi/wfs``, listed as "Lightning
+strikes"): every stroke from **8 January 1998** to the present, over Northern Europe —
+49.7 to 73.1 N, 2.3 to 35.7 E, from the North Sea to Russia. Fetched month by month with
+:doc:`applications/fmi_download_lightnings` and imported with
+:doc:`applications/fmi_import_lightnings`. GisFIRE's second lightning source, from the
+network whose data Tuomi and Larjavaara's Cellsearch was written for.
+
+:doc:`providers/fmi_provider`
+    The dataset: the service and its limits, the sixteen fields, the archive and what
+    changes across its years.
+
+:doc:`providers/fmi_lightning`
+    The stroke: the published ETRS89 point, its flash with the computed and the
+    published multiplicity and the stroke's place in it, the location quality (sensors,
+    degrees of freedom, chi-squared, confidence ellipse in metres), the waveform times,
+    the stroke status and the indicators.
+
+What makes it unlike MeteoCat's:
+
+Nobody documents it
+    FMI's pages name the dataset and nothing else. The fields, their units, the period and
+    what the values mean were found by querying the service: twelve of the sixteen fields
+    are served only when named; the ellipse is in **kilometres** though the metadata says
+    metres; the archive starts in 1998, with stroke-level records for every year.
+
+Whole seconds
+    The instant has no fraction, so many strokes share a second, and the service returns
+    them in no stable order. The import orders each month's strokes by their values
+    before drawing their identifiers, so a month imported again gets the same order — and
+    the thunderstorm algorithms, which break ties between strokes of one second by
+    identifier, the same result.
+
+One network, filtered
+    One flash sequence since 1998, so a flash is ``flash_id`` alone and there is no
+    overlap to filter. The network changed over the years (cloud-to-ground only until
+    2004, intra-cloud strokes from 2005, more than half from 2015), and the ellipse has a
+    ceiling — 50, 25, 15, then 10 km — beyond which FMI **drops** the stroke, which is
+    why about 0.01 % of flashes announce strokes that are not published.
+
+A month, not a year
+    A request covers at most 168 hours, so the downloader writes one file per UTC month,
+    and the month is the unit an import replaces.
+
+It may be redistributed
+    FMI open data is CC BY 4.0. Real FMI strokes are committed as test fixtures, with
+    the attribution, and one real day is the public regression test of Cellsearch.
+
+.. note::
+
+   FMI's location errors run larger than MeteoCat's: over 2018, the default E\ :sub:`max`
+   of 10 km discards 3.9 % of its flashes — in Finland as elsewhere — against 0.7 % on
+   MeteoCat's regression day. Choose ``--max-location-error`` with that in mind; see
+   :doc:`applications/build_thunderstorms`.
+
+.. toctree::
+   :maxdepth: 1
+   :hidden:
+
+   providers/fmi_provider
+   providers/fmi_lightning
+
 OCHA
 ----
 

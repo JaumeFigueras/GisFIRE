@@ -84,7 +84,7 @@ What the thunderstorm algorithms share
 **Strokes and flashes.** A lightning-location network reports strokes and groups them
 into flashes. :class:`~gisfire_algorithms.thunderstorm.flashes.Strokes` holds the strokes
 as parallel arrays, with the provider's flash identifier folded into one integer key
-(for MeteoCat, ``network_version · 10¹⁰ + flash_id``).
+(for MeteoCat, ``network_version · 10¹⁰ + flash_id``; for FMI, ``flash_id``).
 :func:`~gisfire_algorithms.thunderstorm.flashes.strokes_to_flashes` represents each
 flash by its **most accurate stroke** — the smallest location error, then the earliest,
 then the lowest id — which gives the flash its position, its time and its error, and

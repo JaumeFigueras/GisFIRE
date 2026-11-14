@@ -119,6 +119,28 @@ a day than the article's longest in a season, suggest merged cells — what cond
 is there to prevent. All seven runs are frozen in a regression test, run where the day's
 data is available locally (see :doc:`../testing`).
 
+The same sweep on FMI's 2018-07-03 — the network the article's data came from, in ETRS89 /
+TM35FIN, all other parameters at their defaults; 2,381 flashes searched over Northern
+Europe:
+
+======  =====  ====  ==========================  =========================  ============  ==============
+*C*     Cells  Kept  One-flash cells / flashes   Flashes in cells ≥10/≥30   Mean area     Longest life
+======  =====  ====  ==========================  =========================  ============  ==============
+10      903    129   50.2 % / 19.0 %             18 % / 3 %                 123 km²       16 min
+15      767    135   49.0 % / 15.8 %             30 % / 9 %                 133 km²       39 min
+25      602    130   49.2 % / 12.4 %             49 % / 13 %                159 km²       48 min
+50      444    128   47.3 % / 8.8 %              64 % / 25 %                189 km²       74 min
+100     348    117   45.1 % / 6.6 %              71 % / 34 %                214 km²       120 min
+200     310    109   45.2 % / 5.9 %              76 % / 41 %                234 km²       117 min
+off     308    108   45.8 % / 5.9 %              77 % / 41 %                238 km²       117 min
+Art.                 47.1 % / 7.7 %              ~70 % / >40 %              150 → >400    202 min
+======  =====  ====  ==========================  =========================  ============  ==============
+
+The day is many small, short storms at once rather than a few large ones, and the share
+of one-flash cells stays close to the article's at every *C*; the article's shares of
+flashes come between *C* = 50 and 100 min·km. These seven runs are frozen in a
+regression test that is in the repository and always runs.
+
 Choices the article leaves open
 -------------------------------
 
@@ -136,9 +158,12 @@ makes, and the tests pin each one down:
   earliest stroke, then to the lowest id.
 - **Labels are running numbers in order of creation**, with gaps where small cells were
   dropped. The article: the numbering "is unique for a given set of parameters".
-- **The location error is MeteoCat's** ``ellipse_major_axis`` **as published**, not
-  halved. Inside Catalonia the second network's median is 0.8 km, matching the article's
-  error "of the order of 1 km".
+- **The location error is the provider's** ``ellipse_major_axis``, in metres, not
+  halved: MeteoCat's as published — inside Catalonia the second network's median is
+  0.8 km, matching the article's error "of the order of 1 km" — and FMI's converted from
+  kilometres, median 1.4 km over 2018. Neither provider says whether it is an axis or a
+  semi-axis. FMI's tail is heavier: *E*\ :sub:`max` = 10 km discards 3.9 % of its 2018
+  flashes against 0.7 % of MeteoCat's regression day.
 
 The area and the other statistics
 ---------------------------------

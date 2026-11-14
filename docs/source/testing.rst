@@ -43,28 +43,57 @@ environment, whose numpy is older than the project's, since the plugins will run
 same code: ``make test-algorithms-qgis`` (see :doc:`algorithms`). Coverage covers
 ``gisfire_algorithms`` as well as ``src``.
 
-A thunderstorm application is tested against real data too:
-``test/fixtures/data/meteocat_lightning_2020-07-13.csv`` holds MeteoCat's 2,947 strokes
-of 2020-07-13, exported from the database, and
-``test/apps/thunderstorms/test_build_thunderstorms.py`` runs Cellsearch over them once
-per value of *C* (off, 10, 15, 25, 50, 100 and 200 min·km). Each run must give exactly
-what the same run stored in the database, checked in QGIS:
-``cellsearch_2020-07-13_expected.json`` holds, for each, the summary and every
-thunderstorm by label — counts, time span, area, a digest of its flashes' times and its
-last centre. Since the database read its own strokes and the test reads the export, it
-also shows that the fixture reproduces the database.
+A thunderstorm application is tested against real data too, on two days.
+``test/apps/thunderstorms/test_build_thunderstorms.py`` runs Cellsearch over each once per
+value of *C* (off, 10, 15, 25, 50, 100 and 200 min·km), and each run must give exactly the
+result frozen for it, checked in QGIS: for each, the summary and every thunderstorm by
+label — counts, time span, area, a digest of its flashes' times and its last centre.
 
-Both files are **kept locally, not in the repository**: MeteoCat's data is not licensed
-for redistribution, so they are git-ignored, and these eight tests are skipped (with the
-reason) wherever the files are missing — in CI, for instance. Where gisfire_db is
-available they can be recreated: the export script's docstring gives the ``COPY`` that
-writes the strokes, and the script writes the reference. A synthetic day that can be
-published is planned to take the regression's place in the repository.
+**FMI, 2018-07-03 — in the repository, always run.**
+``test/fixtures/data/fmi_regression/`` holds FMI's 3,178 strokes of that day and the hour
+before it, cut
+unchanged from a monthly file of :doc:`applications/fmi_download_lightnings`, and
+``cellsearch_2018-07-03_expected.json``, frozen with
+``freeze_cellsearch_2018-07-03.py`` from an empty scratch database and checked in QGIS
+on 2026-11-14. The test loads the day through the FMI importer, so the strokes get their
+identifiers in the importer's content order, as in gisfire_db; a further test shuffles
+the file, as a second download would, and must get the same result. The folder's
+``README.md`` says why this day, and how to regenerate the reference.
 
-When an algorithm's output changes **on purpose**, bump ``gisfire_algorithms.__version__``,
-run the experiments again with :doc:`applications/build_thunderstorms`, check them, and
-rewrite the reference with ``test/fixtures/data/export_cellsearch_2020-07-13.py``
-(read only), giving the experiment ids.
+**MeteoCat, 2020-07-13 — kept locally.**
+``test/fixtures/data/meteocat_lightning_2020-07-13.csv`` holds MeteoCat's 2,947 strokes of
+that day, exported
+from the database, and ``cellsearch_2020-07-13_expected.json`` what the same runs stored
+in the database, checked in QGIS; since the database read its own strokes and the test
+reads the export, it also shows that the fixture reproduces the database. Both files are
+**not in the repository**: MeteoCat's data is not licensed for redistribution, so they
+are git-ignored, and those tests are skipped (with the reason) wherever the files are
+missing — in CI, for instance. Where gisfire_db is available they can be recreated: the
+export script's docstring gives the ``COPY`` that writes the strokes, and the script
+writes the reference. A synthetic day is still planned, for MeteoCat's format and its
+"newest network" filter in a test that always runs (``TODO.md``).
+
+When an algorithm's output changes **on purpose**, bump ``gisfire_algorithms.__version__``
+(a test checks that FMI's reference was frozen with the current version), rewrite FMI's
+reference with its freeze script and check it in QGIS, run MeteoCat's experiments again
+with :doc:`applications/build_thunderstorms`, check them, and rewrite its reference with
+``test/fixtures/data/export_cellsearch_2020-07-13.py`` (read only), giving the experiment
+ids.
+
+FMI data in the fixtures
+^^^^^^^^^^^^^^^^^^^^^^^^
+
+FMI's open data is licensed CC BY 4.0, so real FMI responses and strokes are committed,
+unmodified, each folder with a ``README.md`` giving the source and the attribution —
+*Finnish Meteorological Institute (FMI), open data, CC BY 4.0*:
+
+- ``test/fixtures/data/fmi_wfs/`` — four responses of the WFS, for the downloader's tests,
+  which run with no network: a minute of 17 strokes, an empty hour, and the two
+  ``ExceptionReport`` answers to a bad request (an interval too long, an unknown
+  parameter). The importer's tests build their monthly files from the 17 strokes, turned
+  into rows by the downloader's own parser, so they also check that the importer reads
+  what the downloader writes.
+- ``test/fixtures/data/fmi_regression/`` — the regression day above.
 
 Migration tests
 ^^^^^^^^^^^^^^^

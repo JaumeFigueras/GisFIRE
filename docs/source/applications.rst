@@ -68,6 +68,7 @@ under ``src/apps/download/``::
 
    src/apps/download/wildfires/guatemala_inab/download_wildfires.py
    src/apps/download/wildfires/south_korea_kfs/download_wildfires.py
+   src/apps/download/lightnings/finland_fmi/download_lightnings.py
 
 These touch no database at all.
 
@@ -92,12 +93,22 @@ These touch no database at all.
     WGS84 point, checks the result against ``totalCount`` and for repeated ids, and
     prints the records per year. The data is KOGL Type 4: non-commercial, no derivatives.
 
+:doc:`applications/fmi_download_lightnings`
+    Downloads the Finnish Meteorological Institute's lightning strokes from its open-data
+    WFS, every stroke of the served area (Northern Europe) for the years asked for, one
+    gzip CSV per UTC month. The service caps a request at 168 hours, so each month is cut
+    into windows that tile it exactly; all sixteen fields are named, since only four come
+    by default. Values are kept as served, each response is checked before anything is
+    written, a month is written whole or not at all, and a run resumes where it stopped.
+    No key; CC BY 4.0. What it writes is read by :doc:`applications/fmi_import_lightnings`.
+
 .. toctree::
    :maxdepth: 1
    :hidden:
 
    applications/inab_download_wildfires
    applications/kfs_download_wildfires
+   applications/fmi_download_lightnings
 
 Data import
 -----------
@@ -122,7 +133,8 @@ Each kind has a page of its own:
     region: the global satellite products, then Europe, America, Asia and Oceania.
 
 :doc:`applications/import_lightnings`
-    Lightning strokes from detection networks: MeteoCat's XDDE over Catalonia so far.
+    Lightning strokes from detection networks: MeteoCat's XDDE over Catalonia and FMI's
+    over Northern Europe.
 
 A new kind of data — meteorological observations, NDVI, fuel moisture — gets its own
 package under ``src/apps/imports/`` and its own page here, rather than joining one of the

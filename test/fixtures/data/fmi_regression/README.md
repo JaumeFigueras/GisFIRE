@@ -35,9 +35,9 @@ day gives different cells (checked on 2026-11-14), and
 ## The expected result
 
 Frozen on 2026-11-14 with `gisfire_algorithms` 0.1.0 and the default parameters
-in EPSG:3067, for C = off, 10, 15, 25, 50, 100 and 200 min·km. **Awaiting
-Jaume's check in QGIS**; the GeoPackage of the seven runs is
-`plans/fmi_cellsearch_2018-07-03.gpkg` (local, not committed).
+in EPSG:3067, for C = off, 10, 15, 25, 50, 100 and 200 min·km, and **checked
+by Jaume in QGIS on 2026-11-14**, on a GeoPackage of the seven runs written by the
+freeze script.
 
 To regenerate after a deliberate change of output: bump
 `gisfire_algorithms.__version__`, create an empty database, migrate it and run
