@@ -141,6 +141,9 @@ View                                            Flattens                        
 ``v_meteocat_lightning_4326``                   ``lightning`` + ``meteocat_lightning``      ``POINT``, 4326
 ``v_meteocat_lightning_4258``                   ``lightning`` + ``meteocat_lightning``      ``POINT``, 4258
 ``v_meteocat_lightning_25831``                  ``lightning`` + ``meteocat_lightning``      ``POINT``, 25831
+``v_fmi_lightning_4326``                        ``lightning`` + ``fmi_lightning``           ``POINT``, 4326
+``v_fmi_lightning_4258``                        ``lightning`` + ``fmi_lightning``           ``POINT``, 4258
+``v_fmi_lightning_3067``                        ``lightning`` + ``fmi_lightning``           ``POINT``, 3067
 ``v_thunderstorm``                              ``thunderstorm`` + run                      ``POLYGON``, 4326
 ``v_thunderstorm_25831``                        ``thunderstorm`` + run                      ``POLYGON``, 25831
 ``v_thunderstorm_convex_hull``                  ``thunderstorm`` + run                      ``POLYGON``, 4326
@@ -225,7 +228,7 @@ them the layer for fire-environment analysis, and also means they block
 MeteoCat's lightning strokes get **three** views of the same rows, one per CRS:
 EPSG:4326 for a layer beside every other dataset, the ETRS89 point as published
 (EPSG:4258), and ETRS89 / UTM 31N (EPSG:25831), the grid Catalonia measures and draws on.
-All three name the column ``geometry``. The 25831 one is the only view in the schema
+All three name the column ``geometry``. The 25831 one was the first view in the schema
 whose geometry is **computed** rather than selected — the UTM point is not stored — so it
 breaks the rule above in the one way the rule allows: it reprojects the ETRS89 point and
 casts the result back to ``geometry(Point,25831)``, which keeps the type modifier. A
@@ -237,8 +240,14 @@ same expression for the planner to use it, and ``test/test_migrations.py`` check
 does. There is no ``date_time_local``: the XDDE publishes UTC, so the published reading
 is ``date_time``.
 
+FMI's lightning strokes get the same three views, built the same way (revision
+``95b95aac852f``): EPSG:4326, the ETRS89 point as published, and ETRS89 / TM35FIN
+(EPSG:3067), Finland's national grid, computed, cast back to ``geometry(Point,3067)`` and
+backed by the expression index ``idx_fmi_lightning_geometry_3067`` of revision
+``fe72ef3ef7c8``.
+
 Thunderstorms get **eighteen** views: nine layers, each in EPSG:4326 and in ETRS89 /
-UTM 31N (EPSG:25831), the grid of the only lightning provider so far. "Run" in the table
+UTM 31N (EPSG:25831), the grid of MeteoCat, the first lightning provider. "Run" in the table
 is the experiment — and, for the window layers, the tracking — the rows belong to; see
 :doc:`../data_model/thunderstorm`. A view takes one geometry, so the concave and the
 convex hull of a storm are two layers, and so are a window's centre and its hulls:

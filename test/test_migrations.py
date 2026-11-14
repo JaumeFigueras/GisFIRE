@@ -120,6 +120,12 @@ VIEWS = {
     "v_meteocat_lightning_4326": ("geometry", "POINT", 4326),
     "v_meteocat_lightning_4258": ("geometry", "POINT", 4258),
     "v_meteocat_lightning_25831": ("geometry", "POINT", 25831),
+    # FMI's lightning strokes, the same three as MeteoCat's: EPSG:4326, the ETRS89
+    # point as published, and ETRS89 / TM35FIN, computed, cast back and backed by
+    # an expression index. See revision 95b95aac852f.
+    "v_fmi_lightning_4326": ("geometry", "POINT", 4326),
+    "v_fmi_lightning_4258": ("geometry", "POINT", 4258),
+    "v_fmi_lightning_3067": ("geometry", "POINT", 3067),
     # Thunderstorms, inferred from the strokes: seven layers, each in EPSG:4326 and
     # in UTM 31N. Only the 4326 concave hulls and centres are selected straight from
     # a table; every other geometry is computed and cast back. See revision
@@ -562,6 +568,100 @@ def test_the_meteocat_25831_view_uses_its_expression_index(alembic_config):
     engine.dispose()
 
     assert "idx_meteocat_lightning_geometry_25831" in plan
+
+
+def test_the_fmi_lightning_views_flatten_a_stroke(alembic_config):
+    """One stroke, inserted across its two tables, comes back whole in all three views.
+
+    The 3067 view computes its point, so it is the one that can be wrong: the stroke
+    has to arrive on the TM35FIN grid, not with its degrees relabelled.
+    """
+    config, url = alembic_config
+    upgrade(config, "head")
+
+    engine = create_engine(url)
+    with engine.begin() as connection:
+        provider_id = connection.execute(text(
+            "INSERT INTO data_provider (name, product, full_name) "
+            "VALUES ('FMI', 'Lightning strikes', "
+            "'Ilmatieteen laitos (Finnish Meteorological Institute)') RETURNING id")).scalar()
+        stroke_id = connection.execute(text(
+            "INSERT INTO lightning (type, data_provider_id, date_time, geometry, peak_current, "
+            "cloud_to_ground) VALUES ('fmi_lightning', :provider_id, '2023-07-01T12:00:00Z', "
+            "ST_GeomFromText('POINT(24.9384 60.1699)', 4326), -83, true) RETURNING id"),
+            {"provider_id": provider_id}).scalar()
+        connection.execute(text(
+            "INSERT INTO fmi_lightning (id, flash_id, multiplicity, stroke_index, "
+            "published_multiplicity, number_of_sensors, degrees_of_freedom, chi_squared, "
+            "ellipse_major_axis, ellipse_minor_axis, ellipse_angle, rise_time, "
+            "peak_to_zero_time, stroke_status, angle_indicator, signal_indicator, "
+            "timing_indicator, geometry_etrs89) "
+            "VALUES (:id, 30645787, 4, 1, 4, 10, 7, 0.4, 700, 100, 109.9, 8.9, 30.4, 17, "
+            "1, 0, 1, ST_GeomFromText('POINT(24.9384 60.1699)', 4258))"), {"id": stroke_id})
+
+    with engine.connect() as connection:
+        rows = {
+            view: connection.execute(text(
+                f"SELECT id, flash_id, multiplicity, stroke_index, published_multiplicity, "
+                f"peak_current, number_of_sensors, ellipse_major_axis, stroke_status, "
+                f"angle_indicator, signal_indicator, timing_indicator, data_provider_name, "
+                f"admin_boundary_name, date_time, ST_SRID(geometry) AS srid, "
+                f"ST_X(geometry) AS x, ST_Y(geometry) AS y FROM {view}")).one()
+            for view in ("v_fmi_lightning_4326", "v_fmi_lightning_4258", "v_fmi_lightning_3067")
+        }
+    engine.dispose()
+
+    for row in rows.values():
+        assert (row.id, row.flash_id, row.multiplicity, row.stroke_index) == (stroke_id, 30645787, 4, 1)
+        assert (row.published_multiplicity, row.peak_current, row.number_of_sensors) == (4, -83, 10)
+        assert (row.ellipse_major_axis, row.stroke_status) == (700, 17)
+        assert (row.angle_indicator, row.signal_indicator, row.timing_indicator) == (1, 0, 1)
+        assert row.data_provider_name == "FMI"
+        # LEFT JOIN: a stroke at sea has no boundary and must not vanish.
+        assert row.admin_boundary_name is None
+        assert row.date_time == datetime.datetime(2023, 7, 1, 12, 0, tzinfo=datetime.timezone.utc)
+    assert [rows[v].srid for v in sorted(rows)] == [3067, 4258, 4326]
+    assert (rows["v_fmi_lightning_4258"].x, rows["v_fmi_lightning_4258"].y) == (24.9384, 60.1699)
+    # Helsinki on TM35FIN: about 386 km east, 6,672 km north.
+    projected = rows["v_fmi_lightning_3067"]
+    assert 385_000 < projected.x < 387_000
+    assert 6_671_000 < projected.y < 6_673_000
+
+
+def test_the_fmi_3067_view_uses_its_expression_index(alembic_config):
+    """A bounding-box filter on the computed geometry is answered from the index."""
+    config, url = alembic_config
+    upgrade(config, "head")
+
+    engine = create_engine(url)
+    with engine.connect() as connection:
+        connection.execute(text("SET enable_seqscan = off"))
+        plan = "\n".join(connection.execute(text(
+            "EXPLAIN SELECT id FROM v_fmi_lightning_3067 WHERE geometry && "
+            "ST_MakeEnvelope(350000, 6650000, 400000, 6700000, 3067)")).scalars())
+    engine.dispose()
+
+    assert "idx_fmi_lightning_geometry_3067" in plan
+
+
+def test_the_fmi_lightning_checks_are_migrated(alembic_config):
+    """``compare_metadata`` ignores CHECK constraints, so their names are compared here."""
+    from src.providers.finland_fmi.lightning import FmiLightning
+
+    config, url = alembic_config
+    upgrade(config, "head")
+
+    expected = {constraint.name for constraint in FmiLightning.__table__.constraints
+                if constraint.__class__.__name__ == "CheckConstraint"}
+    engine = create_engine(url)
+    with engine.connect() as connection:
+        migrated = set(connection.execute(text(
+            "SELECT conname FROM pg_constraint WHERE contype = 'c' "
+            "AND conrelid = 'fmi_lightning'::regclass")).scalars())
+    engine.dispose()
+
+    assert migrated == expected
+    assert len(expected) == 11
 
 
 @pytest.mark.parametrize("table", ["wod_terrain", "wod_weather"])
