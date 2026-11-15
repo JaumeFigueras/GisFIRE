@@ -49,6 +49,31 @@ FMI
   (:mod:`src.apps.imports.lightnings.finland_fmi.readers`), so a month imported
   again reads in the same order.
 
+USWFS (Alaska)
+--------------
+
+* **Flash key**: ``flash_id``, the identifier of the flash's first stroke. The
+  release has no flashes: the import groups the strokes with the NLDN rule (see
+  :mod:`src.providers.alaska_uswfs`), so the key is unique across years.
+* **Location error**: ``ellipse_semi_major_axis``, in metres (the import
+  converts the release's kilometres). It is a *semi*-axis, named as such:
+  whether MeteoCat's and FMI's ``ellipse_major_axis`` are full or semi axes is
+  not known, so the same E_max may not mean the same on all three.
+* **Unknown error**: 599 strokes are published with a semi-major axis of 0,
+  stored as NULL. They are read as :data:`UNKNOWN_ERROR_M`, the largest finite
+  float, which is larger than any E_max that can be asked (``Strokes`` refuses
+  infinities). Such a stroke therefore represents its flash only when no stroke
+  of the flash has a known error, and E_max then discards that flash. The error
+  has no other use in a run.
+* **Coordinates**: the published WGS 84 point (``lightning.geometry``) projected
+  to the requested CRS. For EPSG:3338 the expression is exactly the indexed one
+  (:data:`~src.providers.alaska_uswfs.lightning.GEOMETRY_3338`).
+* **Filter** ``{}``: one network (``network_code`` is 0 throughout the release).
+* **Default CRS**: EPSG:3338, NAD83 / Alaska Albers, which also holds the
+  strokes west of the antimeridian (the Aleutians, the Bering Sea).
+* **Times** have milliseconds; strokes of one millisecond come in ``id`` order,
+  which follows the import's content order, as FMI's.
+
 Each reader also names its provider's **default CRS** (``default_srid``): the
 builder uses it when ``--srid`` is not given, so that a run over FMI's strokes
 does not fall back to MeteoCat's UTM 31N.
@@ -57,6 +82,7 @@ does not fall back to MeteoCat's UTM 31N.
 from __future__ import annotations
 
 import datetime
+import sys
 
 from collections.abc import Callable
 from collections.abc import Iterator
@@ -69,8 +95,10 @@ from sqlalchemy import Connection
 from sqlalchemy import text
 
 from gisfire_algorithms.thunderstorm import Strokes
+from src.providers import alaska_uswfs
 from src.providers import catalonia_meteocat
 from src.providers import finland_fmi
+from src.providers.alaska_uswfs.lightning import GEOMETRY_3338
 from src.providers.catalonia_meteocat.lightning import GEOMETRY_25831
 from src.providers.finland_fmi.lightning import GEOMETRY_3067
 
@@ -80,6 +108,11 @@ FETCH_SIZE = 50_000
 #: The factor that folds MeteoCat's ``(network_version, flash_id)`` into one key.
 #: Flash ids are 32-bit integers, below it.
 METEOCAT_FLASH_KEY_FACTOR = 10_000_000_000
+
+#: The error read for a stroke whose error is not known (USWFS's semi-major axis
+#: published as 0), in metres: the largest finite float, so that no E_max keeps
+#: it. ``Strokes`` refuses infinities.
+UNKNOWN_ERROR_M = sys.float_info.max
 
 #: The first stroke of each MeteoCat network.
 METEOCAT_NETWORK_STARTS_SQL = """
@@ -115,6 +148,21 @@ SELECT l.id,
        f.ellipse_major_axis AS error
 FROM lightning AS l
 JOIN fmi_lightning AS f ON f.id = l.id
+CROSS JOIN LATERAL (SELECT {point} AS point) AS p
+WHERE l.data_provider_id = :provider_id
+  AND l.date_time >= :start AND l.date_time < :end
+ORDER BY l.date_time, l.id
+"""
+
+ALASKA_USWFS_STROKES_SQL = """
+SELECT l.id,
+       CAST(a.flash_id AS bigint) AS flash_key,
+       CAST(EXTRACT(EPOCH FROM l.date_time) AS double precision) AS t,
+       ST_X(p.point) AS x,
+       ST_Y(p.point) AS y,
+       COALESCE(a.ellipse_semi_major_axis, :unknown_error) AS error
+FROM lightning AS l
+JOIN alaska_uswfs_lightning AS a ON a.id = l.id
 CROSS JOIN LATERAL (SELECT {point} AS point) AS p
 WHERE l.data_provider_id = :provider_id
   AND l.date_time >= :start AND l.date_time < :end
@@ -256,6 +304,29 @@ def read_fmi_strokes(connection: Connection, provider_id: int, start: datetime.d
                        fetch_size or FETCH_SIZE)
 
 
+def alaska_uswfs_strokes_sql(srid: int) -> str:
+    """The query for USWFS's Alaska strokes in ``srid``."""
+    if srid == alaska_uswfs.PROJECTED_SRID:
+        point = GEOMETRY_3338.format(column="l.geometry")
+    else:
+        point = f"ST_Transform(l.geometry, {int(srid)})"
+    return ALASKA_USWFS_STROKES_SQL.format(point=point)
+
+
+def read_alaska_uswfs_strokes(connection: Connection, provider_id: int,
+                              start: datetime.datetime, end: datetime.datetime, srid: int,
+                              fetch_size: int | None = None) -> Iterator[Strokes]:
+    """USWFS's Alaska strokes of ``[start, end)``, in batches.
+
+    Parameters and batches as :func:`read_meteocat_strokes`, without a network
+    filter. A stroke whose error is not known gets :data:`UNKNOWN_ERROR_M`.
+    """
+    yield from _stream(connection, alaska_uswfs_strokes_sql(srid),
+                       {"provider_id": provider_id, "start": start, "end": end,
+                        "unknown_error": UNKNOWN_ERROR_M},
+                       fetch_size or FETCH_SIZE)
+
+
 #: The readers, by the name given to ``--provider``.
 READERS: dict[str, StrokeReader] = {
     catalonia_meteocat.PROVIDER_NAME: StrokeReader(
@@ -271,5 +342,12 @@ READERS: dict[str, StrokeReader] = {
         lightning_filter={},
         default_srid=finland_fmi.PROJECTED_SRID,
         read=read_fmi_strokes,
+    ),
+    alaska_uswfs.PROVIDER_NAME: StrokeReader(
+        provider_name=alaska_uswfs.PROVIDER_NAME,
+        provider_product=alaska_uswfs.PROVIDER_PRODUCT,
+        lightning_filter={},
+        default_srid=alaska_uswfs.PROJECTED_SRID,
+        read=read_alaska_uswfs_strokes,
     ),
 }

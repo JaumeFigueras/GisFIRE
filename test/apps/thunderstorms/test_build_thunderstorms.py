@@ -25,6 +25,7 @@ import hashlib
 import json
 import logging
 import math
+import sys
 
 from pathlib import Path
 
@@ -39,6 +40,8 @@ import gisfire_algorithms
 from gisfire_algorithms.thunderstorm import CellsearchParameters
 from gisfire_algorithms.thunderstorm import Strokes
 from gisfire_algorithms.thunderstorm import cell_area_km2
+from gisfire_algorithms.thunderstorm import discard_by_error
+from gisfire_algorithms.thunderstorm import strokes_to_flashes
 from src.apps.imports.common import ArchiveLogger
 from src.apps.imports.lightnings.finland_fmi import import_lightnings as fmi_import
 from src.apps.imports.lightnings.finland_fmi import readers as fmi_readers
@@ -46,6 +49,7 @@ from src.apps.thunderstorms import build_thunderstorms as app
 from src.apps.thunderstorms import readers
 from src.apps.thunderstorms import writers
 from src.data_model import Base
+from src.providers import alaska_uswfs
 from src.providers import catalonia_meteocat
 from src.providers import finland_fmi
 
@@ -907,8 +911,10 @@ def test_the_fmi_reader_only_reads_fmi(database, provider, fmi_provider):
 @pytest.mark.parametrize(("provider_name", "extra", "srid"), [
     pytest.param("FMI", [], 3067, id="fmi-default"),
     pytest.param("MeteoCat", [], 25831, id="meteocat-default"),
+    pytest.param("USWFS", [], 3338, id="uswfs-default"),
     pytest.param("FMI", ["--srid", "3035"], 3035, id="fmi-explicit"),
     pytest.param("MeteoCat", ["--srid", "3067"], 3067, id="meteocat-explicit"),
+    pytest.param("USWFS", ["--srid", "32606"], 32606, id="uswfs-explicit"),
 ])
 def test_the_srid_defaults_to_the_providers(provider_name, extra, srid):
     args = app.parse_arguments(["--provider", provider_name, "--from", "2018-07-01", "--to",
@@ -918,7 +924,7 @@ def test_the_srid_defaults_to_the_providers(provider_name, extra, srid):
 
 def test_the_srid_help_names_each_providers_default():
     help_text = " ".join(app.build_parser(ALGORITHM).format_help().split())
-    assert "(default: the provider's, FMI 3067, MeteoCat 25831)" in help_text
+    assert "(default: the provider's, FMI 3067, MeteoCat 25831, USWFS 3338)" in help_text
 
 
 def test_a_run_over_fmis_strokes_works_in_tm35fin(database, fmi_provider):
@@ -938,6 +944,227 @@ def test_a_run_over_fmis_strokes_works_in_tm35fin(database, fmi_provider):
                            FROM thunderstorm""")[0]
     assert x == pytest.approx(FMI_ORIGIN[0], abs=1_000)
     assert y == pytest.approx(FMI_ORIGIN[1], abs=1_000)
+
+
+# --------------------------------------------------------------------------
+# USWFS (Alaska): its reader, its default CRS, a run
+#
+# The Alaska strokes are stored in alaska_uswfs_lightning, the point on
+# lightning itself (published in WGS 84). Flashes are the import's: flash_id is
+# the id of the flash's first stroke, which the table's CHECKs enforce, so the
+# synthetic flashes are numbered the same way here. A NULL semi-major axis (a
+# published 0) is read as larger than any E_max.
+# --------------------------------------------------------------------------
+
+#: Where the synthetic Alaska storms are, in EPSG:3338 metres (Fairbanks).
+ALASKA_ORIGIN = (297_500.0, 1_667_300.0)
+
+#: On the antimeridian, at 52° N (the western Aleutians), in EPSG:3338 metres.
+ANTIMERIDIAN_ORIGIN = (-1_748_800.0, 567_750.0)
+
+INSERT_ALASKA_STROKE_SQL = """
+INSERT INTO lightning (type, data_provider_id, date_time, geometry, peak_current, cloud_to_ground)
+VALUES ('alaska_uswfs_lightning', :provider_id, :at,
+        ST_Transform(ST_SetSRID(ST_MakePoint(:x, :y), 3338), 4326), -20.0, true)
+RETURNING id
+"""
+
+INSERT_ALASKA_CHILD_SQL = """
+INSERT INTO alaska_uswfs_lightning (id, flash_id, multiplicity, stroke_index, network_code,
+                                    sequence_number, gdop, ellipse_semi_major_axis,
+                                    ellipse_semi_minor_axis, ellipse_angle)
+VALUES (:id, :flash_id, :multiplicity, :stroke_index, 0, 1000, 2, :semi_major, :semi_minor, 10.0)
+"""
+
+
+@pytest.fixture
+def alaska_provider(database):
+    """USWFS's provider row; its id."""
+    engine, _ = database
+    with engine.begin() as connection:
+        return connection.execute(text(
+            "INSERT INTO data_provider (name, product, full_name) VALUES (:n, :p, :f) RETURNING id"),
+            {"n": alaska_uswfs.PROVIDER_NAME, "p": alaska_uswfs.PROVIDER_PRODUCT,
+             "f": alaska_uswfs.PROVIDER_FULL_NAME}).scalar_one()
+
+
+def add_alaska_strokes(engine, provider_id: int, strokes: list[Stroke],
+                       origin: tuple[float, float] = ALASKA_ORIGIN) -> list[Stroke]:
+    """Store the strokes as USWFS's, positions in metres from ``origin``.
+
+    ``Stroke.flash`` only groups them: the stored ``flash_id`` is the id of the
+    first stroke of the group, as the import numbers them. ``error`` is the
+    semi-major axis; ``None`` stores it as NULL (published as 0).
+    """
+    sizes: dict[int, int] = {}
+    for stroke in strokes:
+        sizes[stroke.flash] = sizes.get(stroke.flash, 0) + 1
+    first: dict[int, int] = {}
+    seen: dict[int, int] = {}
+    with engine.begin() as connection:
+        for stroke in strokes:
+            stroke.id = connection.execute(text(INSERT_ALASKA_STROKE_SQL), {
+                "x": origin[0] + stroke.dx, "y": origin[1] + stroke.dy,
+                "provider_id": provider_id, "at": stroke.at}).scalar_one()
+            seen[stroke.flash] = seen.get(stroke.flash, 0) + 1
+            connection.execute(text(INSERT_ALASKA_CHILD_SQL), {
+                "id": stroke.id, "flash_id": first.setdefault(stroke.flash, stroke.id),
+                "multiplicity": sizes[stroke.flash], "stroke_index": seen[stroke.flash],
+                "semi_major": stroke.error,
+                "semi_minor": 100.0 if stroke.error is None else min(stroke.error, 100.0)})
+    return strokes
+
+
+def read_alaska(engine, provider_id, start, end, srid=3338, fetch_size=None):
+    with engine.connect() as connection:
+        return list(readers.read_alaska_uswfs_strokes(connection, provider_id, start, end, srid,
+                                                      fetch_size))
+
+
+def test_the_alaska_reader_is_registered_with_its_crs_and_no_filter():
+    reader = readers.READERS["USWFS"]
+    assert (reader.provider_name, reader.provider_product) == ("USWFS", "ALDN")
+    assert reader.lightning_filter == {}
+    assert reader.default_srid == 3338
+
+
+def test_the_alaska_reader_gives_metres_milliseconds_flash_ids_and_errors(database,
+                                                                          alaska_provider):
+    engine, _ = database
+    at = STORM + datetime.timedelta(milliseconds=123)
+    later = at + datetime.timedelta(milliseconds=40)
+    first, second = add_alaska_strokes(engine, alaska_provider, [
+        Stroke(at, 1234.5, -678.9, 1, error=2_000.0),
+        Stroke(later, 1500.0, -500.0, 1, error=4_000.0)])
+    batch, = read_alaska(engine, alaska_provider, DAY, NEXT_DAY)
+    assert batch.ids.tolist() == [first.id, second.id]
+    # The import's flash: the id of its first stroke, for both.
+    assert batch.flash_keys.tolist() == [first.id, first.id]
+    assert batch.t.tolist() == [at.timestamp(), later.timestamp()]
+    assert batch.x[0] == pytest.approx(ALASKA_ORIGIN[0] + 1234.5, abs=1e-6)
+    assert batch.y[0] == pytest.approx(ALASKA_ORIGIN[1] - 678.9, abs=1e-6)
+    assert batch.error.tolist() == [2_000.0, 4_000.0]
+
+
+def test_an_unknown_error_is_read_as_the_largest_float(database, alaska_provider):
+    engine, _ = database
+    add_alaska_strokes(engine, alaska_provider, [Stroke(STORM, 0.0, 0.0, 1, error=None)])
+    batch, = read_alaska(engine, alaska_provider, DAY, NEXT_DAY)
+    assert readers.UNKNOWN_ERROR_M == sys.float_info.max
+    # Bound and read back exactly: still finite, larger than any E_max.
+    assert batch.error.tolist() == [sys.float_info.max]
+    assert np.isfinite(batch.error).all()
+
+
+def test_an_unknown_error_never_represents_a_flash_with_a_known_one(database, alaska_provider):
+    engine, _ = database
+    unknown, known = add_alaska_strokes(engine, alaska_provider, [
+        Stroke(STORM, 0.0, 0.0, 1, error=None),
+        Stroke(STORM + datetime.timedelta(milliseconds=200), 500.0, 0.0, 1, error=9_000.0)])
+    batch, = read_alaska(engine, alaska_provider, DAY, NEXT_DAY)
+    flashes = strokes_to_flashes(batch)
+    assert flashes.representative_id.tolist() == [known.id]
+    # Even the largest E_max a run can take keeps the known stroke's flash only.
+    kept, discarded = discard_by_error(flashes, 1e300)
+    assert (kept.tolist(), discarded) == ([True], 0)
+
+
+def test_a_flash_of_unknown_error_is_discarded_by_any_e_max(database, alaska_provider):
+    engine, _ = database
+    add_alaska_strokes(engine, alaska_provider, [Stroke(STORM, 0.0, 0.0, 1, error=None)])
+    flashes = strokes_to_flashes(read_alaska(engine, alaska_provider, DAY, NEXT_DAY)[0])
+    for max_error_m in (10_000.0, 1e300, sys.float_info.max):
+        kept, discarded = discard_by_error(flashes, max_error_m)
+        assert (kept.tolist(), discarded) == ([False], 1), max_error_m
+
+
+def test_the_alaska_reader_uses_the_indexed_expression_for_3338():
+    assert alaska_uswfs.lightning.GEOMETRY_3338.format(column="l.geometry") in \
+        readers.alaska_uswfs_strokes_sql(3338)
+    assert "ST_Transform(l.geometry, 32606)" in readers.alaska_uswfs_strokes_sql(32606)
+
+
+def test_the_alaska_reader_projects_to_another_crs(database, alaska_provider):
+    engine, _ = database
+    add_alaska_strokes(engine, alaska_provider, [Stroke(STORM, 0.0, 0.0, 1)])
+    batch, = read_alaska(engine, alaska_provider, DAY, NEXT_DAY, srid=32606)
+    expected = scalar(engine, """SELECT ST_X(ST_Transform(ST_Transform(
+        ST_SetSRID(ST_MakePoint(:x, :y), 3338), 4326), 32606))""",
+                      x=ALASKA_ORIGIN[0], y=ALASKA_ORIGIN[1])
+    assert batch.x[0] == pytest.approx(expected, abs=1e-6)
+
+
+def test_the_alaska_reader_breaks_ties_of_one_millisecond_by_id(database, alaska_provider):
+    engine, _ = database
+    strokes = add_alaska_strokes(engine, alaska_provider,
+                                 [Stroke(STORM, 20_000.0 * k, 0.0, k) for k in range(5)])
+    batches = read_alaska(engine, alaska_provider, DAY, NEXT_DAY, fetch_size=2)
+    assert [len(batch) for batch in batches] == [2, 2, 1]
+    assert np.concatenate([batch.ids for batch in batches]).tolist() == [s.id for s in strokes]
+
+
+def test_the_alaska_reader_only_reads_alaska(database, provider, fmi_provider, alaska_provider):
+    engine, _ = database
+    add_strokes(engine, provider, [Stroke(STORM, 0, 0, 1)])
+    add_fmi_strokes(engine, fmi_provider, [Stroke(STORM, 0, 0, 2)])
+    alaska, = add_alaska_strokes(engine, alaska_provider, [Stroke(STORM, 0, 0, 3)])
+    batch, = read_alaska(engine, alaska_provider, DAY, NEXT_DAY)
+    assert batch.ids.tolist() == [alaska.id]
+
+
+def test_a_run_over_alaskas_strokes_works_in_alaska_albers(database, alaska_provider):
+    engine, url = database
+    add_alaska_strokes(engine, alaska_provider, a_storm(100, STORM, 6))
+    assert run(url, provider="USWFS") == 0
+
+    stored = experiment(engine)
+    assert stored.status == "complete"
+    assert stored.parameters == CellsearchParameters(srid=3338).to_dict()
+    assert stored.lightning_filter == {}
+    assert stored.hull_parameters == {"ratio": 0.3, "allow_holes": False, "srid": 3338}
+    assert stored.summary["flashes_total"] == 6
+    assert count(engine, "thunderstorm") == 1
+    assert scalar(engine, "SELECT number_of_lightnings FROM thunderstorm") == 12
+    # The hull was built in Alaska Albers and stored in EPSG:4326, around the storm.
+    x, y = rows(engine, """SELECT ST_X(ST_Centroid(ST_Transform(concave_hull, 3338))),
+                                  ST_Y(ST_Centroid(ST_Transform(concave_hull, 3338)))
+                           FROM thunderstorm""")[0]
+    assert x == pytest.approx(ALASKA_ORIGIN[0], abs=1_000)
+    assert y == pytest.approx(ALASKA_ORIGIN[1], abs=1_000)
+
+
+def test_a_run_discards_the_flashes_of_unknown_error(database, alaska_provider):
+    engine, url = database
+    strokes = a_storm(100, STORM, 6)
+    strokes.append(Stroke(minutes(1), 0.0, 0.0, 999, error=None))
+    add_alaska_strokes(engine, alaska_provider, strokes)
+    # E_max of 10,000 km: it would keep any located stroke on Earth.
+    assert run(url, "--max-location-error", "10000", provider="USWFS") == 0
+    assert experiment(engine).summary["flashes_discarded_error"] == 1
+    assert scalar(engine, "SELECT number_of_lightnings FROM thunderstorm") == 12
+
+
+def test_a_storm_across_the_antimeridian_is_one_cell(database, alaska_provider):
+    """In Alaska Albers a storm astride 180° is one place, not two halves 360° apart."""
+    engine, url = database
+    strokes = add_alaska_strokes(engine, alaska_provider, a_storm(100, STORM, 6),
+                                 origin=ANTIMERIDIAN_ORIGIN)
+    longitudes = [row[0] for row in rows(engine, "SELECT ST_X(geometry) FROM lightning")]
+    assert min(longitudes) < -179.9 and max(longitudes) > 179.9
+    assert run(url, provider="USWFS") == 0
+
+    storm = rows(engine, "SELECT * FROM thunderstorm")[0]
+    assert count(engine, "thunderstorm") == 1
+    assert storm.number_of_flashes == 6
+    assert storm.number_of_lightnings == len(strokes)
+    # The hull: some 4 km across in Alaska Albers, around the storm.
+    width, x, y = rows(engine, """
+        SELECT ST_XMax(h.hull) - ST_XMin(h.hull), ST_X(ST_Centroid(h.hull)),
+               ST_Y(ST_Centroid(h.hull))
+        FROM thunderstorm, LATERAL (SELECT ST_Transform(concave_hull, 3338) AS hull) AS h""")[0]
+    assert width == pytest.approx(4_000, abs=10)
+    assert (x, y) == (pytest.approx(ANTIMERIDIAN_ORIGIN[0], abs=1_000),
+                      pytest.approx(ANTIMERIDIAN_ORIGIN[1], abs=1_000))
 
 
 # --------------------------------------------------------------------------

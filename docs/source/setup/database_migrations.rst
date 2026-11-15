@@ -149,30 +149,39 @@ View                                            Flattens                        
 ``v_thunderstorm``                              ``thunderstorm`` + run                      ``POLYGON``, 4326
 ``v_thunderstorm_25831``                        ``thunderstorm`` + run                      ``POLYGON``, 25831
 ``v_thunderstorm_3067``                         ``thunderstorm`` + run                      ``POLYGON``, 3067
+``v_thunderstorm_3338``                         ``thunderstorm`` + run                      ``POLYGON``, 3338
 ``v_thunderstorm_convex_hull``                  ``thunderstorm`` + run                      ``POLYGON``, 4326
 ``v_thunderstorm_convex_hull_25831``            ``thunderstorm`` + run                      ``POLYGON``, 25831
 ``v_thunderstorm_convex_hull_3067``             ``thunderstorm`` + run                      ``POLYGON``, 3067
+``v_thunderstorm_convex_hull_3338``             ``thunderstorm`` + run                      ``POLYGON``, 3338
 ``v_thunderstorm_evolution``                    ``thunderstorm_evolution`` + run            ``POINT``, 4326
 ``v_thunderstorm_evolution_25831``              ``thunderstorm_evolution`` + run            ``POINT``, 25831
 ``v_thunderstorm_evolution_3067``               ``thunderstorm_evolution`` + run            ``POINT``, 3067
+``v_thunderstorm_evolution_3338``               ``thunderstorm_evolution`` + run            ``POINT``, 3338
 ``v_thunderstorm_evolution_hull``               ``thunderstorm_evolution`` + run            ``POLYGON``, 4326
 ``v_thunderstorm_evolution_hull_25831``         ``thunderstorm_evolution`` + run            ``POLYGON``, 25831
 ``v_thunderstorm_evolution_hull_3067``          ``thunderstorm_evolution`` + run            ``POLYGON``, 3067
+``v_thunderstorm_evolution_hull_3338``          ``thunderstorm_evolution`` + run            ``POLYGON``, 3338
 ``v_thunderstorm_evolution_convex_hull``        ``thunderstorm_evolution`` + run            ``POLYGON``, 4326
 ``v_thunderstorm_evolution_convex_hull_25831``  ``thunderstorm_evolution`` + run            ``POLYGON``, 25831
 ``v_thunderstorm_evolution_convex_hull_3067``   ``thunderstorm_evolution`` + run            ``POLYGON``, 3067
+``v_thunderstorm_evolution_convex_hull_3338``   ``thunderstorm_evolution`` + run            ``POLYGON``, 3338
 ``v_thunderstorm_vector``                       ``thunderstorm_evolution`` + run            ``LINESTRING``, 4326
 ``v_thunderstorm_vector_25831``                 ``thunderstorm_evolution`` + run            ``LINESTRING``, 25831
 ``v_thunderstorm_vector_3067``                  ``thunderstorm_evolution`` + run            ``LINESTRING``, 3067
+``v_thunderstorm_vector_3338``                  ``thunderstorm_evolution`` + run            ``LINESTRING``, 3338
 ``v_thunderstorm_path``                         ``thunderstorm_evolution`` + run            ``LINESTRING``, 4326
 ``v_thunderstorm_path_25831``                   ``thunderstorm_evolution`` + run            ``LINESTRING``, 25831
 ``v_thunderstorm_path_3067``                    ``thunderstorm_evolution`` + run            ``LINESTRING``, 3067
+``v_thunderstorm_path_3338``                    ``thunderstorm_evolution`` + run            ``LINESTRING``, 3338
 ``v_thunderstorm_cellsearch_centre``            ``thunderstorm_cellsearch_flash`` + run     ``POINT``, 4326
 ``v_thunderstorm_cellsearch_centre_25831``      ``thunderstorm_cellsearch_flash`` + run     ``POINT``, 25831
 ``v_thunderstorm_cellsearch_centre_3067``       ``thunderstorm_cellsearch_flash`` + run     ``POINT``, 3067
+``v_thunderstorm_cellsearch_centre_3338``       ``thunderstorm_cellsearch_flash`` + run     ``POINT``, 3338
 ``v_thunderstorm_cellsearch_path``              ``thunderstorm_cellsearch_flash`` + run     ``LINESTRING``, 4326
 ``v_thunderstorm_cellsearch_path_25831``        ``thunderstorm_cellsearch_flash`` + run     ``LINESTRING``, 25831
 ``v_thunderstorm_cellsearch_path_3067``         ``thunderstorm_cellsearch_flash`` + run     ``LINESTRING``, 3067
+``v_thunderstorm_cellsearch_path_3338``         ``thunderstorm_cellsearch_flash`` + run     ``LINESTRING``, 3338
 ==============================================  ==========================================  =======================
 
 Portugal, Catalonia, Andalusia and Canada each appear twice, because a QGIS layer takes a
@@ -269,10 +278,15 @@ planner takes a partial index only when the query implies its condition, and the
 does not, so both views also filter on ``lightning.type``; the expression, the filter and
 the index change together, and ``test/test_migrations.py`` checks the 3338 view uses it.
 
-Thunderstorms get **twenty-seven** views: nine layers, each in EPSG:4326, in ETRS89 /
-UTM 31N (EPSG:25831), the grid of MeteoCat, and in ETRS89 / TM35FIN (EPSG:3067), the
-grid of FMI (revision ``5353369ebdc8``, the same SQL as the 25831 ones). Every layer
-shows every run, whichever provider it was built from. "Run" in the table
+Thunderstorms get **thirty-six** views: nine layers, each in EPSG:4326, in ETRS89 /
+UTM 31N (EPSG:25831), the grid of MeteoCat, in ETRS89 / TM35FIN (EPSG:3067), the grid of
+FMI (revision ``5353369ebdc8``, the same SQL as the 25831 ones), and in NAD83 / Alaska
+Albers (EPSG:3338), the CRS of the Alaska network (revision ``92cfa94c65e5``, the same
+SQL as the 3067 ones, which ``test/test_migrations.py`` checks). Every layer shows every
+run, whichever provider it was built from. A storm across the antimeridian (the
+Aleutians, the Bering Sea) is whole in the 3338 layers only: its hull is stored in
+EPSG:4326 vertex by vertex, with vertices at both +179° and -179°, and the 4326 layers
+draw that polygon the long way round the globe. "Run" in the table
 is the experiment — and, for the window layers, the tracking — the rows belong to; see
 :doc:`../data_model/thunderstorm`. A view takes one geometry, so the concave and the
 convex hull of a storm are two layers, and so are a window's centre and its hulls:

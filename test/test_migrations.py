@@ -10,6 +10,7 @@ PostgreSQL and compare the result with the models.
 """
 
 import datetime
+import importlib.util
 import math
 
 import pytest
@@ -167,6 +168,17 @@ VIEWS = {
     "v_thunderstorm_path_3067": ("geometry", "LINESTRING", 3067),
     "v_thunderstorm_cellsearch_centre_3067": ("geometry", "POINT", 3067),
     "v_thunderstorm_cellsearch_path_3067": ("geometry", "LINESTRING", 3067),
+    # And in NAD83 / Alaska Albers, the Alaska network's CRS: the same SQL as their
+    # 3067 twins. See revision 92cfa94c65e5.
+    "v_thunderstorm_3338": ("geometry", "POLYGON", 3338),
+    "v_thunderstorm_convex_hull_3338": ("geometry", "POLYGON", 3338),
+    "v_thunderstorm_evolution_3338": ("geometry", "POINT", 3338),
+    "v_thunderstorm_evolution_hull_3338": ("geometry", "POLYGON", 3338),
+    "v_thunderstorm_evolution_convex_hull_3338": ("geometry", "POLYGON", 3338),
+    "v_thunderstorm_vector_3338": ("geometry", "LINESTRING", 3338),
+    "v_thunderstorm_path_3338": ("geometry", "LINESTRING", 3338),
+    "v_thunderstorm_cellsearch_centre_3338": ("geometry", "POINT", 3338),
+    "v_thunderstorm_cellsearch_path_3338": ("geometry", "LINESTRING", 3338),
 }
 
 #: Dataset views with no geometry column, loaded by QGIS as plain tables. They are
@@ -1385,7 +1397,7 @@ def test_the_thunderstorm_views_show_complete_runs_only(alembic_config, experime
 
     for view, number in counts.items():
         # The layer, whatever its CRS: v_thunderstorm_3067 is v_thunderstorm.
-        layer = view.removesuffix("_25831").removesuffix("_3067")
+        layer = view.removesuffix("_25831").removesuffix("_3067").removesuffix("_3338")
         storm_level = layer in ("v_thunderstorm", "v_thunderstorm_convex_hull",
                                 "v_thunderstorm_cellsearch_path")
         if layer == "v_thunderstorm_cellsearch_centre":
@@ -1415,29 +1427,87 @@ def test_the_thunderstorm_25831_views_are_on_the_utm_grid(alembic_config):
         assert 4_530_000 < y < 4_580_000, view
 
 
-def test_the_thunderstorm_3067_views_are_the_4326_ones_on_tm35fin(alembic_config):
-    """Each 3067 view is its 4326 twin reprojected, row for row: same ids, and the
-    extent of the twin's geometries transformed to EPSG:3067."""
+@pytest.mark.parametrize("srid", [
+    pytest.param(3067, id="tm35fin"),
+    pytest.param(3338, id="alaska-albers"),
+])
+def test_the_thunderstorm_projected_views_are_the_4326_ones_reprojected(alembic_config, srid):
+    """Each 3067 (3338) view is its 4326 twin reprojected, row for row: same ids,
+    and the extent of the twin's geometries transformed to EPSG:3067 (3338)."""
     config, url = alembic_config
     upgrade(config, "head")
 
     engine = create_engine(url)
     with engine.begin() as connection:
         _a_thunderstorm_run(connection)
-    views = [view for view in VIEWS if view.startswith("v_thunderstorm") and view.endswith("_3067")]
+    suffix = f"_{srid}"
+    views = [view for view in VIEWS if view.startswith("v_thunderstorm") and view.endswith(suffix)]
     with engine.connect() as connection:
         for view in views:
-            twin = view.removesuffix("_3067")
+            twin = view.removesuffix(suffix)
             ids, extent = connection.execute(text(
                 f"SELECT array_agg(id ORDER BY id), ST_Extent(geometry)::text FROM {view}")).one()
             twin_ids, twin_extent = connection.execute(text(
-                f"SELECT array_agg(id ORDER BY id), ST_Extent(ST_Transform(geometry, 3067))::text "
+                f"SELECT array_agg(id ORDER BY id), ST_Extent(ST_Transform(geometry, {srid}))::text "
                 f"FROM {twin}")).one()
             assert ids == twin_ids and ids, view
             assert extent == twin_extent, view
     engine.dispose()
 
     assert len(views) == 9
+
+
+def _revision_module(name: str):
+    """A revision file of ``alembic/versions``, loaded as a module."""
+    path, = (ROOT_DIR / "alembic" / "versions").glob(f"*-{name}_*.py")
+    spec = importlib.util.spec_from_file_location(f"revision_{name}", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_the_thunderstorm_3338_views_are_the_3067_ones_with_another_srid():
+    """Revision 92cfa94c65e5 keeps its own copy of the SQL: it must be revision
+    5353369ebdc8's with 3338 for 3067, and nothing else."""
+    tm35fin = _revision_module("5353369ebdc8").VIEWS
+    alaska_albers = _revision_module("92cfa94c65e5").VIEWS
+
+    assert len(tm35fin) == len(alaska_albers) == 9
+    for twin, view in zip(tm35fin, alaska_albers):
+        assert view.name == twin.name.replace("_3067", "_3338")
+        assert "3067" not in view.sqltext and "3338" in view.sqltext, view.name
+        assert view.sqltext == twin.sqltext.replace("3067", "3338"), view.name
+
+
+def test_a_storm_across_the_antimeridian_is_whole_in_alaska_albers(alembic_config):
+    """A hull is stored in EPSG:4326 vertex by vertex, so a storm across 180° has
+    vertices on both sides of it; the 3338 layer reprojects them back into the
+    storm's own shape: some 34 km wide, not the width of the globe."""
+    config, url = alembic_config
+    upgrade(config, "head")
+
+    engine = create_engine(url)
+    with engine.begin() as connection:
+        _, storm_id, _, _ = _a_thunderstorm_run(connection, flashes=False)
+        # A 0.4° × 0.2° box in the western Aleutians, astride the antimeridian.
+        connection.execute(text(
+            "UPDATE thunderstorm SET concave_hull = ST_GeomFromText(:hull, 4326) WHERE id = :id"),
+            {"id": storm_id,
+             "hull": "POLYGON((179.8 52.0, -179.8 52.0, -179.8 52.2, 179.8 52.2, 179.8 52.0))"})
+    with engine.connect() as connection:
+        width_4326, = connection.execute(text(
+            "SELECT ST_XMax(geometry) - ST_XMin(geometry) FROM v_thunderstorm")).one()
+        width_3338, area_3338 = connection.execute(text(
+            "SELECT ST_XMax(geometry) - ST_XMin(geometry), ST_Area(geometry) "
+            "FROM v_thunderstorm_3338")).one()
+    engine.dispose()
+
+    assert width_4326 == pytest.approx(359.6)
+    # The box is 27.4 km × 22.2 km on the ground. Albers turns it (some 22° at
+    # 180°), so its x extent lies between its longer side and its diagonal, 35 km:
+    # nowhere near thousands of kilometres.
+    assert 27_000 < width_3338 < 35_500
+    assert area_3338 == pytest.approx(27_400 * 22_200, rel=0.05)
 
 
 def test_the_thunderstorm_views_show_flashes_area_and_density(alembic_config):
