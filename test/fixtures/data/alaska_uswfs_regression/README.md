@@ -31,20 +31,21 @@ would in gisfire_db.
 
 In the window, as the importer stores them: 5,774 strokes (170 cloud strokes) in
 3,764 flashes, grouped by the importer (the release has no flashes); 148 strokes
-share their millisecond with another.
+share their millisecond with another. The runs read the ground strokes only, the
+builder's default: 5,604 strokes in 3,605 flashes.
 
 Why this day:
 
 - **Busy, with several storms.** It is about twice FMI's day and is spread
   from 55° N to 71° N and from 160° W to 107° W, mostly along the Alaska-Yukon
-  border. Each run keeps 120 to 129 cells, the largest of 161 to 236 flashes.
-- **Errors of an Alaska kind.** 330 flashes (8.8 %) have their best location
-  error at 10 km or worse and are discarded by E_max.
+  border. Each run keeps 117 to 124 cells, the largest of 177 to 233 flashes.
+- **Errors of an Alaska kind.** 325 ground flashes (9.0 %) have their best
+  location error at 10 km or worse and are discarded by E_max.
   - From 11:20 to 16:07 UTC the network published a semi-major axis of 0 for
     every stroke: 77 strokes, stored with an unknown error.
-  - 34 of them are in the window, in 30 flashes with no stroke of known error.
-    Every E_max discards those 30, which the test checks with an E_max of
-    10,000 km.
+  - 34 of them are in the window, in 30 flashes with no stroke of known error,
+    29 of them ground flashes. Every E_max discards those it reads, which the
+    test checks with an E_max of 10,000 km, with and without the cloud strokes.
 - **The opposite edges to FMI's day.** The window starts quiet (no activity
   before it) and ends with storms still going: 5 or 6 cells are open at its end.
 
@@ -56,11 +57,15 @@ that a shuffled copy gives the same result.
 
 Frozen on 2026-11-15 with `gisfire_algorithms` 0.1.0 and the default parameters
 in EPSG:3338 (NAD83 / Alaska Albers), for C = off, 10, 15, 25, 50, 100 and 200
-min·km, and **checked by Jaume in QGIS on 2026-11-15**, on a GeoPackage of the
-seven runs written by the freeze script.
+min·km, over the **ground strokes only** (`lightning_filter`
+`{"cloud_to_ground": true}`, recorded in the JSON). **Awaiting Jaume's check in
+QGIS**, on the GeoPackage of the seven runs written by the freeze script
+(`plans/alaska_cellsearch_2019-06-30_ground.gpkg`, local). The previous
+reference, over all strokes, was checked on 2026-11-15.
 
-To regenerate after a deliberate change of output: bump
-`gisfire_algorithms.__version__`, create an empty database, migrate it and run
+To regenerate after a deliberate change of output (an algorithm's, with a bump
+of `gisfire_algorithms.__version__`, or the builder's defaults'), create an
+empty database, migrate it and run
 
 ```bash
 GISFIRE_DB_NAME=scratch ... alembic upgrade head

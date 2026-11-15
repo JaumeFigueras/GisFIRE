@@ -10,9 +10,26 @@ order (``date_time, id``), one batch at a time, so a period of years never sits
 in memory twice.
 
 Each provider has its own reader, registered in :data:`READERS` under the name
-given to ``--provider``, with the ``lightning_filter`` it applies: the value
-stored in ``thunderstorm_experiment.lightning_filter``, which must describe the
-filter completely.
+given to ``--provider``, with the provider's own ``lightning_filter``.
+
+Ground strokes only
+-------------------
+
+By default every reader reads **cloud-to-ground strokes only**
+(``lightning.cloud_to_ground``), as Tuomi & Larjavaara's Cellsearch does: its
+data were ground flashes, and its parameters were set on them. Cloud strokes
+are read too only when asked (``cloud_to_ground_only=False``). The filter
+drops whole flashes: FMI publishes a cloud stroke as a flash of its own, the
+Alaska import groups ground and cloud strokes apart, and MeteoCat's strokes are
+all ground strokes. The exception is three FMI flashes of 26.4 million in
+2010-2025 (2015-08-11, 2016-06-28, 2016-07-03), each a cloud stroke followed by
+ground strokes under one flash id; their ground strokes stay a flash.
+
+The value stored in ``thunderstorm_experiment.lightning_filter``, which must
+describe the filter completely, is :meth:`StrokeReader.filter_for`'s: the
+provider's own filter plus ``{"cloud_to_ground": true}`` when only ground
+strokes are read. A run that reads cloud strokes too stores the provider's
+filter alone, as every run did before the ground filter existed.
 
 MeteoCat
 --------
@@ -24,12 +41,14 @@ MeteoCat
 * **Coordinates**: the published ETRS89 point projected to the requested CRS.
   For EPSG:25831 the expression is exactly the indexed one
   (:data:`~src.providers.catalonia_meteocat.lightning.GEOMETRY_25831`).
-* **Filter** ``{"network": "newest"}``: the networks overlap in time (version 1
-  runs until 2009-09-29 23:59 UTC, version 2 starts on 2009-09-01 00:06 UTC),
-  and the same discharge located twice would make two flashes. A stroke of a
-  network is dropped at or after the **first stroke of any newer network**. That
-  instant is read from the database, not hard-coded, and does not depend on the
-  run window: September 2009 is version 2 only, whichever period is asked for.
+* **Filter** ``{"network": "newest"}`` (plus the ground filter, which drops
+  nothing: MeteoCat's strokes are all ground strokes): the networks overlap in
+  time (version 1 runs until 2009-09-29 23:59 UTC, version 2 starts on
+  2009-09-01 00:06 UTC), and the same discharge located twice would make two
+  flashes. A stroke of a network is dropped at or after the **first stroke of
+  any newer network**. That instant is read from the database, not hard-coded,
+  and does not depend on the run window: September 2009 is version 2 only,
+  whichever period is asked for.
 * **Default CRS**: EPSG:25831, ETRS89 / UTM 31N.
 
 FMI
@@ -42,7 +61,8 @@ FMI
 * **Coordinates**: the published ETRS89 point projected to the requested CRS.
   For EPSG:3067 the expression is exactly the indexed one
   (:data:`~src.providers.finland_fmi.lightning.GEOMETRY_3067`).
-* **Filter** ``{}``: one network, nothing to choose between.
+* **Filter** ``{}``, plus the ground filter: one network, nothing to choose
+  between.
 * **Default CRS**: EPSG:3067, ETRS89 / TM35FIN.
 * **Times** are whole seconds, so many strokes share one: the ``id`` that breaks
   the tie follows the import's content order
@@ -68,7 +88,8 @@ USWFS (Alaska)
 * **Coordinates**: the published WGS 84 point (``lightning.geometry``) projected
   to the requested CRS. For EPSG:3338 the expression is exactly the indexed one
   (:data:`~src.providers.alaska_uswfs.lightning.GEOMETRY_3338`).
-* **Filter** ``{}``: one network (``network_code`` is 0 throughout the release).
+* **Filter** ``{}``, plus the ground filter: one network (``network_code`` is 0
+  throughout the release).
 * **Default CRS**: EPSG:3338, NAD83 / Alaska Albers, which also holds the
   strokes west of the antimeridian (the Aleutians, the Bering Sea).
 * **Times** have milliseconds; strokes of one millisecond come in ``id`` order,
@@ -114,6 +135,13 @@ METEOCAT_FLASH_KEY_FACTOR = 10_000_000_000
 #: it. ``Strokes`` refuses infinities.
 UNKNOWN_ERROR_M = sys.float_info.max
 
+#: What a ground-only read adds to the provider's own filter, in the stored
+#: ``lightning_filter``.
+CLOUD_TO_GROUND_FILTER: dict[str, Any] = {"cloud_to_ground": True}
+
+#: The condition a ground-only read adds to its query.
+CLOUD_TO_GROUND_SQL = "\n  AND l.cloud_to_ground"
+
 #: The first stroke of each MeteoCat network.
 METEOCAT_NETWORK_STARTS_SQL = """
 SELECT m.network_version, min(l.date_time)
@@ -135,7 +163,7 @@ FROM lightning AS l
 JOIN meteocat_lightning AS m ON m.id = l.id
 CROSS JOIN LATERAL (SELECT {point} AS point) AS p
 WHERE l.data_provider_id = :provider_id
-  AND l.date_time >= :start AND l.date_time < :end{network}
+  AND l.date_time >= :start AND l.date_time < :end{network}{ground}
 ORDER BY l.date_time, l.id
 """
 
@@ -150,7 +178,7 @@ FROM lightning AS l
 JOIN fmi_lightning AS f ON f.id = l.id
 CROSS JOIN LATERAL (SELECT {point} AS point) AS p
 WHERE l.data_provider_id = :provider_id
-  AND l.date_time >= :start AND l.date_time < :end
+  AND l.date_time >= :start AND l.date_time < :end{ground}
 ORDER BY l.date_time, l.id
 """
 
@@ -165,7 +193,7 @@ FROM lightning AS l
 JOIN alaska_uswfs_lightning AS a ON a.id = l.id
 CROSS JOIN LATERAL (SELECT {point} AS point) AS p
 WHERE l.data_provider_id = :provider_id
-  AND l.date_time >= :start AND l.date_time < :end
+  AND l.date_time >= :start AND l.date_time < :end{ground}
 ORDER BY l.date_time, l.id
 """
 
@@ -179,14 +207,14 @@ class StrokeReader:
     provider_name, provider_product : str
         The provider's ``data_provider`` row.
     lightning_filter : dict
-        The filter the reader applies, stored as the experiment's
-        ``lightning_filter``.
+        The provider's own filter; the experiment stores
+        :meth:`filter_for`'s, which adds the ground filter.
     default_srid : int
         The provider's projected CRS, used when a run does not name one.
     read : callable
-        ``read(connection, provider_id, start, end, srid, fetch_size)``, an
-        iterator over :class:`~gisfire_algorithms.thunderstorm.Strokes` batches
-        in time order.
+        ``read(connection, provider_id, start, end, srid, fetch_size,
+        cloud_to_ground_only=True)``, an iterator over
+        :class:`~gisfire_algorithms.thunderstorm.Strokes` batches in time order.
     """
 
     provider_name: str
@@ -194,6 +222,15 @@ class StrokeReader:
     lightning_filter: dict[str, Any]
     default_srid: int
     read: Callable[..., Iterator[Strokes]]
+
+    def filter_for(self, cloud_to_ground_only: bool) -> dict[str, Any]:
+        """The ``lightning_filter`` of a read: the provider's, plus the ground filter."""
+        return {**self.lightning_filter, **(CLOUD_TO_GROUND_FILTER if cloud_to_ground_only else {})}
+
+
+def ground_sql(cloud_to_ground_only: bool) -> str:
+    """The condition a query adds for ``cloud_to_ground_only``: none, or ground strokes."""
+    return CLOUD_TO_GROUND_SQL if cloud_to_ground_only else ""
 
 
 def meteocat_network_cutoffs(connection: Connection, provider_id: int) -> dict[int, datetime.datetime]:
@@ -212,7 +249,8 @@ def meteocat_network_cutoffs(connection: Connection, provider_id: int) -> dict[i
     return cutoffs
 
 
-def meteocat_strokes_sql(srid: int, cutoffs: dict[int, datetime.datetime]) -> tuple[str, dict[str, Any]]:
+def meteocat_strokes_sql(srid: int, cutoffs: dict[int, datetime.datetime],
+                         cloud_to_ground_only: bool = True) -> tuple[str, dict[str, Any]]:
     """The query and the parameters it binds besides the provider and the period."""
     if srid == catalonia_meteocat.PROJECTED_SRID:
         point = GEOMETRY_25831.format(column="m.geometry_etrs89")
@@ -221,7 +259,8 @@ def meteocat_strokes_sql(srid: int, cutoffs: dict[int, datetime.datetime]) -> tu
     network = "".join(
         f"\n  AND NOT (m.network_version = {int(version)} AND l.date_time >= :cutoff_{int(version)})"
         for version in sorted(cutoffs))
-    sql = METEOCAT_STROKES_SQL.format(factor=METEOCAT_FLASH_KEY_FACTOR, point=point, network=network)
+    sql = METEOCAT_STROKES_SQL.format(factor=METEOCAT_FLASH_KEY_FACTOR, point=point, network=network,
+                                      ground=ground_sql(cloud_to_ground_only))
     return sql, {f"cutoff_{int(version)}": cutoff for version, cutoff in cutoffs.items()}
 
 
@@ -252,8 +291,8 @@ def _stream(connection: Connection, sql: str, parameters: dict[str, Any],
 
 
 def read_meteocat_strokes(connection: Connection, provider_id: int, start: datetime.datetime,
-                          end: datetime.datetime, srid: int,
-                          fetch_size: int | None = None) -> Iterator[Strokes]:
+                          end: datetime.datetime, srid: int, fetch_size: int | None = None, *,
+                          cloud_to_ground_only: bool = True) -> Iterator[Strokes]:
     """MeteoCat's strokes of ``[start, end)``, newest network only, in batches.
 
     Parameters
@@ -268,6 +307,8 @@ def read_meteocat_strokes(connection: Connection, provider_id: int, start: datet
         The projected CRS of the coordinates.
     fetch_size : int, optional
         Strokes per batch; :data:`FETCH_SIZE` by default.
+    cloud_to_ground_only : bool, optional
+        Read ground strokes only (the default), or cloud strokes too.
 
     Yields
     ------
@@ -276,52 +317,54 @@ def read_meteocat_strokes(connection: Connection, provider_id: int, start: datet
         period.
     """
     fetch_size = fetch_size or FETCH_SIZE
-    sql, extra = meteocat_strokes_sql(srid, meteocat_network_cutoffs(connection, provider_id))
+    sql, extra = meteocat_strokes_sql(srid, meteocat_network_cutoffs(connection, provider_id),
+                                      cloud_to_ground_only)
     yield from _stream(connection, sql,
                        {"provider_id": provider_id, "start": start, "end": end, **extra},
                        fetch_size)
 
 
-def fmi_strokes_sql(srid: int) -> str:
+def fmi_strokes_sql(srid: int, cloud_to_ground_only: bool = True) -> str:
     """The query for FMI's strokes in ``srid``."""
     if srid == finland_fmi.PROJECTED_SRID:
         point = GEOMETRY_3067.format(column="f.geometry_etrs89")
     else:
         point = f"ST_Transform(f.geometry_etrs89, {int(srid)})"
-    return FMI_STROKES_SQL.format(point=point)
+    return FMI_STROKES_SQL.format(point=point, ground=ground_sql(cloud_to_ground_only))
 
 
 def read_fmi_strokes(connection: Connection, provider_id: int, start: datetime.datetime,
-                     end: datetime.datetime, srid: int,
-                     fetch_size: int | None = None) -> Iterator[Strokes]:
+                     end: datetime.datetime, srid: int, fetch_size: int | None = None, *,
+                     cloud_to_ground_only: bool = True) -> Iterator[Strokes]:
     """FMI's strokes of ``[start, end)``, in batches.
 
     Parameters and batches as :func:`read_meteocat_strokes`, without a network
     filter: FMI has one network.
     """
-    yield from _stream(connection, fmi_strokes_sql(srid),
+    yield from _stream(connection, fmi_strokes_sql(srid, cloud_to_ground_only),
                        {"provider_id": provider_id, "start": start, "end": end},
                        fetch_size or FETCH_SIZE)
 
 
-def alaska_uswfs_strokes_sql(srid: int) -> str:
+def alaska_uswfs_strokes_sql(srid: int, cloud_to_ground_only: bool = True) -> str:
     """The query for USWFS's Alaska strokes in ``srid``."""
     if srid == alaska_uswfs.PROJECTED_SRID:
         point = GEOMETRY_3338.format(column="l.geometry")
     else:
         point = f"ST_Transform(l.geometry, {int(srid)})"
-    return ALASKA_USWFS_STROKES_SQL.format(point=point)
+    return ALASKA_USWFS_STROKES_SQL.format(point=point, ground=ground_sql(cloud_to_ground_only))
 
 
 def read_alaska_uswfs_strokes(connection: Connection, provider_id: int,
                               start: datetime.datetime, end: datetime.datetime, srid: int,
-                              fetch_size: int | None = None) -> Iterator[Strokes]:
+                              fetch_size: int | None = None, *,
+                              cloud_to_ground_only: bool = True) -> Iterator[Strokes]:
     """USWFS's Alaska strokes of ``[start, end)``, in batches.
 
     Parameters and batches as :func:`read_meteocat_strokes`, without a network
     filter. A stroke whose error is not known gets :data:`UNKNOWN_ERROR_M`.
     """
-    yield from _stream(connection, alaska_uswfs_strokes_sql(srid),
+    yield from _stream(connection, alaska_uswfs_strokes_sql(srid, cloud_to_ground_only),
                        {"provider_id": provider_id, "start": start, "end": end,
                         "unknown_error": UNKNOWN_ERROR_M},
                        fetch_size or FETCH_SIZE)

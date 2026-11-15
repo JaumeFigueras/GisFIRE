@@ -15,6 +15,12 @@ The algorithm itself lives in :mod:`gisfire_algorithms.thunderstorm`; this
 module reads the strokes (:mod:`src.apps.thunderstorms.readers`), runs it and
 stores the result (:mod:`src.apps.thunderstorms.writers`).
 
+Only **cloud-to-ground strokes** are read, as in Tuomi & Larjavaara's article,
+unless ``--include-cloud-strokes`` is given; the experiment's
+``lightning_filter`` records which (``{"cloud_to_ground": true}`` for ground
+strokes only), so the two runs are two experiments (see
+:mod:`src.apps.thunderstorms.readers`).
+
 Algorithms
 ----------
 
@@ -361,6 +367,9 @@ def build_parser(algorithm: str | None) -> argparse.ArgumentParser:
                         help="end of the period (excluded)")
     parser.add_argument("--algorithm", required=True, choices=sorted(ALGORITHMS),
                         help="the clustering algorithm")
+    parser.add_argument("--include-cloud-strokes", action="store_true",
+                        help="read cloud strokes too; by default only cloud-to-ground strokes "
+                             "are read, as in Tuomi & Larjavaara")
     parser.add_argument("--dry-run", action="store_true",
                         help="run everything and roll it back: nothing is stored")
     parser.add_argument("--log-file", type=str, default=None,
@@ -472,11 +481,35 @@ def provider_id(connection: Connection, reader: StrokeReader) -> int:
     return identifier
 
 
+def experiment_configuration(data_provider_id: int, provider: str, algorithm_key: str,
+                             parameters: Any, start: datetime.datetime, end: datetime.datetime,
+                             cloud_to_ground_only: bool = True) -> dict[str, Any]:
+    """What a run is stored with and recognised by (``writers.CONFIGURATION``).
+
+    :func:`build_thunderstorms` refuses a run whose configuration is already
+    stored; ``writers.find_experiment`` finds that run's id from this.
+    """
+    return {
+        "data_provider_id": data_provider_id,
+        "algorithm": ALGORITHMS[algorithm_key].name,
+        "parameters": parameters.to_dict(),
+        "lightning_filter": READERS[provider].filter_for(cloud_to_ground_only),
+        "hull_parameters": {**DEFAULT_HULL_PARAMETERS, "srid": parameters.srid},
+        "date_time_start": start,
+        "date_time_end": end,
+        "software_version": gisfire_algorithms.__version__,
+    }
+
+
 def build_thunderstorms(engine: Engine, provider: str, algorithm_key: str, parameters: Any,
                         start: datetime.datetime, end: datetime.datetime,
                         logger: logging.Logger, dry_run: bool = False,
-                        piece_strokes: int | None = None) -> dict[str, Any]:
+                        piece_strokes: int | None = None,
+                        cloud_to_ground_only: bool = True) -> dict[str, Any]:
     """Run one experiment and store it; its summary.
+
+    Only cloud-to-ground strokes are read unless ``cloud_to_ground_only`` is
+    false.
 
     Raises
     ------
@@ -489,24 +522,15 @@ def build_thunderstorms(engine: Engine, provider: str, algorithm_key: str, param
         raise ValueError("--to must be later than --from")
     reader = READERS[provider]
     algorithm = ALGORITHMS[algorithm_key]
-    srid = parameters.srid
-    hull_parameters = {**DEFAULT_HULL_PARAMETERS, "srid": srid}
     gap_s = algorithm.gap_s(parameters)
     piece_strokes = piece_strokes or PIECE_STROKES
     common.require_tables(engine, TABLES, logger)
 
     with engine.connect() as reading, engine.connect() as writing:
         data_provider_id = provider_id(writing, reader)
-        configuration = {
-            "data_provider_id": data_provider_id,
-            "algorithm": algorithm.name,
-            "parameters": parameters.to_dict(),
-            "lightning_filter": dict(reader.lightning_filter),
-            "hull_parameters": hull_parameters,
-            "date_time_start": start,
-            "date_time_end": end,
-            "software_version": gisfire_algorithms.__version__,
-        }
+        configuration = experiment_configuration(data_provider_id, provider, algorithm_key,
+                                                 parameters, start, end, cloud_to_ground_only)
+        hull_parameters = configuration["hull_parameters"]
         existing = writers.find_experiment(writing, configuration)
         if existing is not None:
             writing.rollback()
@@ -516,14 +540,15 @@ def build_thunderstorms(engine: Engine, provider: str, algorithm_key: str, param
         experiment_id = writers.insert_experiment(writing, configuration)
         if not dry_run:
             writing.commit()
-        logger.info("%s experiment %d: %s on %s strokes, %s to %s, %s",
+        logger.info("%s experiment %d: %s on %s %s, %s to %s, %s",
                     "Dry-run" if dry_run else "Running", experiment_id, algorithm.name, provider,
+                    "ground strokes" if cloud_to_ground_only else "ground and cloud strokes",
                     start.isoformat(), end.isoformat(), parameters.to_dict())
 
         try:
             summary = _run(reading, writing, reader, algorithm, parameters, data_provider_id,
                            experiment_id, start, end, gap_s, hull_parameters, piece_strokes,
-                           logger, dry_run)
+                           logger, dry_run, cloud_to_ground_only)
             writers.complete_experiment(writing, experiment_id, summary)
             if dry_run:
                 writing.rollback()
@@ -544,7 +569,8 @@ def build_thunderstorms(engine: Engine, provider: str, algorithm_key: str, param
 def _run(reading: Connection, writing: Connection, reader: StrokeReader, algorithm: Algorithm,
          parameters: Any, data_provider_id: int, experiment_id: int, start: datetime.datetime,
          end: datetime.datetime, gap_s: float, hull_parameters: dict[str, Any],
-         piece_strokes: int, logger: logging.Logger, dry_run: bool) -> dict[str, Any]:
+         piece_strokes: int, logger: logging.Logger, dry_run: bool,
+         cloud_to_ground_only: bool) -> dict[str, Any]:
     """Stream, cluster and write every piece; the run's summary."""
     srid = parameters.srid
     started = time.monotonic()
@@ -561,7 +587,8 @@ def _run(reading: Connection, writing: Connection, reader: StrokeReader, algorit
     # whether the period may cut a cell at its start (``activity_before_start``).
     lookback = start - datetime.timedelta(seconds=gap_s)
     before: list[Strokes] = []
-    batches = split_before(reader.read(reading, data_provider_id, lookback, end, srid),
+    batches = split_before(reader.read(reading, data_provider_id, lookback, end, srid,
+                                       cloud_to_ground_only=cloud_to_ground_only),
                            start.timestamp(), before)
     for strokes in pieces(batches, gap_s, piece_strokes):
         piece = algorithm.run(strokes, parameters, next_label)
@@ -640,7 +667,8 @@ def _main(args: argparse.Namespace, logger: logging.Logger) -> int:
     engine = create_engine(common.database_url(settings))
     try:
         build_thunderstorms(engine, args.provider, args.algorithm, parameters, args.start,
-                            args.end, logger, dry_run=args.dry_run)
+                            args.end, logger, dry_run=args.dry_run,
+                            cloud_to_ground_only=not args.include_cloud_strokes)
     except Exception as error:  # noqa: BLE001  (the CLI boundary: report, do not traceback)
         logger.error("Build failed: %s", error)
         return 1

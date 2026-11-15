@@ -20,8 +20,13 @@ the strokes, the thunderstorms (concave hulls), the Cellsearch centres and paths
 and the experiments with their C, for a look in QGIS before the file is
 committed.
 
-Regenerate it only after a deliberate change of output: bump
-``gisfire_algorithms.__version__``, run this, check the runs in QGIS, commit.
+The runs are the builder's default ones, over **cloud-to-ground strokes only**;
+the file records their ``lightning_filter``. The strokes layer of ``--gpkg``
+holds the cloud strokes too, with ``cloud_to_ground`` to tell them apart.
+
+Regenerate it only after a deliberate change of output: an algorithm's (bump
+``gisfire_algorithms.__version__``) or the builder's defaults', run this, check
+the runs in QGIS, commit.
 
 Source of the strokes: Finnish Meteorological Institute (FMI), open data,
 CC BY 4.0.
@@ -143,6 +148,7 @@ def main(argv: list[str] | None = None) -> None:
     logger.info("Imported %d strokes", strokes)
 
     runs = {}
+    filters = []
     for limit in _tests.LIMITS:
         parameters = CellsearchParameters(
             time_distance_limit_min_km=None if limit == "None" else float(limit), srid=3067)
@@ -153,18 +159,24 @@ def main(argv: list[str] | None = None) -> None:
                 "SELECT max(id) FROM thunderstorm_experiment")).scalar_one()
             runs[limit] = {"experiment_id": experiment_id,
                            **_tests.stored_result(connection, experiment_id)}
+            filters.append(connection.execute(text(
+                "SELECT lightning_filter FROM thunderstorm_experiment WHERE id = :id"),
+                {"id": experiment_id}).scalar_one())
 
+    if any(stored != filters[0] for stored in filters):
+        raise SystemExit(f"the runs stored different lightning filters: {filters}")
     parameters_but_c = CellsearchParameters(srid=3067).to_dict()
     parameters_but_c.pop("time_distance_limit_min_km")
     document = {
-        "_about": "Cellsearch on FMI's strokes of 2018-07-03 (UTC), one run per value of C, "
-                  f"frozen on {datetime.date.today().isoformat()} from an empty scratch database "
+        "_about": "Cellsearch on FMI's cloud-to-ground strokes of 2018-07-03 (UTC), one run "
+                  f"per value of C, frozen on {datetime.date.today().isoformat()} from an empty scratch database "
                   "by freeze_cellsearch_2018-07-03.py. Awaiting Jaume's check in QGIS. Source "
                   f"of the strokes: {finland_fmi.ATTRIBUTION}.",
         "date_time_start": _tests.FMI_DAY_START.isoformat(),
         "date_time_end": _tests.FMI_DAY_END.isoformat(),
         "software_version": gisfire_algorithms.__version__,
         "parameters_but_c": parameters_but_c,
+        "lightning_filter": filters[0],
         "runs": runs,
     }
     _tests.FMI_EXPECTED.write_text(_dumps(document) + "\n")

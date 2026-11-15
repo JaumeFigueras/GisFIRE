@@ -97,7 +97,10 @@ def provider(database):
 
 @dataclasses.dataclass
 class Stroke:
-    """A synthetic stroke: an instant, a position (metres from ORIGIN), an error."""
+    """A synthetic stroke: an instant, a position (metres from ORIGIN), an error.
+
+    ``ground`` is ``lightning.cloud_to_ground``: false makes it a cloud stroke.
+    """
 
     at: datetime.datetime
     dx: float
@@ -106,6 +109,7 @@ class Stroke:
     error: float = 500.0
     version: int = 2
     id: int | None = None
+    ground: bool = True
 
 
 INSERT_STROKE_SQL = """
@@ -114,7 +118,7 @@ WITH point AS (
 ), parent AS (
     INSERT INTO lightning (type, data_provider_id, date_time, geometry, peak_current,
                            cloud_to_ground)
-    SELECT 'meteocat_lightning', :provider_id, :at, ST_Transform(point.etrs89, 4326), -20.0, true
+    SELECT 'meteocat_lightning', :provider_id, :at, ST_Transform(point.etrs89, 4326), -20.0, :ground
     FROM point
     RETURNING id
 )
@@ -133,7 +137,8 @@ def add_strokes(engine, provider_id: int, strokes: list[Stroke]) -> list[Stroke]
             stroke.id = connection.execute(text(INSERT_STROKE_SQL), {
                 "x": ORIGIN[0] + stroke.dx, "y": ORIGIN[1] + stroke.dy,
                 "provider_id": provider_id, "at": stroke.at, "version": stroke.version,
-                "flash": stroke.flash, "error": stroke.error}).scalar_one()
+                "flash": stroke.flash, "error": stroke.error,
+                "ground": stroke.ground}).scalar_one()
     return strokes
 
 
@@ -279,7 +284,7 @@ def test_the_experiment_is_complete_with_its_configuration(database, two_storms)
     assert stored.completed_at is not None
     assert stored.algorithm == "CELLSEARCH_TUOMI_LARJAVAARA_2005"
     assert stored.parameters == CellsearchParameters().to_dict()
-    assert stored.lightning_filter == {"network": "newest"}
+    assert stored.lightning_filter == {"network": "newest", "cloud_to_ground": True}
     assert stored.hull_parameters == {"ratio": 0.3, "allow_holes": False, "srid": 25831}
     assert stored.software_version == gisfire_algorithms.__version__
     assert (stored.date_time_start, stored.date_time_end) == (DAY, NEXT_DAY)
@@ -808,7 +813,7 @@ WITH point AS (
 ), parent AS (
     INSERT INTO lightning (type, data_provider_id, date_time, geometry, peak_current,
                            cloud_to_ground)
-    SELECT 'fmi_lightning', :provider_id, :at, ST_Transform(point.etrs89, 4326), -20.0, true
+    SELECT 'fmi_lightning', :provider_id, :at, ST_Transform(point.etrs89, 4326), -20.0, :ground
     FROM point
     RETURNING id
 )
@@ -841,7 +846,8 @@ def add_fmi_strokes(engine, provider_id: int, strokes: list[Stroke]) -> list[Str
             stroke.id = connection.execute(text(INSERT_FMI_STROKE_SQL), {
                 "x": FMI_ORIGIN[0] + stroke.dx, "y": FMI_ORIGIN[1] + stroke.dy,
                 "provider_id": provider_id, "at": stroke.at.replace(microsecond=0),
-                "flash": stroke.flash, "error": stroke.error}).scalar_one()
+                "flash": stroke.flash, "error": stroke.error,
+                "ground": stroke.ground}).scalar_one()
     return strokes
 
 
@@ -933,7 +939,7 @@ def test_a_run_over_fmis_strokes_works_in_tm35fin(database, fmi_provider):
     stored = experiment(engine)
     assert stored.status == "complete"
     assert stored.parameters == CellsearchParameters(srid=3067).to_dict()
-    assert stored.lightning_filter == {}
+    assert stored.lightning_filter == {"cloud_to_ground": True}
     assert stored.hull_parameters == {"ratio": 0.3, "allow_holes": False, "srid": 3067}
     assert count(engine, "thunderstorm") == 1
     # The hull was built in TM35FIN and stored in EPSG:4326, around the storm.
@@ -942,6 +948,111 @@ def test_a_run_over_fmis_strokes_works_in_tm35fin(database, fmi_provider):
                            FROM thunderstorm""")[0]
     assert x == pytest.approx(FMI_ORIGIN[0], abs=1_000)
     assert y == pytest.approx(FMI_ORIGIN[1], abs=1_000)
+
+
+# --------------------------------------------------------------------------
+# Ground strokes only, by default
+#
+# Cellsearch's article clustered ground flashes, so the readers read
+# cloud-to-ground strokes only unless told otherwise, and the stored
+# lightning_filter says which. FMI publishes cloud strokes (half of them or
+# more from 2015), so it is where the filter matters.
+# --------------------------------------------------------------------------
+
+def cloud(strokes: list[Stroke]) -> list[Stroke]:
+    """The same strokes, as cloud strokes."""
+    return [dataclasses.replace(stroke, ground=False) for stroke in strokes]
+
+
+@pytest.mark.parametrize("name", sorted(readers.READERS))
+def test_the_stored_filter_adds_ground_only_to_the_providers(name):
+    reader = readers.READERS[name]
+    assert reader.filter_for(True) == {**reader.lightning_filter, "cloud_to_ground": True}
+    assert reader.filter_for(False) == reader.lightning_filter
+
+
+@pytest.mark.parametrize("sql", [
+    pytest.param(lambda ground: readers.meteocat_strokes_sql(25831, {}, ground)[0], id="meteocat"),
+    pytest.param(lambda ground: readers.fmi_strokes_sql(3067, ground), id="fmi"),
+    pytest.param(lambda ground: readers.alaska_uswfs_strokes_sql(3338, ground), id="uswfs"),
+])
+def test_every_query_reads_ground_strokes_only_unless_told(sql):
+    assert "AND l.cloud_to_ground" in sql(True)
+    assert "cloud_to_ground" not in sql(False)
+
+
+def test_the_fmi_reader_reads_ground_strokes_only_by_default(database, fmi_provider):
+    engine, _ = database
+    ground = add_fmi_strokes(engine, fmi_provider, [Stroke(STORM, 0.0, 0.0, 1)])
+    clouds = add_fmi_strokes(engine, fmi_provider, cloud([Stroke(STORM, 50.0, 0.0, 2)]))
+    batch, = read_fmi(engine, fmi_provider, DAY, NEXT_DAY)
+    assert batch.ids.tolist() == [ground[0].id]
+    with engine.connect() as connection:
+        batch, = readers.read_fmi_strokes(connection, fmi_provider, DAY, NEXT_DAY, 3067,
+                                          cloud_to_ground_only=False)
+    assert sorted(batch.ids.tolist()) == sorted([ground[0].id, clouds[0].id])
+
+
+def test_the_meteocat_reader_reads_ground_strokes_only_by_default(database, provider):
+    engine, _ = database
+    ground, cloud_stroke = add_strokes(engine, provider, [
+        Stroke(STORM, 0.0, 0.0, 1), Stroke(minutes(1), 0.0, 0.0, 2, ground=False)])
+    assert ids_read(engine, provider, DAY, NEXT_DAY) == [ground.id]
+    with engine.connect() as connection:
+        batch, = readers.read_meteocat_strokes(connection, provider, DAY, NEXT_DAY, 25831,
+                                               cloud_to_ground_only=False)
+    assert batch.ids.tolist() == [ground.id, cloud_stroke.id]
+
+
+@pytest.fixture
+def ground_and_cloud_storms(database, fmi_provider):
+    """Two storms of 6 flashes over FMI's area, 50 km apart: one of ground strokes,
+    one of cloud strokes."""
+    engine, _ = database
+    return add_fmi_strokes(engine, fmi_provider,
+                           a_storm(100, STORM, 6) + cloud(a_storm(200, STORM, 6, dx=50_000.0)))
+
+
+def test_a_run_clusters_ground_strokes_only_by_default(database, ground_and_cloud_storms):
+    engine, url = database
+    assert run(url, provider="FMI") == 0
+    stored = experiment(engine)
+    assert stored.lightning_filter == {"cloud_to_ground": True}
+    assert stored.summary["strokes_total"] == 12
+    assert stored.summary["flashes_total"] == 6
+    assert count(engine, "thunderstorm") == 1
+    assert scalar(engine, """SELECT count(*) FROM thunderstorm_lightning AS t
+                             JOIN lightning AS l ON l.id = t.lightning_id
+                             WHERE NOT l.cloud_to_ground""") == 0
+
+
+def test_include_cloud_strokes_clusters_them_too_as_another_experiment(database,
+                                                                       ground_and_cloud_storms):
+    engine, url = database
+    assert run(url, provider="FMI") == 0
+    # Not the same configuration: it is not refused.
+    assert run(url, "--include-cloud-strokes", provider="FMI") == 0
+    stored = rows(engine, "SELECT * FROM thunderstorm_experiment ORDER BY id")
+    assert [experiment_.lightning_filter for experiment_ in stored] == [
+        {"cloud_to_ground": True}, {}]
+    assert stored[1].summary["strokes_total"] == 24
+    assert stored[1].summary["flashes_total"] == 12
+    assert scalar(engine, "SELECT count(*) FROM thunderstorm WHERE experiment_id = :id",
+                  id=stored[1].id) == 2
+    # Run again, it is refused: the filter is part of the configuration.
+    assert run(url, "--include-cloud-strokes", provider="FMI") == 1
+
+
+def test_the_configuration_records_the_filter():
+    start, end = DAY, NEXT_DAY
+    ground = app.experiment_configuration(7, "FMI", ALGORITHM, CellsearchParameters(srid=3067),
+                                          start, end)
+    both = app.experiment_configuration(7, "FMI", ALGORITHM, CellsearchParameters(srid=3067),
+                                        start, end, cloud_to_ground_only=False)
+    assert ground["lightning_filter"] == {"cloud_to_ground": True}
+    assert both["lightning_filter"] == {}
+    assert {key: value for key, value in ground.items() if key != "lightning_filter"} == \
+        {key: value for key, value in both.items() if key != "lightning_filter"}
 
 
 # --------------------------------------------------------------------------
@@ -963,7 +1074,7 @@ ANTIMERIDIAN_ORIGIN = (-1_748_800.0, 567_750.0)
 INSERT_ALASKA_STROKE_SQL = """
 INSERT INTO lightning (type, data_provider_id, date_time, geometry, peak_current, cloud_to_ground)
 VALUES ('alaska_uswfs_lightning', :provider_id, :at,
-        ST_Transform(ST_SetSRID(ST_MakePoint(:x, :y), 3338), 4326), -20.0, true)
+        ST_Transform(ST_SetSRID(ST_MakePoint(:x, :y), 3338), 4326), -20.0, :ground)
 RETURNING id
 """
 
@@ -1003,7 +1114,8 @@ def add_alaska_strokes(engine, provider_id: int, strokes: list[Stroke],
         for stroke in strokes:
             stroke.id = connection.execute(text(INSERT_ALASKA_STROKE_SQL), {
                 "x": origin[0] + stroke.dx, "y": origin[1] + stroke.dy,
-                "provider_id": provider_id, "at": stroke.at}).scalar_one()
+                "provider_id": provider_id, "at": stroke.at,
+                "ground": stroke.ground}).scalar_one()
             seen[stroke.flash] = seen.get(stroke.flash, 0) + 1
             connection.execute(text(INSERT_ALASKA_CHILD_SQL), {
                 "id": stroke.id, "flash_id": first.setdefault(stroke.flash, stroke.id),
@@ -1118,7 +1230,7 @@ def test_a_run_over_alaskas_strokes_works_in_alaska_albers(database, alaska_prov
     stored = experiment(engine)
     assert stored.status == "complete"
     assert stored.parameters == CellsearchParameters(srid=3338).to_dict()
-    assert stored.lightning_filter == {}
+    assert stored.lightning_filter == {"cloud_to_ground": True}
     assert stored.hull_parameters == {"ratio": 0.3, "allow_holes": False, "srid": 3338}
     assert stored.summary["flashes_total"] == 6
     assert count(engine, "thunderstorm") == 1
@@ -1245,8 +1357,9 @@ FMI_DAY = Path(__file__).parents[2] / "fixtures" / "data" / "fmi_regression" / "
 
 #: What the seven runs of 2018-07-03 stored, written by
 #: ``test/fixtures/data/fmi_regression/freeze_cellsearch_2018-07-03.py``; see
-#: its README. Regenerate it only for a deliberate change of output, together
-#: with a bump of ``gisfire_algorithms.__version__``.
+#: its README. Regenerate it only for a deliberate change of output: an
+#: algorithm's (with a bump of ``gisfire_algorithms.__version__``) or the
+#: builder's defaults' (the runs are ground strokes only, the default).
 FMI_EXPECTED = FMI_DAY.with_name("cellsearch_2018-07-03_expected.json")
 
 FMI_DAY_START = datetime.datetime(2018, 7, 3, tzinfo=UTC)
@@ -1294,6 +1407,8 @@ def test_the_fmi_runs_were_frozen_with_the_current_version():
     assert expected["parameters_but_c"] == {
         key: value for key, value in CellsearchParameters(srid=3067).to_dict().items()
         if key != "time_distance_limit_min_km"}
+    # The runs are the default ones: ground strokes only.
+    assert expected["lightning_filter"] == {"cloud_to_ground": True}
 
 
 @pytest.mark.parametrize("limit", LIMITS)
@@ -1307,6 +1422,7 @@ def test_regression_fmi_2018_07_03(database, fmi_2018_07_03, limit):
     stored = experiment(engine)
     assert stored.status == "complete"
     assert stored.parameters["srid"] == 3067
+    assert stored.lightning_filter == _fmi_expected()["lightning_filter"]
     assert stored.parameters["time_distance_limit_min_km"] == (
         None if limit == "None" else float(limit))
     with engine.connect() as connection:
@@ -1319,6 +1435,22 @@ def test_regression_fmi_2018_07_03(database, fmi_2018_07_03, limit):
     assert count(engine, "thunderstorm_cellsearch_flash") == summary["flashes_kept"]
     assert count(engine, "thunderstorm_lightning") == sum(
         storm["number_of_lightnings"] for storm in actual["thunderstorms"])
+
+
+def test_the_fmi_day_with_cloud_strokes_reads_them_all(database, fmi_2018_07_03):
+    """Half of the day's strokes are cloud strokes, each a flash of its own: the
+    frozen runs leave them out, ``--include-cloud-strokes`` reads them."""
+    engine, url = database
+    assert run(url, "--include-cloud-strokes", start=FMI_DAY_START, end=FMI_DAY_END,
+               provider="FMI") == 0
+    stored = experiment(engine)
+    assert stored.lightning_filter == {}
+    assert scalar(engine, """SELECT count(*) FROM lightning
+                             WHERE date_time >= :start AND date_time < :end""",
+                  start=FMI_DAY_START, end=FMI_DAY_END) == stored.summary["strokes_total"] == 3069
+    assert stored.summary["flashes_total"] == 2488
+    ground = _fmi_expected()["runs"]["None"]["summary"]
+    assert (ground["strokes_total"], ground["flashes_total"]) == (1481, 900)
 
 
 @pytest.mark.parametrize("limit", ["None", "50"])
@@ -1362,8 +1494,9 @@ ALASKA_DAY = (Path(__file__).parents[2] / "fixtures" / "data" / "alaska_uswfs_re
 
 #: What the seven runs of the day stored, written by
 #: ``test/fixtures/data/alaska_uswfs_regression/freeze_cellsearch_2019-06-30.py``;
-#: see its README. Regenerate it only for a deliberate change of output, together
-#: with a bump of ``gisfire_algorithms.__version__``.
+#: see its README. Regenerate it only for a deliberate change of output: an
+#: algorithm's (with a bump of ``gisfire_algorithms.__version__``) or the
+#: builder's defaults' (the runs are ground strokes only, the default).
 ALASKA_EXPECTED = ALASKA_DAY.with_name("cellsearch_2019-06-30_expected.json")
 
 ALASKA_DAY_START = datetime.datetime(2019, 6, 30, 12, tzinfo=UTC)
@@ -1415,6 +1548,8 @@ def test_the_alaska_runs_were_frozen_with_the_current_version():
     assert expected["parameters_but_c"] == {
         key: value for key, value in CellsearchParameters(srid=3338).to_dict().items()
         if key != "time_distance_limit_min_km"}
+    # The runs are the default ones: ground strokes only.
+    assert expected["lightning_filter"] == {"cloud_to_ground": True}
 
 
 @pytest.mark.parametrize("limit", LIMITS)
@@ -1428,6 +1563,7 @@ def test_regression_alaska_2019_06_30(database, alaska_2019_06_30, limit):
     stored = experiment(engine)
     assert stored.status == "complete"
     assert stored.parameters["srid"] == 3338
+    assert stored.lightning_filter == _alaska_expected()["lightning_filter"]
     assert stored.parameters["time_distance_limit_min_km"] == (
         None if limit == "None" else float(limit))
     with engine.connect() as connection:
@@ -1435,9 +1571,10 @@ def test_regression_alaska_2019_06_30(database, alaska_2019_06_30, limit):
     assert_same_result(actual, _alaska_expected()["runs"][limit])
 
     summary = actual["summary"]
-    assert summary["strokes_total"] == 5774
-    assert summary["flashes_total"] == 3764
-    assert summary["flashes_discarded_error"] == 330
+    # Ground strokes only: 5,774 strokes and 3,764 flashes with the cloud ones.
+    assert summary["strokes_total"] == 5604
+    assert summary["flashes_total"] == 3605
+    assert summary["flashes_discarded_error"] == 325
     assert count(engine, "thunderstorm_cellsearch_flash") == summary["flashes_kept"]
     assert count(engine, "thunderstorm_lightning") == sum(
         storm["number_of_lightnings"] for storm in actual["thunderstorms"])
@@ -1451,21 +1588,27 @@ def test_regression_alaska_2019_06_30(database, alaska_2019_06_30, limit):
 def test_the_alaska_day_has_flashes_of_unknown_error_and_e_max_drops_them(database,
                                                                          alaska_2019_06_30):
     """The window holds flashes with no stroke of known error (the network published
-    no semi-major axis from 11:20 to 16:07 UTC); every run discards them."""
+    no semi-major axis from 11:20 to 16:07 UTC): 30, of which 29 are ground flashes.
+    Every run discards those it reads."""
     engine, url = database
-    unknown = scalar(engine, """
-        SELECT count(*) FROM (
-            SELECT a.flash_id
+    unknown = rows(engine, """
+        SELECT ground, count(*) AS flashes FROM (
+            SELECT a.flash_id, bool_and(l.cloud_to_ground) AS ground
             FROM alaska_uswfs_lightning AS a JOIN lightning AS l ON l.id = a.id
             WHERE l.date_time >= :start AND l.date_time < :end
             GROUP BY a.flash_id
-            HAVING bool_and(a.ellipse_semi_major_axis IS NULL)) AS flash""",
-                     start=ALASKA_DAY_START, end=ALASKA_DAY_END)
-    assert unknown == 30
-    # Even an E_max of 10,000 km discards exactly those.
+            HAVING bool_and(a.ellipse_semi_major_axis IS NULL)) AS flash
+        GROUP BY ground ORDER BY ground""",
+                   start=ALASKA_DAY_START, end=ALASKA_DAY_END)
+    assert [(row.ground, row.flashes) for row in unknown] == [(False, 1), (True, 29)]
+    # Even an E_max of 10,000 km discards exactly those, the ground ones by default.
     assert run(url, "--max-location-error", "10000", start=ALASKA_DAY_START,
                end=ALASKA_DAY_END, provider="USWFS") == 0
-    assert experiment(engine).summary["flashes_discarded_error"] == unknown
+    assert experiment(engine).summary["flashes_discarded_error"] == 29
+    assert run(url, "--max-location-error", "10000", "--include-cloud-strokes",
+               start=ALASKA_DAY_START, end=ALASKA_DAY_END, provider="USWFS") == 0
+    assert rows(engine, "SELECT summary FROM thunderstorm_experiment ORDER BY id")[1].summary[
+        "flashes_discarded_error"] == 30
 
 
 @pytest.mark.parametrize("limit", ["None", "50"])

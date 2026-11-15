@@ -49,6 +49,11 @@ Usage
     CRS the algorithm works in, is the provider's own grid when not given — EPSG:25831
     (ETRS89 / UTM 31N) for MeteoCat, EPSG:3067 (ETRS89 / TM35FIN) for FMI, EPSG:3338
     (NAD83 / Alaska Albers) for the Alaska network (``--provider USWFS``).
+``--include-cloud-strokes``
+    Reads the cloud strokes too. By default only **cloud-to-ground strokes** are read, as
+    in Tuomi & Larjavaara's article, whose data were ground flashes. The two are two
+    experiments: the stored ``lightning_filter`` holds ``"cloud_to_ground": true`` for a
+    ground-only run, and not for this one.
 ``--dry-run``
     Does everything — reads, clusters, writes — in one transaction and rolls it back, and
     logs what it would have stored. It still connects, and still refuses a configuration
@@ -82,7 +87,9 @@ For MeteoCat:
 - the **location error** is ``ellipse_major_axis`` as published, in metres;
 - the **coordinates** are the ETRS89 point projected to the algorithm's CRS — for
   EPSG:25831, exactly the expression of the indexed ``v_meteocat_lightning_25831``;
-- the filter, stored as ``lightning_filter = {"network": "newest"}``, handles the month
+- the filter, stored as ``lightning_filter = {"network": "newest"}`` (plus the ground
+  filter, which drops nothing here: MeteoCat's strokes are all ground strokes), handles the
+  month
   the two networks overlap (version 1 until 2009-09-29 23:59 UTC, version 2 from
   2009-09-01 00:06 UTC), where the same discharge located twice would make two flashes:
   a network's strokes are **dropped from the first stroke of any newer network on**.
@@ -97,7 +104,8 @@ For FMI:
   the import converts them);
 - the **coordinates** are the ETRS89 point projected to the algorithm's CRS — for
   EPSG:3067, exactly the expression of the indexed ``v_fmi_lightning_3067``;
-- there is no filter, ``lightning_filter = {}``: one network;
+- the provider has no filter of its own, ``{}``: one network. A default run stores the
+  ground filter alone, ``{"cloud_to_ground": true}``;
 - the times are **whole seconds**, so many strokes share one; the ``id`` that breaks
   those ties follows the import's content order, so a month imported again is read, and
   clustered, the same way.
@@ -118,22 +126,29 @@ For the Alaska network (``--provider USWFS``):
   for EPSG:3338, exactly the expression of the indexed ``v_alaska_uswfs_lightning_3338``.
   Alaska Albers holds the strokes on both sides of the antimeridian, so a storm across
   180° is one place for the algorithm;
-- there is no filter, ``lightning_filter = {}``: one network;
+- the provider has no filter of its own, ``{}``: one network. A default run stores the
+  ground filter alone, ``{"cloud_to_ground": true}``;
 - the times have **milliseconds**, and the strokes of one millisecond are read in ``id``
   order, which follows the import's content order, as for FMI.
 
 FMI's location errors have a heavier tail than MeteoCat's: over 2018, the default E_max
-of 10 km discards 3.9 % of FMI's flashes (in Finland as elsewhere), against 0.7 % on
-MeteoCat's 2020-07-13. The Alaska network's is heavier again: 10.05 % of the
-release's flashes (ground 10.75 %, cloud 1.42 %), 8.8 % on its regression day. And its
+of 10 km discards 3.2 % of FMI's ground flashes (3.9 % of all its flashes, in Finland as
+elsewhere), against 0.7 % on MeteoCat's 2020-07-13. The Alaska network's is heavier
+again: 10.75 % of the release's ground flashes (10.05 % of all, cloud 1.42 %), 9.0 % on
+its regression day. And its
 error is a **semi**-axis by name, where neither MeteoCat nor FMI says whether its "major
 axis" is a whole axis or a semi-axis, nor its confidence level. If theirs are whole
 axes, the comparable cut for Alaska is an E_max of 5 km, which discards 24 % of the
 release's flashes. Choose ``--max-location-error`` per provider with that in mind.
 
-Every stroke is read, cloud strokes included: MeteoCat's delivery is cloud-to-ground
-only, but FMI's has cloud strokes from 2005 and the Alaska network's throughout. There
-is no stroke-type or polarity filter.
+**Only ground strokes are read** by default (``AND l.cloud_to_ground``), as in the
+article. MeteoCat's delivery is cloud-to-ground only, so this drops nothing there; FMI's
+has cloud strokes from 2005, half of them or more from 2015, and the Alaska network's
+throughout. The filter drops whole flashes: FMI publishes a cloud stroke as a flash of
+its own and the Alaska import groups ground and cloud strokes apart (three FMI flashes of
+26.4 million, in 2015 and 2016, put a cloud stroke and ground strokes under one id; their
+ground strokes stay a flash). ``--include-cloud-strokes`` reads every stroke. There is
+no polarity filter.
 
 **The strokes are clustered in pieces.** They are cut, about every 200,000 strokes, at a
 quiet gap longer than the algorithm's own — for Cellsearch, *T*, which closes every
@@ -240,7 +255,7 @@ defaults, gives:
 
 .. code-block:: text
 
-   INFO Running experiment 1: CELLSEARCH_TUOMI_LARJAVAARA_2005 on MeteoCat strokes, 2020-07-13T00:00:00+00:00 to 2020-07-14T00:00:00+00:00, {'attraction_radius_km': 15.0, 'max_waiting_time_min': 15.0, 'time_distance_limit_min_km': None, 'inertia': 20, 'max_location_error_km': 10.0, 'min_flashes': 5, 'srid': 25831}
+   INFO Running experiment 1: CELLSEARCH_TUOMI_LARJAVAARA_2005 on MeteoCat ground strokes, 2020-07-13T00:00:00+00:00 to 2020-07-14T00:00:00+00:00, {'attraction_radius_km': 15.0, 'max_waiting_time_min': 15.0, 'time_distance_limit_min_km': None, 'inertia': 20, 'max_location_error_km': 10.0, 'min_flashes': 5, 'srid': 25831}
    INFO Clustered 2947 stroke(s) into 46 thunderstorm(s) in 1s: {'flashes_total': 2224, 'flashes_discarded_error': 15, 'flashes_kept': 2130, 'cells_total': 92, 'cells_kept': 46, 'strokes_total': 2947, 'cells_open_at_end': 0, 'activity_before_start': False}
 
 That is 2,224 flashes, 15 of them discarded for an error of 10 km or more, in 92 cells,

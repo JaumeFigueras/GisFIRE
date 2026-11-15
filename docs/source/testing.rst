@@ -46,17 +46,20 @@ same code: ``make test-algorithms-qgis`` (see :doc:`algorithms`). Coverage cover
 A thunderstorm application is tested against real data too, on two days, both in the
 repository.
 ``test/apps/thunderstorms/test_build_thunderstorms.py`` runs Cellsearch over each once per
-value of *C* (off, 10, 15, 25, 50, 100 and 200 min·km), and each run must give exactly the
-result frozen for it, checked in QGIS: for each, the summary and every thunderstorm by
-label — counts, time span, area, a digest of its flashes' times and its last centre.
+value of *C* (off, 10, 15, 25, 50, 100 and 200 min·km), over the ground strokes (the
+builder's default), and each run must give exactly the result frozen for it, checked in
+QGIS: for each, the summary and every thunderstorm by label — counts, time span, area, a
+digest of its flashes' times and its last centre. The frozen file records the runs'
+``lightning_filter`` too, and a further test reads FMI's day with its cloud strokes.
 
 **FMI, 2018-07-03 — in the repository, always run.**
 ``test/fixtures/data/fmi_regression/`` holds FMI's 3,178 strokes of that day and the hour
 before it, cut
 unchanged from a monthly file of :doc:`applications/fmi_download_lightnings`, and
 ``cellsearch_2018-07-03_expected.json``, frozen with
-``freeze_cellsearch_2018-07-03.py`` from an empty scratch database and checked in QGIS
-on 2026-11-14. The test loads the day through the FMI importer, so the strokes get their
+``freeze_cellsearch_2018-07-03.py`` from an empty scratch database. The runs over all
+strokes were checked in QGIS on 2026-11-14; the ground-only ones, frozen on 2026-11-15
+when ground strokes became the default, await that check. The test loads the day through the FMI importer, so the strokes get their
 identifiers in the importer's content order, as in gisfire_db; a further test shuffles
 the file, as a second download would, and must get the same result. The folder's
 ``README.md`` says why this day, and how to regenerate the reference.
@@ -65,8 +68,9 @@ the file, as a second download would, and must get the same result. The folder's
 ``test/fixtures/data/alaska_uswfs_regression/`` holds the Alaska network's 5,892 strokes
 of 2019-06-30 11:00 to 2019-07-01 12:00 UTC, cut verbatim from the U.S. Wildland Fire
 Service's release, and ``cellsearch_2019-06-30_expected.json``, frozen with
-``freeze_cellsearch_2019-06-30.py`` from an empty scratch database, in EPSG:3338, and
-checked in QGIS on 2026-11-15.
+``freeze_cellsearch_2019-06-30.py`` from an empty scratch database, in EPSG:3338. As
+FMI's, its runs over all strokes were checked in QGIS on 2026-11-15, and the ground-only
+ones, frozen the same day, await that check.
 
 - **The window is 12:00 to 12:00 UTC**, 04:00 to 04:00 in Alaska. A UTC day would cut
   the afternoon storms, which peak around midnight UTC. The file also holds the hour
@@ -75,7 +79,8 @@ checked in QGIS on 2026-11-15.
   command-line path, so the flashes are the importer's and the identifiers follow its
   content order. A shuffled copy of the file must give the same result.
 - **Unknown errors.** The day includes a run of strokes published with a semi-major axis
-  of 0: 30 flashes with no known error, which every E\ :sub:`max` must discard.
+  of 0: 30 flashes with no known error (29 of them ground flashes), which every
+  E\ :sub:`max` must discard.
 - **Edges.** The window starts quiet and ends with storms still going, the opposite of
   FMI's day.
 
@@ -92,7 +97,10 @@ strokes, in tests that always run:
 
 When an algorithm's output changes **on purpose**, bump ``gisfire_algorithms.__version__``
 (tests check that FMI's and Alaska's references were frozen with the current version),
-then rewrite both references with their freeze scripts and check the runs in QGIS.
+then rewrite both references with their freeze scripts and check the runs in QGIS. A
+change of the builder's defaults that changes the runs (such as the ground filter) needs
+the references rewritten too, but no bump: the stored configuration already tells the
+runs apart.
 
 FMI data in the fixtures
 ^^^^^^^^^^^^^^^^^^^^^^^^

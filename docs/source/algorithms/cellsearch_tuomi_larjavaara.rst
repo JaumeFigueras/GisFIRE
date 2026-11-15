@@ -43,6 +43,14 @@ it, only cells with at least *N*\ :sub:`min` flashes are **kept**; the smaller o
 the article's stray flashes and small cells, and are counted in the summary but not
 stored.
 
+**Ground flashes only.** The article's data were Finland's ground flashes (its network
+located no cloud lightning: "only ground-lightning data are available"), and *R*, *T*,
+*I* and *C* were set on them. So :doc:`../applications/build_thunderstorms` reads
+**cloud-to-ground strokes only** by default, and the experiment's ``lightning_filter``
+records it (``{"cloud_to_ground": true}``). ``--include-cloud-strokes`` reads the cloud
+strokes too, as another experiment: FMI publishes them (half of its strokes or more from
+2015) and so does the Alaska network; MeteoCat's strokes are all ground strokes.
+
 Each flash is represented by its **most accurate stroke**, "or its only stroke", as in
 the article; that stroke gives the flash its position, its time and its location error
 (see :doc:`../algorithms`).
@@ -120,50 +128,53 @@ is there to prevent. These runs were checked in QGIS. MeteoCat's data cannot be
 published, so they are not a regression test (see :doc:`../testing`).
 
 The same sweep on FMI's 2018-07-03 — the network the article's data came from, in ETRS89 /
-TM35FIN, all other parameters at their defaults; 2,381 flashes searched over Northern
-Europe:
+TM35FIN, all other parameters at their defaults. Ground strokes only: of the day's 3,069
+strokes, 1,481 are ground strokes, in 900 flashes, 22 discarded by *E*\ :sub:`max`, so
+878 searched over Northern Europe (with the cloud strokes, 2,381):
 
 ======  =====  ====  ==========================  =========================  ============  ==============
 *C*     Cells  Kept  One-flash cells / flashes   Flashes in cells ≥10/≥30   Mean area     Longest life
 ======  =====  ====  ==========================  =========================  ============  ==============
-10      903    129   50.2 % / 19.0 %             18 % / 3 %                 123 km²       16 min
-15      767    135   49.0 % / 15.8 %             30 % / 9 %                 133 km²       39 min
-25      602    130   49.2 % / 12.4 %             49 % / 13 %                159 km²       48 min
-50      444    128   47.3 % / 8.8 %              64 % / 25 %                189 km²       74 min
-100     348    117   45.1 % / 6.6 %              71 % / 34 %                214 km²       120 min
-200     310    109   45.2 % / 5.9 %              76 % / 41 %                234 km²       117 min
-off     308    108   45.8 % / 5.9 %              77 % / 41 %                238 km²       117 min
+10      541    20    73.9 % / 45.6 %             9 % / 4 %                  121 km²       23 min
+15      468    26    69.2 % / 36.9 %             16 % / 6 %                 144 km²       38 min
+25      388    34    66.2 % / 29.3 %             25 % / 10 %                169 km²       38 min
+50      300    45    56.7 % / 19.4 %             35 % / 6 %                 181 km²       48 min
+100     244    53    53.3 % / 14.8 %             43 % / 9 %                 216 km²       82 min
+200     215    52    53.0 % / 13.0 %             55 % / 13 %                254 km²       82 min
+off     211    51    52.6 % / 12.6 %             57 % / 10 %                264 km²       82 min
 Art.                 47.1 % / 7.7 %              ~70 % / >40 %              150 → >400    202 min
 ======  =====  ====  ==========================  =========================  ============  ==============
 
-The day is many small, short storms at once rather than a few large ones, and the share
-of one-flash cells stays close to the article's at every *C*; the article's shares of
-flashes come between *C* = 50 and 100 min·km. These seven runs are frozen in a
-regression test that is in the repository and always runs.
+The day is many small, short storms at once rather than a few large ones, and its ground
+flashes are sparse: even with the condition off, half the cells and an eighth of the
+flashes are single flashes, and only 10 % of the flashes are in cells of 30 or more,
+against the article's more than 40 %. These seven runs are frozen in a regression test
+that is in the repository and always runs.
 
 The same sweep on the Alaska network's 2019-06-30, 12:00 to 12:00 UTC, in NAD83 / Alaska
-Albers, all other parameters at their defaults. The flashes are the import's grouping
-of the strokes (see :doc:`flash_grouping_nldn`): 3,764 flashes, 330 of them discarded by
-*E*\ :sub:`max`, so 3,434 searched over Alaska and the Yukon:
+Albers, all other parameters at their defaults, ground strokes only. The flashes are the
+import's grouping of the strokes (see :doc:`flash_grouping_nldn`): 3,605 ground flashes
+(of 3,764), 325 of them discarded by *E*\ :sub:`max`, so 3,280 searched over Alaska and
+the Yukon:
 
 ======  =====  ====  ==========================  =========================  ============  ==============
 *C*     Cells  Kept  One-flash cells / flashes   Flashes in cells ≥10/≥30   Mean area     Longest life
 ======  =====  ====  ==========================  =========================  ============  ==============
-10      1393   124   68.8 % / 27.9 %             35 % / 16 %                91 km²        48 min
-15      1185   120   65.8 % / 22.7 %             44 % / 25 %                104 km²       70 min
-25      971    120   61.9 % / 17.5 %             53 % / 32 %                135 km²       91 min
-50      756    123   55.3 % / 12.2 %             61 % / 39 %                168 km²       134 min
-100     615    126   49.3 % / 8.8 %              67 % / 39 %                203 km²       134 min
-200     568    128   46.0 % / 7.6 %              68 % / 40 %                212 km²       134 min
-off     566    129   45.6 % / 7.5 %              68 % / 40 %                214 km²       134 min
+10      1387   117   70.9 % / 30.0 %             33 % / 15 %                93 km²        56 min
+15      1180   117   67.4 % / 24.2 %             41 % / 21 %                101 km²       70 min
+25      964    118   63.5 % / 18.7 %             52 % / 31 %                134 km²       91 min
+50      755    119   56.2 % / 12.9 %             59 % / 41 %                166 km²       134 min
+100     615    122   49.6 % / 9.3 %              65 % / 40 %                206 km²       134 min
+200     564    123   45.9 % / 7.9 %              67 % / 39 %                215 km²       134 min
+off     561    124   45.6 % / 7.8 %              67 % / 39 %                217 km²       134 min
 Art.                 47.1 % / 7.7 %              ~70 % / >40 %              150 → >400    202 min
 ======  =====  ====  ==========================  =========================  ============  ==============
 
-Small *C* splits this day more than FMI's: more than two thirds of the cells hold a
-single flash at *C* = 10 min·km. With the condition off, the shares come close to the
-article's: 45.6 % of cells and 7.5 % of flashes in one-flash cells, and 68 % and 40 %
-of flashes in cells of at least 10 and 30. The longest lifetime stops growing at *C* =
-50 min·km. These seven runs are frozen in a regression test that is in the repository
+Small *C* splits this day into single flashes: more than two thirds of the cells hold
+one flash at *C* = 10 min·km. With the condition off, the shares come close to the article's: 45.6 % of cells
+and 7.8 % of flashes in one-flash cells, and 67 % and 39 % of flashes in cells of at
+least 10 and 30. The longest lifetime stops growing at *C* = 50 min·km. Its cloud
+strokes are few (170 of 5,774), so it changes little without them. These seven runs are frozen in a regression test that is in the repository
 and always runs.
 
 Choices the article leaves open
@@ -289,8 +300,8 @@ implementation:
   its direction of movement. The article finds no essential gain in the quality of the
   results and favours the basic rules "because of its clarity".
 
-Also left out, as outside the algorithm: a polarity filter (the database holds only
-cloud-to-ground strokes, and all of them are used) and an incremental search state that
+Also left out, as outside the algorithm: a polarity filter (the ground filter is the
+builder's, see above) and an incremental search state that
 would let a run be resumed or extended.
 
 API reference
