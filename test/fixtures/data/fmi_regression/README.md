@@ -1,8 +1,8 @@
 # FMI regression day: 2018-07-03
 
 The public regression test of Cellsearch (`test_regression_fmi_2018_07_03` in
-`test/apps/thunderstorms/test_build_thunderstorms.py`). Unlike MeteoCat's day,
-these files can be published, so the test always runs.
+`test/apps/thunderstorms/test_build_thunderstorms.py`). The strokes can be
+published (CC BY 4.0), so the files are committed and the test always runs.
 
 | File | What it is |
 |------|------------|
@@ -19,12 +19,12 @@ strokes) is included because a storm was going on and the run's look-back reads
 it, as it would in gisfire_db; the runs cover 2018-07-03 only (3,069 strokes,
 2,488 flashes).
 
-Why this day: about the size of MeteoCat's (2,947 strokes), three quarters of it
-over Finland, and it exercises most of what the builder does — a night storm
-running into the day (`activity_before_start`), a quiet gap of four hours (the
-run is cut into pieces), evening storms in Lapland and in southern Finland at
-once, intra-cloud strokes (52 %), 113 strokes located 10 km or worse (discarded
-by E_max), and many strokes sharing a second.
+Why this day: about the size of MeteoCat's 2020-07-13 (2,947 strokes), three
+quarters of it over Finland, and it exercises most of what the builder does — a
+night storm running into the day (`activity_before_start`), a quiet gap of four
+hours (the run is cut into pieces), evening storms in Lapland and in southern
+Finland at once, intra-cloud strokes (52 %), 113 strokes located 10 km or worse
+(discarded by E_max), and many strokes sharing a second.
 
 The test loads it through the FMI importer, so the stroke ids follow the
 importer's content order. That order is what makes the result independent of

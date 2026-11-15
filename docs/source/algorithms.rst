@@ -20,6 +20,7 @@ from::
        flashes.py                      strokes → flashes
        cell_statistics.py              area, lifetime, flash rate, density
        chunking.py                     split a time-ordered sequence at quiet gaps
+       flash_grouping.py               strokes → flashes, when a network publishes none
        cellsearch_tuomi_larjavaara.py  Cellsearch (Tuomi & Larjavaara 2005)
 
 Three rules keep it usable from both sides:
@@ -72,11 +73,20 @@ in space and time. Each algorithm has a page of its own:
 They are run over the database by :doc:`applications/build_thunderstorms`, which stores
 each run as a thunderstorm experiment.
 
+A flash-based algorithm needs flashes, and one network publishes strokes only:
+
+:doc:`algorithms/flash_grouping_nldn`
+    The rule of the U.S. National Lightning Detection Network (Cummins et al. 1998). A
+    stroke joins a flash within 1 s of its first stroke, 0.5 s of its previous one and
+    10 km of its first one. The Alaska import uses it, since the Alaska network
+    publishes no flashes.
+
 .. toctree::
    :maxdepth: 1
    :hidden:
 
    algorithms/cellsearch_tuomi_larjavaara
+   algorithms/flash_grouping_nldn
 
 What the thunderstorm algorithms share
 --------------------------------------
@@ -84,7 +94,8 @@ What the thunderstorm algorithms share
 **Strokes and flashes.** A lightning-location network reports strokes and groups them
 into flashes. :class:`~gisfire_algorithms.thunderstorm.flashes.Strokes` holds the strokes
 as parallel arrays, with the provider's flash identifier folded into one integer key
-(for MeteoCat, ``network_version · 10¹⁰ + flash_id``; for FMI, ``flash_id``).
+(for MeteoCat, ``network_version · 10¹⁰ + flash_id``; for FMI and the Alaska network,
+``flash_id``).
 :func:`~gisfire_algorithms.thunderstorm.flashes.strokes_to_flashes` represents each
 flash by its **most accurate stroke** — the smallest location error, then the earliest,
 then the lowest id — which gives the flash its position, its time and its error, and
@@ -113,13 +124,8 @@ time *T* — the pieces can be clustered one after the other with the same resul
 whole, which is what lets a run over years fit in memory.
 
 **Flash grouping** (:func:`~gisfire_algorithms.thunderstorm.flash_grouping.group_strokes`).
-For a network that publishes strokes but not flashes — the Alaska Lightning Detection
-Network — strokes are grouped with the rule of the U.S. National Lightning Detection
-Network (Cummins et al. 1998): a stroke joins a flash within 1 s of its first stroke,
-0.5 s of its previous one and 10 km of its first one, the nearest such flash when
-several are open, and only a flash of its own kind (cloud-to-ground and cloud strokes
-apart). The limits are
-:class:`~gisfire_algorithms.thunderstorm.flash_grouping.FlashGroupingParameters`.
+For a network that publishes strokes but not flashes, the strokes are grouped first, with
+the NLDN rule; see :doc:`algorithms/flash_grouping_nldn`.
 
 API reference
 -------------
@@ -136,9 +142,5 @@ API reference
    :show-inheritance:
 
 .. automodule:: gisfire_algorithms.thunderstorm.chunking
-   :members:
-   :show-inheritance:
-
-.. automodule:: gisfire_algorithms.thunderstorm.flash_grouping
    :members:
    :show-inheritance:

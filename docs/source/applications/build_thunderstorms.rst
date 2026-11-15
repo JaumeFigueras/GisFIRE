@@ -26,6 +26,10 @@ Usage
        --algorithm cellsearch_tuomi_larjavaara --time-distance-limit 50 --dry-run
 
    python3 -m src.apps.thunderstorms.build_thunderstorms \
+       --provider USWFS --from 2019-06-30T12:00 --to 2019-07-01T12:00 \
+       --algorithm cellsearch_tuomi_larjavaara
+
+   python3 -m src.apps.thunderstorms.build_thunderstorms \
        --algorithm cellsearch_tuomi_larjavaara --help
 
 ``--provider``, ``--from``, ``--to`` and ``--algorithm`` are required.
@@ -43,7 +47,8 @@ Usage
     stores every parameter, defaults included. ``--algorithm NAME --help`` lists them.
     One default comes from the **provider**, not the algorithm: ``--srid``, the projected
     CRS the algorithm works in, is the provider's own grid when not given — EPSG:25831
-    (ETRS89 / UTM 31N) for MeteoCat, EPSG:3067 (ETRS89 / TM35FIN) for FMI.
+    (ETRS89 / UTM 31N) for MeteoCat, EPSG:3067 (ETRS89 / TM35FIN) for FMI, EPSG:3338
+    (NAD83 / Alaska Albers) for the Alaska network (``--provider USWFS``).
 ``--dry-run``
     Does everything — reads, clusters, writes — in one transaction and rolls it back, and
     logs what it would have stored. It still connects, and still refuses a configuration
@@ -55,7 +60,8 @@ Usage
 Settings are read from the environment (``.env``, see :doc:`../setup/configuration`) and
 each can be overridden with ``--db-host``, ``--db-port``, ``--db-name``, ``--db-user``
 and ``--db-password``. The database must be at revision ``e7147a41b62b`` or later
-(``5353369ebdc8`` for FMI's strokes and the ``_3067`` views; ``make migrate``); the run
+(``5353369ebdc8`` for FMI's strokes and the ``_3067`` views, ``92cfa94c65e5`` for the
+Alaska network's strokes and the ``_3338`` views; ``make migrate``); the run
 stops before anything else if a table is missing.
 
 What it does
@@ -96,14 +102,38 @@ For FMI:
   those ties follows the import's content order, so a month imported again is read, and
   clustered, the same way.
 
+For the Alaska network (``--provider USWFS``):
+
+- the **flash** is ``flash_id``, the identifier of the flash's first stroke. The network
+  publishes no flashes, so they are the import's grouping (see
+  :doc:`../algorithms/flash_grouping_nldn`), and the key is unique across years;
+- the **location error** is ``ellipse_semi_major_axis`` in metres (the release has whole
+  kilometres; the import converts them);
+- a semi-major axis published as 0 is **not known** (599 strokes, in runs of hours in
+  2014 and 2019). It is read as the largest finite float, larger than any E_max. The
+  error only chooses a flash's representative stroke and feeds E_max, so such a stroke
+  represents its flash only when no stroke of the flash has a known error, and E_max
+  then discards that flash;
+- the **coordinates** are the published WGS 84 point projected to the algorithm's CRS —
+  for EPSG:3338, exactly the expression of the indexed ``v_alaska_uswfs_lightning_3338``.
+  Alaska Albers holds the strokes on both sides of the antimeridian, so a storm across
+  180° is one place for the algorithm;
+- there is no filter, ``lightning_filter = {}``: one network;
+- the times have **milliseconds**, and the strokes of one millisecond are read in ``id``
+  order, which follows the import's content order, as for FMI.
+
 FMI's location errors have a heavier tail than MeteoCat's: over 2018, the default E_max
 of 10 km discards 3.9 % of FMI's flashes (in Finland as elsewhere), against 0.7 % on
-MeteoCat's regression day. Neither provider says whether its "major axis" is a whole axis
-or a semi-axis, nor its confidence level; choose ``--max-location-error`` for FMI with
-that in mind.
+MeteoCat's 2020-07-13. The Alaska network's is heavier again: 10.05 % of the
+release's flashes (ground 10.75 %, cloud 1.42 %), 8.8 % on its regression day. And its
+error is a **semi**-axis by name, where neither MeteoCat nor FMI says whether its "major
+axis" is a whole axis or a semi-axis, nor its confidence level. If theirs are whole
+axes, the comparable cut for Alaska is an E_max of 5 km, which discards 24 % of the
+release's flashes. Choose ``--max-location-error`` per provider with that in mind.
 
-Every stroke is read: the database holds only cloud-to-ground strokes, and there is no
-polarity filter.
+Every stroke is read, cloud strokes included: MeteoCat's delivery is cloud-to-ground
+only, but FMI's has cloud strokes from 2005 and the Alaska network's throughout. There
+is no stroke-type or polarity filter.
 
 **The strokes are clustered in pieces.** They are cut, about every 200,000 strokes, at a
 quiet gap longer than the algorithm's own — for Cellsearch, *T*, which closes every
@@ -205,8 +235,8 @@ Following the progress
 ----------------------
 
 The run logs its configuration when it starts, a line every 100,000 flashes, the
-window-boundary warnings and the summary when it ends. The regression day of the tests,
-2020-07-13 with the defaults, gives:
+window-boundary warnings and the summary when it ends. MeteoCat's 2020-07-13, with the
+defaults, gives:
 
 .. code-block:: text
 
@@ -225,8 +255,16 @@ A run's thunderstorms are the ``v_thunderstorm`` (concave hull) and
 ``v_thunderstorm_convex_hull`` layers, with each storm's flashes, area and density; a
 Cellsearch run adds ``v_thunderstorm_cellsearch_centre`` (the centre after each flash)
 and ``v_thunderstorm_cellsearch_path`` (one line per cell, with its lifetime and flash
-rate). Each comes in EPSG:4326, in EPSG:25831 (``_25831``) and in EPSG:3067
-(``_3067``), whatever the run's provider, and shows complete runs only. Filter on ``experiment_id`` to look at one run; see :ref:`migrations-views`.
+rate). Each comes in EPSG:4326, in EPSG:25831 (``_25831``), in EPSG:3067 (``_3067``)
+and in EPSG:3338 (``_3338``), whatever the run's provider, and shows complete runs only.
+Filter on ``experiment_id`` to look at one run; see :ref:`migrations-views`.
+
+Look at an Alaska run in the ``_3338`` layers. A hull is built in the run's CRS and
+stored in EPSG:4326 one vertex at a time, so a storm across the antimeridian (the
+Aleutians, the Bering Sea) has vertices at both +179° and −179°. The ``_3338`` layers
+draw it whole; the EPSG:4326 layers draw the same polygon the long way round the globe.
+The cell itself, its area and its path lengths (measured on the spheroid) are right
+either way.
 
 API reference
 -------------

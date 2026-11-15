@@ -11,13 +11,13 @@ The core is tested on its own in ``test/algorithms``; what is pinned down here
 is what the adapter adds: which strokes are read, how a run is stored (cells,
 every stroke linked, centres, hull over the representative strokes, area,
 summary, status), the window truncation flags, the run's life cycle (duplicate,
-failure, dry run) and two real days. MeteoCat's is not in the repository, since
-its data is not licensed for redistribution: its tests run where the files are
-present and are skipped elsewhere. FMI's is (CC BY 4.0), loaded through the FMI
-importer, and its tests always run.
+failure, dry run) and two real days, FMI's (CC BY 4.0) and the Alaska network's
+(public domain). Both are in the repository, each loaded through its provider's
+importer, and their tests always run. MeteoCat's data is not licensed for
+redistribution, so no real MeteoCat day is used: its reader is tested on
+synthetic strokes.
 """
 
-import csv
 import dataclasses
 import datetime
 import gzip
@@ -43,6 +43,7 @@ from gisfire_algorithms.thunderstorm import cell_area_km2
 from gisfire_algorithms.thunderstorm import discard_by_error
 from gisfire_algorithms.thunderstorm import strokes_to_flashes
 from src.apps.imports.common import ArchiveLogger
+from src.apps.imports.lightnings.alaska_uswfs import import_lightnings as alaska_import
 from src.apps.imports.lightnings.finland_fmi import import_lightnings as fmi_import
 from src.apps.imports.lightnings.finland_fmi import readers as fmi_readers
 from src.apps.thunderstorms import build_thunderstorms as app
@@ -61,9 +62,6 @@ ORIGIN = (400_000.0, 4_600_000.0)
 DAY = datetime.datetime(2020, 7, 13, tzinfo=UTC)
 NEXT_DAY = DAY + datetime.timedelta(days=1)
 STORM = datetime.datetime(2020, 7, 13, 14, 0, tzinfo=UTC)
-
-#: MeteoCat's strokes of the regression day. Git-ignored: kept locally only.
-FIXTURE = Path(__file__).parents[2] / "fixtures" / "data" / "meteocat_lightning_2020-07-13.csv"
 
 ALGORITHM = "cellsearch_tuomi_larjavaara"
 
@@ -1168,65 +1166,10 @@ def test_a_storm_across_the_antimeridian_is_one_cell(database, alaska_provider):
 
 
 # --------------------------------------------------------------------------
-# Regression: MeteoCat, 2020-07-13
+# Regression days: what a run stored, and how two are compared
+#
+# Shared by the FMI and Alaska days below and by their freeze scripts.
 # --------------------------------------------------------------------------
-
-LOAD_FIXTURE_SQL = """
-WITH staged AS MATERIALIZED (
-    SELECT s.*, ST_SetSRID(ST_MakePoint(s.longitude, s.latitude), 4258) AS etrs89,
-           CAST(nextval(pg_get_serial_sequence('lightning', 'id')) AS integer) AS id
-    FROM (SELECT * FROM fixture ORDER BY source_row) AS s
-), parents AS (
-    INSERT INTO lightning (id, type, data_provider_id, date_time, geometry, peak_current,
-                           cloud_to_ground)
-    SELECT id, 'meteocat_lightning', :provider_id, date_time, ST_Transform(etrs89, 4326),
-           peak_current, cloud_to_ground
-    FROM staged
-    RETURNING id
-)
-INSERT INTO meteocat_lightning (id, network_version, flash_id, multiplicity, stroke_index,
-                                ellipse_major_axis, ellipse_minor_axis, geometry_etrs89)
-SELECT staged.id, network_version, flash_id, multiplicity, stroke_index, ellipse_major_axis,
-       ellipse_minor_axis, etrs89
-FROM staged JOIN parents ON parents.id = staged.id
-"""
-
-
-@pytest.fixture
-def meteocat_2020_07_13(database, provider):
-    """MeteoCat's strokes of 2020-07-13 (UTC), exported from gisfire_db, in id order."""
-    engine, _ = database
-    with FIXTURE.open(newline="") as handle:
-        records = list(csv.DictReader(handle))
-    with engine.begin() as connection:
-        connection.execute(text("""
-            CREATE TEMPORARY TABLE fixture (
-                source_row integer, date_time timestamptz, longitude double precision,
-                latitude double precision, network_version integer, flash_id integer,
-                multiplicity integer, stroke_index integer, ellipse_major_axis double precision,
-                ellipse_minor_axis double precision, peak_current double precision,
-                cloud_to_ground boolean) ON COMMIT DROP"""))
-        raw = connection.connection.driver_connection
-        with raw.cursor() as cursor, cursor.copy("COPY fixture FROM STDIN") as copy:
-            for row, record in enumerate(records):
-                copy.write_row((row, *record.values()))
-        connection.execute(text(LOAD_FIXTURE_SQL), {"provider_id": provider})
-    return len(records)
-
-
-#: What the runs of 2020-07-13 stored in gisfire_db, one per value of C, after
-#: Jaume checked them in QGIS (2026-11-13). Written by
-#: ``test/fixtures/data/export_cellsearch_2020-07-13.py`` with
-#: :func:`stored_result`; regenerate it only for a deliberate change of output,
-#: together with a bump of ``gisfire_algorithms.__version__``.
-EXPECTED = FIXTURE.with_name("cellsearch_2020-07-13_expected.json")
-
-#: The regression day's files are git-ignored (MeteoCat's data is not licensed
-#: for redistribution), so its tests skip where they are missing.
-requires_regression_day = pytest.mark.skipif(
-    not (FIXTURE.exists() and EXPECTED.exists()),
-    reason=f"the regression day is kept locally only: {FIXTURE.name} and {EXPECTED.name} not found")
-
 
 def stored_result(connection, experiment_id: int) -> dict:
     """What an experiment stored, in a form that does not depend on database ids.
@@ -1269,11 +1212,6 @@ def stored_result(connection, experiment_id: int) -> dict:
     }
 
 
-def _expected() -> dict:
-    with EXPECTED.open() as handle:
-        return json.load(handle)
-
-
 def assert_same_result(actual: dict, expected: dict) -> None:
     """A run's :func:`stored_result` equals a frozen one: exactly, but for the area
     and the last centre, which are floats computed in the database."""
@@ -1286,43 +1224,8 @@ def assert_same_result(actual: dict, expected: dict) -> None:
         assert {key: got[key] for key in exact} == exact
 
 
-#: The values of C frozen, as the keys of :data:`EXPECTED`'s runs.
+#: The values of C frozen, as the keys of each frozen file's runs.
 LIMITS = ("None", "10", "15", "25", "50", "100", "200")
-
-
-@requires_regression_day
-def test_every_frozen_run_is_tested():
-    assert sorted(_expected()["runs"]) == sorted(LIMITS)
-
-
-@requires_regression_day
-@pytest.mark.parametrize("limit", LIMITS)
-def test_regression_2020_07_13(database, meteocat_2020_07_13, limit):
-    """A real day gives exactly what gisfire_db stored for each value of C.
-
-    The database's runs read its own strokes; these read the exported fixture,
-    so the test also shows that the fixture reproduces the database.
-    """
-    engine, url = database
-    assert meteocat_2020_07_13 == 2947
-    extra = () if limit == "None" else ("--time-distance-limit", limit)
-    assert run(url, *extra) == 0
-
-    stored = experiment(engine)
-    assert stored.status == "complete"
-    assert stored.parameters["time_distance_limit_min_km"] == (
-        None if limit == "None" else float(limit))
-    with engine.connect() as connection:
-        actual = stored_result(connection, stored.id)
-    assert_same_result(actual, _expected()["runs"][limit])
-
-    summary = actual["summary"]
-    assert summary["strokes_total"] == 2947
-    assert summary["flashes_total"] == 2224
-    assert summary["flashes_discarded_error"] == 15
-    assert count(engine, "thunderstorm_cellsearch_flash") == summary["flashes_kept"]
-    assert count(engine, "thunderstorm_lightning") == sum(
-        storm["number_of_lightnings"] for storm in actual["thunderstorms"])
 
 
 # --------------------------------------------------------------------------
@@ -1438,3 +1341,149 @@ def test_the_fmi_regression_does_not_depend_on_the_order_of_the_file(database, f
         actual = stored_result(connection, experiment(engine).id)
     assert_same_result(actual, _fmi_expected()["runs"][limit])
 
+
+# --------------------------------------------------------------------------
+# Regression: USWFS (Alaska), 2019-06-30
+#
+# A real day of the Alaska network that can be published (public domain, the
+# USWFS cited), so its tests always run. It is loaded through the Alaska
+# importer from the strokes file as the release ships it, so the flashes are
+# the importer's (the release has none) and the ids follow its content order.
+# The window is 2019-06-30 12:00 to 2019-07-01 12:00 UTC, 04:00 to 04:00 in
+# Alaska (AKDT): a UTC day would cut the afternoon storms, which peak around
+# midnight UTC. The file also holds the hour before, which the look-back reads.
+# --------------------------------------------------------------------------
+
+#: The Alaska network's strokes of 2019-06-30 11:00 to 2019-07-01 12:00 UTC, cut
+#: verbatim from the release. Source: U.S. Wildland Fire Service (USWFS), Alaska
+#: Lightning Detection Network, public domain; see the README beside it.
+ALASKA_DAY = (Path(__file__).parents[2] / "fixtures" / "data" / "alaska_uswfs_regression"
+              / "alaska_uswfs_lightning_2019-06-30.txt")
+
+#: What the seven runs of the day stored, written by
+#: ``test/fixtures/data/alaska_uswfs_regression/freeze_cellsearch_2019-06-30.py``;
+#: see its README. Regenerate it only for a deliberate change of output, together
+#: with a bump of ``gisfire_algorithms.__version__``.
+ALASKA_EXPECTED = ALASKA_DAY.with_name("cellsearch_2019-06-30_expected.json")
+
+ALASKA_DAY_START = datetime.datetime(2019, 6, 30, 12, tzinfo=UTC)
+ALASKA_DAY_END = ALASKA_DAY_START + datetime.timedelta(days=1)
+
+#: Rows of the file, and strokes the importer writes from them.
+ALASKA_DAY_ROWS = 5892
+ALASKA_DAY_STROKES = 5892
+
+
+def load_alaska_day(engine, source: Path = ALASKA_DAY) -> int:
+    """Import the Alaska regression day (``source``, the fixture by default) with the
+    Alaska importer, exactly as the command line would; the strokes written."""
+    args = alaska_import.parse_arguments(["-s", str(source)])
+    return alaska_import.import_lightnings(args, engine, logging.getLogger("alaska-regression-day"))
+
+
+@pytest.fixture
+def alaska_2019_06_30(database):
+    """The Alaska network's strokes of the regression day, imported."""
+    engine, _ = database
+    return load_alaska_day(engine)
+
+
+def _alaska_expected() -> dict:
+    with ALASKA_EXPECTED.open() as handle:
+        return json.load(handle)
+
+
+def test_the_alaska_day_is_the_window_and_the_hour_before():
+    header, *rows = ALASKA_DAY.read_text(encoding="utf-8-sig").splitlines()
+    assert tuple(header.split(",")) == alaska_uswfs.FILE_COLUMNS
+    assert len(rows) == ALASKA_DAY_ROWS
+    instants = [datetime.datetime.strptime(row.split(",")[2], "%m/%d/%Y %H:%M:%S")
+                .replace(tzinfo=UTC) for row in rows]
+    assert instants == sorted(instants)
+    assert ALASKA_DAY_START - datetime.timedelta(hours=1) <= instants[0] < ALASKA_DAY_START
+    assert instants[-1] < ALASKA_DAY_END
+
+
+def test_every_frozen_alaska_run_is_tested():
+    assert sorted(_alaska_expected()["runs"]) == sorted(LIMITS)
+
+
+def test_the_alaska_runs_were_frozen_with_the_current_version():
+    """A change of output comes with a version bump and a new frozen file."""
+    expected = _alaska_expected()
+    assert expected["software_version"] == gisfire_algorithms.__version__
+    assert expected["parameters_but_c"] == {
+        key: value for key, value in CellsearchParameters(srid=3338).to_dict().items()
+        if key != "time_distance_limit_min_km"}
+
+
+@pytest.mark.parametrize("limit", LIMITS)
+def test_regression_alaska_2019_06_30(database, alaska_2019_06_30, limit):
+    """A real Alaska day gives exactly the frozen result for each value of C."""
+    engine, url = database
+    assert alaska_2019_06_30 == ALASKA_DAY_STROKES
+    extra = () if limit == "None" else ("--time-distance-limit", limit)
+    assert run(url, *extra, start=ALASKA_DAY_START, end=ALASKA_DAY_END, provider="USWFS") == 0
+
+    stored = experiment(engine)
+    assert stored.status == "complete"
+    assert stored.parameters["srid"] == 3338
+    assert stored.parameters["time_distance_limit_min_km"] == (
+        None if limit == "None" else float(limit))
+    with engine.connect() as connection:
+        actual = stored_result(connection, stored.id)
+    assert_same_result(actual, _alaska_expected()["runs"][limit])
+
+    summary = actual["summary"]
+    assert summary["strokes_total"] == 5774
+    assert summary["flashes_total"] == 3764
+    assert summary["flashes_discarded_error"] == 330
+    assert count(engine, "thunderstorm_cellsearch_flash") == summary["flashes_kept"]
+    assert count(engine, "thunderstorm_lightning") == sum(
+        storm["number_of_lightnings"] for storm in actual["thunderstorms"])
+    # No flash a cell kept is represented by a stroke of unknown error.
+    assert scalar(engine, """
+        SELECT count(*) FROM thunderstorm_cellsearch_flash AS f
+        JOIN alaska_uswfs_lightning AS a ON a.id = f.lightning_id
+        WHERE a.ellipse_semi_major_axis IS NULL""") == 0
+
+
+def test_the_alaska_day_has_flashes_of_unknown_error_and_e_max_drops_them(database,
+                                                                         alaska_2019_06_30):
+    """The window holds flashes with no stroke of known error (the network published
+    no semi-major axis from 11:20 to 16:07 UTC); every run discards them."""
+    engine, url = database
+    unknown = scalar(engine, """
+        SELECT count(*) FROM (
+            SELECT a.flash_id
+            FROM alaska_uswfs_lightning AS a JOIN lightning AS l ON l.id = a.id
+            WHERE l.date_time >= :start AND l.date_time < :end
+            GROUP BY a.flash_id
+            HAVING bool_and(a.ellipse_semi_major_axis IS NULL)) AS flash""",
+                     start=ALASKA_DAY_START, end=ALASKA_DAY_END)
+    assert unknown == 30
+    # Even an E_max of 10,000 km discards exactly those.
+    assert run(url, "--max-location-error", "10000", start=ALASKA_DAY_START,
+               end=ALASKA_DAY_END, provider="USWFS") == 0
+    assert experiment(engine).summary["flashes_discarded_error"] == unknown
+
+
+@pytest.mark.parametrize("limit", ["None", "50"])
+def test_the_alaska_regression_does_not_depend_on_the_order_of_the_file(database, tmp_path,
+                                                                        limit):
+    """The importer draws ids in content order, so the same rows in another order
+    give the same strokes, flashes and cells."""
+    import random
+
+    engine, url = database
+    header, *rows = ALASKA_DAY.read_bytes().rstrip(b"\n").split(b"\n")
+    random.Random(2019).shuffle(rows)
+    shuffled = tmp_path / "shuffled.txt"
+    shuffled.write_bytes(b"\n".join([header, *rows]) + b"\n")
+    assert load_alaska_day(engine, shuffled) == ALASKA_DAY_STROKES
+
+    extra = () if limit == "None" else ("--time-distance-limit", limit)
+    assert run(url, *extra, start=ALASKA_DAY_START, end=ALASKA_DAY_END, provider="USWFS") == 0
+    with engine.connect() as connection:
+        actual = stored_result(connection, experiment(engine).id)
+    assert_same_result(actual, _alaska_expected()["runs"][limit])

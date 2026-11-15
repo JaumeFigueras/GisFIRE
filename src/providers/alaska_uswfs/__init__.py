@@ -84,8 +84,10 @@ Oddities
 * **599 strokes have a semi-major axis of 0** and a semi-minor of 1, which no
   ellipse has: 31 from 2014-04-26 to 2014-05-27 and 568 from 2019-05-08 to
   2019-07-30, both spells next to a change in the processing (the local time
-  changes regime on 2014-05-28; the polarity is missing around 2019). Stored as
-  "not known".
+  changes regime on 2014-05-28; the polarity is missing around 2019). Within a
+  spell they come in **runs**: every stroke of a stretch of hours has it — on
+  2019-06-30, every stroke from 11:20 to 16:07 UTC — as if the network stopped
+  computing the axis for a while. Stored as "not known".
 * **40,740 strokes share their millisecond** with another: mostly a ground stroke
   and a cloud stroke a few kilometres apart, some coincidences hundreds of
   kilometres apart. The order of the strokes of one millisecond is therefore

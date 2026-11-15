@@ -116,8 +116,8 @@ smallest classes of Table 2 to over 400 km² for the most abundant cells, and it
 lifetime is over a whole season. *C* = 15 min·km gives the shape of Table 1 most
 closely; from about 100 min·km the condition hardly acts, and the longest cells, longer in
 a day than the article's longest in a season, suggest merged cells — what condition (iii)
-is there to prevent. All seven runs are frozen in a regression test, run where the day's
-data is available locally (see :doc:`../testing`).
+is there to prevent. These runs were checked in QGIS. MeteoCat's data cannot be
+published, so they are not a regression test (see :doc:`../testing`).
 
 The same sweep on FMI's 2018-07-03 — the network the article's data came from, in ETRS89 /
 TM35FIN, all other parameters at their defaults; 2,381 flashes searched over Northern
@@ -141,6 +141,31 @@ of one-flash cells stays close to the article's at every *C*; the article's shar
 flashes come between *C* = 50 and 100 min·km. These seven runs are frozen in a
 regression test that is in the repository and always runs.
 
+The same sweep on the Alaska network's 2019-06-30, 12:00 to 12:00 UTC, in NAD83 / Alaska
+Albers, all other parameters at their defaults. The flashes are the import's grouping
+of the strokes (see :doc:`flash_grouping_nldn`): 3,764 flashes, 330 of them discarded by
+*E*\ :sub:`max`, so 3,434 searched over Alaska and the Yukon:
+
+======  =====  ====  ==========================  =========================  ============  ==============
+*C*     Cells  Kept  One-flash cells / flashes   Flashes in cells ≥10/≥30   Mean area     Longest life
+======  =====  ====  ==========================  =========================  ============  ==============
+10      1393   124   68.8 % / 27.9 %             35 % / 16 %                91 km²        48 min
+15      1185   120   65.8 % / 22.7 %             44 % / 25 %                104 km²       70 min
+25      971    120   61.9 % / 17.5 %             53 % / 32 %                135 km²       91 min
+50      756    123   55.3 % / 12.2 %             61 % / 39 %                168 km²       134 min
+100     615    126   49.3 % / 8.8 %              67 % / 39 %                203 km²       134 min
+200     568    128   46.0 % / 7.6 %              68 % / 40 %                212 km²       134 min
+off     566    129   45.6 % / 7.5 %              68 % / 40 %                214 km²       134 min
+Art.                 47.1 % / 7.7 %              ~70 % / >40 %              150 → >400    202 min
+======  =====  ====  ==========================  =========================  ============  ==============
+
+Small *C* splits this day more than FMI's: more than two thirds of the cells hold a
+single flash at *C* = 10 min·km. With the condition off, the shares come close to the
+article's: 45.6 % of cells and 7.5 % of flashes in one-flash cells, and 68 % and 40 %
+of flashes in cells of at least 10 and 30. The longest lifetime stops growing at *C* =
+50 min·km. These seven runs are frozen in a regression test that is in the repository
+and always runs.
+
 Choices the article leaves open
 -------------------------------
 
@@ -163,7 +188,14 @@ makes, and the tests pin each one down:
   0.8 km, matching the article's error "of the order of 1 km" — and FMI's converted from
   kilometres, median 1.4 km over 2018. Neither provider says whether it is an axis or a
   semi-axis. FMI's tail is heavier: *E*\ :sub:`max` = 10 km discards 3.9 % of its 2018
-  flashes against 0.7 % of MeteoCat's regression day.
+  flashes against 0.7 % of MeteoCat's 2020-07-13.
+- **For the Alaska network it is** ``ellipse_semi_major_axis``, a semi-axis by name,
+  published in whole kilometres: median 2 km for the representative stroke over the
+  release. *E*\ :sub:`max` = 10 km discards 10.05 % of the release's flashes (8.8 % on
+  the regression day). If the other two publish full axes, the comparable cut is 5 km,
+  which discards 24 %. A semi-major axis published as 0 is not known, and is read as
+  larger than any *E*\ :sub:`max`, so such a stroke represents a flash only when none of
+  its strokes has a known error, and that flash is discarded.
 
 The area and the other statistics
 ---------------------------------

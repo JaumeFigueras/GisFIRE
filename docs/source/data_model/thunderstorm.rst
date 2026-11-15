@@ -22,7 +22,8 @@ Two runs, one after the other
 **An experiment clusters the strokes.**
 :class:`~src.data_model.thunderstorm.ThunderstormExperiment` records the provider, the
 period of strokes read (half-open), the filter applied to them (for MeteoCat,
-``{"network": "newest"}``: the newest network where the two overlap; for FMI, ``{}``),
+``{"network": "newest"}``: the newest network where the two overlap; for FMI and the
+Alaska network, ``{}``),
 the algorithm and
 its parameters, and the concave-hull settings. The algorithm is free text and the
 parameters JSONB, so no method is assumed: a two-step method keeps one block per step.
@@ -150,10 +151,11 @@ The database enforces what a builder could get wrong:
 - deleting an experiment deletes **everything it produced**, the algorithm's own rows
   included; deleting a tracking deletes its windows;
 - a stroke in a thunderstorm **cannot be deleted** (``ON DELETE RESTRICT``). A lightning
-  import refuses to replace a period (a year for MeteoCat, a month for FMI) an experiment
-  depends on unless told to drop those experiments first — see
-  :doc:`../applications/meteocat_import_lightnings` and
-  :doc:`../applications/fmi_import_lightnings`.
+  import refuses to replace a period (a year for MeteoCat and the Alaska network, a month
+  for FMI) an experiment depends on unless told to drop those experiments first — see
+  :doc:`../applications/meteocat_import_lightnings`,
+  :doc:`../applications/fmi_import_lightnings` and
+  :doc:`../applications/alaska_uswfs_import_lightnings`.
 
 What it leaves to the builder: that a run's strokes come from its provider, period and
 filter, that a storm's strokes and windows lie within its time span, that a window has

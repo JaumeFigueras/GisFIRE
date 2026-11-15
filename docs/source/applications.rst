@@ -133,8 +133,9 @@ Each kind has a page of its own:
     region: the global satellite products, then Europe, America, Asia and Oceania.
 
 :doc:`applications/import_lightnings`
-    Lightning strokes from detection networks: MeteoCat's XDDE over Catalonia and FMI's
-    over Northern Europe.
+    Lightning strokes from detection networks: MeteoCat's XDDE over Catalonia, FMI's
+    over Northern Europe and the Alaska Lightning Detection Network's over Alaska and
+    north-western Canada.
 
 A new kind of data — meteorological observations, NDVI, fuel moisture — gets its own
 package under ``src/apps/imports/`` and its own page here, rather than joining one of the

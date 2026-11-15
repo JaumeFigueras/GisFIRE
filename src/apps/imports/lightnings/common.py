@@ -9,14 +9,15 @@ experiment's input under it, and the strokes in its thunderstorms cannot be
 deleted at all: ``thunderstorm_lightning.lightning_id`` is ``ON DELETE
 RESTRICT``.
 
-So before replacing a period — a year for MeteoCat, a month for FMI — an import
-asks :func:`covering_experiments` which experiments depend on it, and either
-refuses the period (:class:`PeriodInUse`; :class:`YearInUse` for a year) or,
-when told to, deletes those experiments with :func:`drop_experiments` in the
-same transaction. An experiment is deleted **whole** — its thunderstorms, their
-strokes' links, its trackings and their windows go by cascade — never just the
-period: a run is one consistent result, and cutting a year out of it would leave
-thunderstorms that crossed New Year half built.
+So before replacing a period — a year for MeteoCat and the Alaska network, a
+month for FMI — an import asks :func:`covering_experiments` which experiments
+depend on it, and either refuses the period (:class:`PeriodInUse`;
+:class:`YearInUse` for a year) or, when told to, deletes those experiments with
+:func:`drop_experiments` in the same transaction. An experiment is deleted
+**whole** — its thunderstorms, their strokes' links, its trackings and their
+windows go by cascade — never just the period: a run is one consistent result,
+and cutting a year out of it would leave thunderstorms that crossed New Year
+half built.
 
 These helpers are provider-agnostic, for the next lightning import to reuse.
 
@@ -126,8 +127,8 @@ class CoveringExperiment:
 class PeriodInUse(RuntimeError):
     """A period cannot be replaced: thunderstorm experiments depend on its strokes.
 
-    ``period`` is how the import names its unit — a year for MeteoCat, a month
-    (``YYYY-MM``) for FMI.
+    ``period`` is how the import names its unit — a year for MeteoCat and the
+    Alaska network, a month (``YYYY-MM``) for FMI.
     """
 
     def __init__(self, period: str, experiment_ids: list[int], reason: str | None = None) -> None:

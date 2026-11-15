@@ -1460,7 +1460,7 @@ It may be redistributed
 
    FMI's location errors run larger than MeteoCat's: over 2018, the default E\ :sub:`max`
    of 10 km discards 3.9 % of its flashes — in Finland as elsewhere — against 0.7 % on
-   MeteoCat's regression day. Choose ``--max-location-error`` with that in mind; see
+   MeteoCat's 2020-07-13. Choose ``--max-location-error`` with that in mind; see
    :doc:`applications/build_thunderstorms`.
 
 .. toctree::
@@ -1469,6 +1469,78 @@ It may be redistributed
 
    providers/fmi_provider
    providers/fmi_lightning
+
+USWFS (Alaska)
+--------------
+
+The lightning strokes of the **Alaska Lightning Detection Network** (ALDN), run by the
+U.S. Wildland Fire Service, Alaska Geographic Area (until 2026 the BLM Alaska Fire
+Service). Every stroke since **2012**, within 250 km of Alaska, Yukon, British Columbia
+and the Northwest Territories: 46.1 to 79.4 N, from 168.8 E across the antimeridian to
+97 W. Released once a year as one cumulative zip and imported with
+:doc:`applications/alaska_uswfs_import_lightnings`. GisFIRE's third lightning source,
+and its first outside Europe.
+
+:doc:`providers/alaska_uswfs_provider`
+    The release: what the zip holds, the fifteen columns and what they turned out to be,
+    the oddities, the licence.
+
+:doc:`providers/alaska_uswfs_lightning`
+    The stroke: the published WGS 84 point, the flash the import groups it into with its
+    multiplicity and the stroke's place in it, the location quality (GDOP, the error
+    ellipse's semi-axes in metres and its angle) and the network's two counters.
+
+What makes it unlike MeteoCat's and FMI's:
+
+It publishes strokes, not flashes
+    A time-of-arrival network reports strokes, cloud strokes included, and nothing in a
+    row groups them. Cellsearch counts flashes, so **GisFIRE groups the strokes**, at
+    import, with the NLDN rule (1 s, 0.5 s, 10 km; ground and cloud strokes apart): 1.28
+    strokes per ground flash, 1.10 per cloud flash. ``flash_id`` is the identifier of
+    the flash's first stroke. See :doc:`algorithms/flash_grouping_nldn`.
+
+It is in WGS 84
+    The point is published in EPSG:4326, so it is stored once, on the parent; MeteoCat
+    and FMI keep their ETRS89 point beside it. The projected CRS is NAD83 / Alaska
+    Albers (EPSG:3338), which holds the strokes on both sides of the antimeridian.
+
+The metadata is wrong twice
+    ``MILLISECONDS`` is documented as the stroke's duration; it is the **fraction of the
+    second**, so the instant is published to the millisecond. ``LOCALDATETIME`` follows
+    three different rules over the years and is not kept. The ellipse is documented as a
+    "parameter" and turns out to be whole **kilometres**.
+
+Unknown errors
+    599 strokes have a semi-major axis of 0, which no ellipse has. They come in runs of
+    hours in 2014 and 2019, as if the network stopped computing it, and are stored as
+    ``NULL``. The thunderstorm reader takes such a stroke's error as larger than any
+    E\ :sub:`max`.
+
+A year, re-published
+    The release is cumulative and re-published every year, so a UTC year is the unit an
+    import replaces, as for MeteoCat, and importing a new release revises every year it
+    holds.
+
+It may be redistributed
+    "None, these data are considered public domain". The USWFS asks to be cited and that
+    any modification be described. Real strokes are committed as test fixtures with the
+    citation, and one real day is the second regression test of Cellsearch.
+
+.. note::
+
+   The Alaska network's location errors run larger again, and they are **semi**-axes.
+   E\ :sub:`max` = 10 km discards 10.05 % of the release's flashes (ground 10.75 %, cloud
+   1.42 %), against 3.9 % of FMI's 2018 and 0.7 % of MeteoCat's 2020-07-13. Neither
+   MeteoCat nor FMI says whether its "major axis" is a full axis or a semi-axis. If it is
+   a full axis, the comparable cut here is 5 km, which discards 24 %. See
+   :doc:`applications/build_thunderstorms`.
+
+.. toctree::
+   :maxdepth: 1
+   :hidden:
+
+   providers/alaska_uswfs_provider
+   providers/alaska_uswfs_lightning
 
 OCHA
 ----

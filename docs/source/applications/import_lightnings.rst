@@ -8,6 +8,7 @@ provider's own table with the network's location-quality measures and flash grou
 
    src/apps/imports/lightnings/catalonia_meteocat/import_lightnings.py
    src/apps/imports/lightnings/finland_fmi/import_lightnings.py
+   src/apps/imports/lightnings/alaska_uswfs/import_lightnings.py
 
 .. note::
 
@@ -50,3 +51,25 @@ Europe
 
    meteocat_import_lightnings
    fmi_import_lightnings
+
+America
+-------
+
+:doc:`alaska_uswfs_import_lightnings`
+    Imports the strokes of the Alaska Lightning Detection Network (U.S. Wildland Fire
+    Service) from 2012, from the yearly cumulative release, downloaded by hand and read
+    as it comes. The release is checked whole first, including its row count against
+    the FGDC metadata. A UTC year is replaced wholesale. The strokes get their
+    identifiers in an order of their own, from their values, since the strokes of one
+    millisecond come in no stable order, and strokes published twice are dropped. The
+    import **groups the strokes into flashes** itself, with the NLDN rule, since the
+    network publishes none. The ellipse is converted to metres, and a semi-major axis of
+    0 is stored as ``NULL``. The country is resolved against OCHA boundaries clipped to
+    the network's area, across the antimeridian. The whole release, 2.2 million strokes,
+    imports in about six minutes.
+
+.. toctree::
+   :maxdepth: 1
+   :hidden:
+
+   alaska_uswfs_import_lightnings
