@@ -51,6 +51,9 @@ How a run goes
    one experiment.
 5. The summary is stored and the experiment marked ``complete``. On any error,
    or an interrupt, its thunderstorms are deleted and it is marked ``failed``.
+6. The algorithm's computation time, added up over the pieces (wall-clock and
+   CPU seconds of the algorithm alone, without the reading and the writing),
+   is logged and returned; it is not stored.
 
 ``--dry-run`` does everything in one transaction and rolls it back.
 
@@ -146,6 +149,10 @@ class Piece:
     flashes : int
         How many flashes (or strokes, for a stroke-based algorithm) the piece
         held, for the progress.
+    wall_time_s, cpu_time_s : float
+        The computation time of the algorithm itself on the piece, in seconds
+        of wall-clock and of CPU time (for Cellsearch, the ``cellsearch()``
+        call); not the reading, the writing nor the adapter's own work.
     """
 
     cells: Cells
@@ -154,6 +161,8 @@ class Piece:
     cell_last_t: np.ndarray
     next_label: int
     flashes: int
+    wall_time_s: float
+    cpu_time_s: float
 
 
 @dataclass(frozen=True)
@@ -245,7 +254,8 @@ def run_cellsearch(strokes: Strokes, params: CellsearchParameters, first_label: 
     _, last_from_end = np.unique(reversed_labels, return_index=True)
     cell_last_t = flashes.t[assigned[len(assigned) - 1 - last_from_end]]
     return Piece(cells=cells, specific=specific, summary=result.summary,
-                 cell_last_t=cell_last_t, next_label=result.next_label, flashes=len(flashes))
+                 cell_last_t=cell_last_t, next_label=result.next_label, flashes=len(flashes),
+                 wall_time_s=result.wall_time_s, cpu_time_s=result.cpu_time_s)
 
 
 def cellsearch_active(strokes: Strokes, params: CellsearchParameters) -> bool:
@@ -505,11 +515,19 @@ def build_thunderstorms(engine: Engine, provider: str, algorithm_key: str, param
                         start: datetime.datetime, end: datetime.datetime,
                         logger: logging.Logger, dry_run: bool = False,
                         piece_strokes: int | None = None,
-                        cloud_to_ground_only: bool = True) -> dict[str, Any]:
-    """Run one experiment and store it; its summary.
+                        cloud_to_ground_only: bool = True) -> tuple[dict[str, Any], float, float]:
+    """Run one experiment and store it.
 
     Only cloud-to-ground strokes are read unless ``cloud_to_ground_only`` is
     false.
+
+    Returns
+    -------
+    summary : dict
+        The summary stored with the experiment.
+    wall_time_s, cpu_time_s : float
+        The algorithm's computation time, added up over the pieces, in seconds
+        of wall-clock and of CPU time. Not stored.
 
     Raises
     ------
@@ -546,9 +564,10 @@ def build_thunderstorms(engine: Engine, provider: str, algorithm_key: str, param
                     start.isoformat(), end.isoformat(), parameters.to_dict())
 
         try:
-            summary = _run(reading, writing, reader, algorithm, parameters, data_provider_id,
-                           experiment_id, start, end, gap_s, hull_parameters, piece_strokes,
-                           logger, dry_run, cloud_to_ground_only)
+            summary, wall_time_s, cpu_time_s = _run(
+                reading, writing, reader, algorithm, parameters, data_provider_id, experiment_id,
+                start, end, gap_s, hull_parameters, piece_strokes, logger, dry_run,
+                cloud_to_ground_only)
             writers.complete_experiment(writing, experiment_id, summary)
             if dry_run:
                 writing.rollback()
@@ -563,15 +582,15 @@ def build_thunderstorms(engine: Engine, provider: str, algorithm_key: str, param
             raise
         finally:
             reading.rollback()
-    return summary
+    return summary, wall_time_s, cpu_time_s
 
 
 def _run(reading: Connection, writing: Connection, reader: StrokeReader, algorithm: Algorithm,
          parameters: Any, data_provider_id: int, experiment_id: int, start: datetime.datetime,
          end: datetime.datetime, gap_s: float, hull_parameters: dict[str, Any],
          piece_strokes: int, logger: logging.Logger, dry_run: bool,
-         cloud_to_ground_only: bool) -> dict[str, Any]:
-    """Stream, cluster and write every piece; the run's summary."""
+         cloud_to_ground_only: bool) -> tuple[dict[str, Any], float, float]:
+    """Stream, cluster and write every piece; the run's summary and computation time."""
     srid = parameters.srid
     started = time.monotonic()
     summary: dict[str, Any] | None = None
@@ -582,6 +601,9 @@ def _run(reading: Connection, writing: Connection, reader: StrokeReader, algorit
     flashes_done = 0
     next_report = PROGRESS_EVERY
     stored = 0
+    pieces_done = 0
+    wall_time_s = 0.0
+    cpu_time_s = 0.0
 
     # One read from ``start - gap``: the strokes before ``start`` only tell
     # whether the period may cut a cell at its start (``activity_before_start``).
@@ -603,6 +625,9 @@ def _run(reading: Connection, writing: Connection, reader: StrokeReader, algorit
         strokes_total += len(strokes)
         flashes_done += piece.flashes
         stored += len(piece.cells)
+        pieces_done += 1
+        wall_time_s += piece.wall_time_s
+        cpu_time_s += piece.cpu_time_s
         if flashes_done >= next_report:
             logger.info("%d stroke(s), %d flash(es) so far, %d thunderstorm(s) stored",
                         strokes_total, flashes_done, stored)
@@ -627,7 +652,9 @@ def _run(reading: Connection, writing: Connection, reader: StrokeReader, algorit
                 "Would cluster" if dry_run else "Clustered", strokes_total, stored,
                 time.monotonic() - started,
                 {key: value for key, value in summary.items() if key != "size_classes"})
-    return summary
+    logger.info("%s computation time: %.4f s wall, %.4f s CPU, over %d piece(s)",
+                algorithm.name, wall_time_s, cpu_time_s, pieces_done)
+    return summary, wall_time_s, cpu_time_s
 
 
 # --------------------------------------------------------------------------

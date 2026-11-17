@@ -254,6 +254,20 @@ For a caller that wants to show progress or stop a long search — the QGIS plug
 1,000 flashes; a cancelled search raises
 :class:`~gisfire_algorithms.thunderstorm.cellsearch_tuomi_larjavaara.CellsearchCancelled`.
 
+Computation time
+----------------
+
+Every result carries the time the call took, in seconds: ``wall_time_s``
+(``time.perf_counter``) and ``cpu_time_s``, the process's CPU time
+(``time.process_time``), which depends less on whatever else the machine is doing. Both
+span the whole call — the *E*\ :sub:`max` filter, the search and the summary — and
+include the ``progress`` and ``is_cancelled`` callbacks, if any. Building the flashes
+from the strokes, which the caller does before, is not included, nor is reading or
+storing anything: the function does neither. The times are not part of ``summary``, and
+:doc:`../applications/build_thunderstorms` adds them up over the pieces and logs them
+without storing them. On FMI's regression day (900 flashes) a search takes about 1 to
+4 ms, depending on *C*.
+
 Using it from Python
 --------------------
 
@@ -283,6 +297,7 @@ Using it from Python
    result.label                       # array([1, 1, 1, 1, 1, 1])
    result.kept_labels                 # array([1])
    result.summary["flashes_kept"]     # 6
+   result.wall_time_s                 # the computation time, in seconds
    kept = result.label == 1
    cell_area_km2(flashes.x[kept] / 1000, flashes.y[kept] / 1000)   # 9.7…
 

@@ -537,6 +537,35 @@ def test_the_period_is_checked_when_called_as_a_library(database):
                                 DAY, logging.getLogger("test"))
 
 
+def test_the_computation_time_is_returned_and_not_stored(database, two_storms):
+    engine, _ = database
+    summary, wall_time_s, cpu_time_s = app.build_thunderstorms(
+        engine, "MeteoCat", ALGORITHM, CellsearchParameters(), DAY, NEXT_DAY,
+        logging.getLogger("test"))
+    stored = experiment(engine).summary
+    assert summary == stored
+    assert not {"wall_time_s", "cpu_time_s"} & stored.keys()
+    for seconds in (wall_time_s, cpu_time_s):
+        assert isinstance(seconds, float)
+        assert math.isfinite(seconds) and seconds >= 0.0
+
+
+def test_the_computation_time_is_added_up_over_the_pieces(database, two_storms, monkeypatch,
+                                                          caplog):
+    engine, _ = database
+    real_cellsearch = app.cellsearch
+    monkeypatch.setattr(app, "cellsearch", lambda *args, **kwargs: dataclasses.replace(
+        real_cellsearch(*args, **kwargs), wall_time_s=1.0, cpu_time_s=0.5))
+    monkeypatch.setattr(app, "PIECE_STROKES", 1)   # the two storms, two pieces
+    with caplog.at_level(logging.INFO):
+        _, wall_time_s, cpu_time_s = app.build_thunderstorms(
+            engine, "MeteoCat", ALGORITHM, CellsearchParameters(), DAY, NEXT_DAY,
+            logging.getLogger("test"))
+    assert (wall_time_s, cpu_time_s) == (2.0, 1.0)
+    assert (f"{app.CELLSEARCH_ALGORITHM} computation time: 2.0000 s wall, 1.0000 s CPU, "
+            f"over 2 piece(s)") in caplog.text
+
+
 def test_the_log_can_go_to_a_file(database, two_storms, tmp_path):
     _, url = database
     log = tmp_path / "build.log"
