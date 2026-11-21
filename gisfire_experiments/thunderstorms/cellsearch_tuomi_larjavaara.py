@@ -106,10 +106,10 @@ from src.apps.thunderstorms.readers import READERS
 ALGORITHM = "cellsearch_tuomi_larjavaara"
 
 #: R, the radius of attraction, in km.
-ATTRACTION_RADII_KM = [10, 15, 20]
+ATTRACTION_RADII_KM = [5, 10, 15, 20, 25]
 
 #: T, the maximum waiting time, in minutes.
-MAX_WAITING_TIMES_MIN = [10, 15, 20]
+MAX_WAITING_TIMES_MIN = [5, 10, 15, 20, 25]
 
 #: I, the inertia: how many of a cell's latest flashes its centre is the mean of.
 INERTIAS = [10, 20, 30, 40, 60, 80]

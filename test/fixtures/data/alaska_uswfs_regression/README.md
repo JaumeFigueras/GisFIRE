@@ -56,11 +56,12 @@ that a shuffled copy gives the same result.
 ## The expected result
 
 Frozen on 2026-11-15 with `gisfire_algorithms` 0.1.0 and the default parameters
-in EPSG:3338 (NAD83 / Alaska Albers), for C = off, 10, 15, 25, 50, 100 and 200
-min·km, over the **ground strokes only** (`lightning_filter`
-`{"cloud_to_ground": true}`, recorded in the JSON). **Awaiting Jaume's check in
-QGIS**, on the GeoPackage of the seven runs written by the freeze script
-(`plans/alaska_cellsearch_2019-06-30_ground.gpkg`, local). The previous
+of then, N_min = 5 included (the default is 10 since 2026-11-21; the test and
+the freeze script pass 5), in EPSG:3338 (NAD83 / Alaska Albers), for C = off,
+10, 15, 25, 50, 100 and 200 min·km, over the **ground strokes only**
+(`lightning_filter` `{"cloud_to_ground": true}`, recorded in the JSON).
+**Awaiting Jaume's check in QGIS**, on the GeoPackage of the seven runs written
+by the freeze script (`plans/alaska_cellsearch_2019-06-30_ground.gpkg`, local). The previous
 reference, over all strokes, was checked on 2026-11-15.
 
 To regenerate after a deliberate change of output (an algorithm's, with a bump

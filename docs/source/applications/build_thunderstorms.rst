@@ -251,7 +251,7 @@ Following the progress
 
 The run logs its configuration when it starts, a line every 100,000 flashes, the
 window-boundary warnings and the summary when it ends. MeteoCat's 2020-07-13, with the
-defaults, gives:
+defaults but ``--min-flashes 5`` (the default until 2026-11-21), gives:
 
 .. code-block:: text
 

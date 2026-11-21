@@ -353,7 +353,7 @@ def test_defaults_and_to_dict_is_complete():
         "time_distance_limit_min_km": None,
         "inertia": 20,
         "max_location_error_km": 10.0,
-        "min_flashes": 5,
+        "min_flashes": 10,
         "srid": 25831,
     }
     assert json.loads(json.dumps(params.to_dict())) == params.to_dict()

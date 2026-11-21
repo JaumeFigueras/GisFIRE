@@ -116,8 +116,10 @@ class CellsearchParameters:
         E_max: flashes with this location error or more are discarded, in km.
         Default 10.
     min_flashes : int
-        N_min: cells with fewer flashes are stray flashes, not kept. Default 5,
-        at least 3 (an area needs three points).
+        N_min: cells with fewer flashes are stray flashes, not kept. Default
+        10, where the article's Table 2 starts (its text finds cells of "at
+        least 5 or 10 flashes" appropriate for cell analysis); at least 3 (an
+        area needs three points).
     srid : int
         The EPSG code of the projected CRS (in metres) the coordinates are in.
         Default 25831. The core only records it; the adapters project.
@@ -133,7 +135,7 @@ class CellsearchParameters:
     time_distance_limit_min_km: float | None = None
     inertia: int = 20
     max_location_error_km: float = 10.0
-    min_flashes: int = 5
+    min_flashes: int = 10
     srid: int = 25831
 
     def __post_init__(self) -> None:

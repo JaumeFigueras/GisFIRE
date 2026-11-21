@@ -75,7 +75,7 @@ Article                             Field and flag                        Unit  
                                     ``--inertia``
 *E*\ :sub:`max`, location error     ``max_location_error_km``             km          10           > 0
                                     ``--max-location-error``
-*N*\ :sub:`min`, smallest cell      ``min_flashes``                       flashes     5            integer ≥ 3
+*N*\ :sub:`min`, smallest cell      ``min_flashes``                       flashes     10           integer ≥ 3
                                     ``--min-flashes``
 (projection)                        ``srid``                              EPSG        25831        projected, in metres
                                     ``--srid``
@@ -87,7 +87,8 @@ of small ones, and no larger than about 20 km, or close simultaneous cells merge
 has an upper limit of 20–30 minutes, beyond which a dying cell captures the flashes of a
 young neighbour, while a very short one (5 minutes) lets flashes be captured by too
 distant a cell. *N*\ :sub:`min` is this implementation's: three is the least an area
-needs.
+needs, and the default of 10 is where the article's Table 2 starts (its text finds cells
+of "at least 5 or 10 flashes" appropriate for cell analysis). It was 5 until 2026-11-21.
 
 :meth:`~gisfire_algorithms.thunderstorm.cellsearch_tuomi_larjavaara.CellsearchParameters.to_dict`
 returns **every** field, the defaults and ``None`` included. It is what the experiment
@@ -103,8 +104,9 @@ default.
    the condition off, and each run chooses its own. Finnish and Catalan storms differ, so
    the article's tables are a sanity reference, not a target.
 
-A sweep over *C* on 2020-07-13 (all other parameters at their defaults; 2,209 flashes
-searched), against Table 1 and the text of the article:
+A sweep over *C* on 2020-07-13 (all other parameters at their defaults, *N*\ :sub:`min`
+= 5 included, the default then; 2,209 flashes searched), against Table 1 and the text of
+the article:
 
 ======  =====  ====  ==========================  =========================  ============  ==============
 *C*     Cells  Kept  One-flash cells / flashes   Flashes in cells ≥10/≥30   Mean area     Longest life
@@ -128,9 +130,10 @@ is there to prevent. These runs were checked in QGIS. MeteoCat's data cannot be
 published, so they are not a regression test (see :doc:`../testing`).
 
 The same sweep on FMI's 2018-07-03 — the network the article's data came from, in ETRS89 /
-TM35FIN, all other parameters at their defaults. Ground strokes only: of the day's 3,069
-strokes, 1,481 are ground strokes, in 900 flashes, 22 discarded by *E*\ :sub:`max`, so
-878 searched over Northern Europe (with the cloud strokes, 2,381):
+TM35FIN, all other parameters at their defaults (*N*\ :sub:`min` = 5, the default then).
+Ground strokes only: of the day's 3,069 strokes, 1,481 are ground strokes, in 900
+flashes, 22 discarded by *E*\ :sub:`max`, so 878 searched over Northern Europe (with the
+cloud strokes, 2,381):
 
 ======  =====  ====  ==========================  =========================  ============  ==============
 *C*     Cells  Kept  One-flash cells / flashes   Flashes in cells ≥10/≥30   Mean area     Longest life
@@ -152,10 +155,10 @@ against the article's more than 40 %. These seven runs are frozen in a regressio
 that is in the repository and always runs.
 
 The same sweep on the Alaska network's 2019-06-30, 12:00 to 12:00 UTC, in NAD83 / Alaska
-Albers, all other parameters at their defaults, ground strokes only. The flashes are the
-import's grouping of the strokes (see :doc:`flash_grouping_nldn`): 3,605 ground flashes
-(of 3,764), 325 of them discarded by *E*\ :sub:`max`, so 3,280 searched over Alaska and
-the Yukon:
+Albers, all other parameters at their defaults (*N*\ :sub:`min` = 5, the default then),
+ground strokes only. The flashes are the import's grouping of the strokes (see
+:doc:`flash_grouping_nldn`): 3,605 ground flashes (of 3,764), 325 of them discarded by
+*E*\ :sub:`max`, so 3,280 searched over Alaska and the Yukon:
 
 ======  =====  ====  ==========================  =========================  ============  ==============
 *C*     Cells  Kept  One-flash cells / flashes   Flashes in cells ≥10/≥30   Mean area     Longest life

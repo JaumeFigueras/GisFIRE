@@ -20,9 +20,11 @@ the strokes, the thunderstorms (concave hulls), the Cellsearch centres and paths
 and the experiments with their C, for a look in QGIS before the file is
 committed.
 
-The runs are the builder's default ones, over **cloud-to-ground strokes only**;
-the file records their ``lightning_filter``. The strokes layer of ``--gpkg``
-holds the cloud strokes too, with ``cloud_to_ground`` to tell them apart.
+The runs are the builder's default ones, over **cloud-to-ground strokes only**,
+but for N_min, which is the tests' ``MIN_FLASHES`` (5, the default when they
+were frozen). The file records their ``lightning_filter``. The strokes layer of
+``--gpkg`` holds the cloud strokes too, with ``cloud_to_ground`` to tell them
+apart.
 
 Regenerate it only after a deliberate change of output: an algorithm's (bump
 ``gisfire_algorithms.__version__``) or the builder's defaults', run this, check
@@ -151,7 +153,8 @@ def main(argv: list[str] | None = None) -> None:
     filters = []
     for limit in _tests.LIMITS:
         parameters = CellsearchParameters(
-            time_distance_limit_min_km=None if limit == "None" else float(limit), srid=3067)
+            time_distance_limit_min_km=None if limit == "None" else float(limit),
+            min_flashes=_tests.MIN_FLASHES, srid=3067)
         app.build_thunderstorms(engine, finland_fmi.PROVIDER_NAME, ALGORITHM, parameters,
                                 _tests.FMI_DAY_START, _tests.FMI_DAY_END, logger)
         with engine.connect() as connection:
@@ -165,7 +168,7 @@ def main(argv: list[str] | None = None) -> None:
 
     if any(stored != filters[0] for stored in filters):
         raise SystemExit(f"the runs stored different lightning filters: {filters}")
-    parameters_but_c = CellsearchParameters(srid=3067).to_dict()
+    parameters_but_c = CellsearchParameters(min_flashes=_tests.MIN_FLASHES, srid=3067).to_dict()
     parameters_but_c.pop("time_distance_limit_min_km")
     document = {
         "_about": "Cellsearch on FMI's cloud-to-ground strokes of 2018-07-03 (UTC), one run "

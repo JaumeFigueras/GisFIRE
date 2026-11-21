@@ -166,9 +166,22 @@ def a_storm(first_flash: int, start: datetime.datetime, count: int, *, dx: float
     return strokes
 
 
+#: N_min of these tests' runs: their synthetic storms have 6 to 8 flashes, fewer
+#: than the default 10, and the regression days were frozen with 5.
+MIN_FLASHES = 5
+
+#: The default parameters of these tests' runs (their CRS is still the provider's).
+PARAMETERS = CellsearchParameters(min_flashes=MIN_FLASHES)
+
+
 def run(url: str, *extra: str, start: datetime.datetime = DAY,
-        end: datetime.datetime = NEXT_DAY, provider: str = "MeteoCat") -> int:
-    """Run the application exactly as the command line would."""
+        end: datetime.datetime = NEXT_DAY, provider: str = "MeteoCat",
+        min_flashes: int | None = MIN_FLASHES) -> int:
+    """Run the application exactly as the command line would.
+
+    ``--min-flashes MIN_FLASHES`` is passed unless ``extra`` gives its own or
+    ``min_flashes`` is ``None`` (the application's default).
+    """
     info = url.split("//", 1)[1]
     credentials, host_part = info.split("@", 1)
     user, _, password = credentials.partition(":")
@@ -180,6 +193,8 @@ def run(url: str, *extra: str, start: datetime.datetime = DAY,
             "--db-user", user, "--log-level", "DEBUG"]
     if password:
         argv += ["--db-password", password]
+    if min_flashes is not None and "--min-flashes" not in extra:
+        argv += ["--min-flashes", str(min_flashes)]
     return app.main(argv + list(extra))
 
 
@@ -283,7 +298,7 @@ def test_the_experiment_is_complete_with_its_configuration(database, two_storms)
     assert stored.status == "complete"
     assert stored.completed_at is not None
     assert stored.algorithm == "CELLSEARCH_TUOMI_LARJAVAARA_2005"
-    assert stored.parameters == CellsearchParameters().to_dict()
+    assert stored.parameters == PARAMETERS.to_dict()
     assert stored.lightning_filter == {"network": "newest", "cloud_to_ground": True}
     assert stored.hull_parameters == {"ratio": 0.3, "allow_holes": False, "srid": 25831}
     assert stored.software_version == gisfire_algorithms.__version__
@@ -315,6 +330,17 @@ def test_the_parameters_given_are_the_ones_run_and_stored(database, two_storms):
     parameters = experiment(engine).parameters
     assert parameters["min_flashes"] == 3
     assert parameters["time_distance_limit_min_km"] == 50.0
+
+
+def test_by_default_a_storm_needs_ten_flashes(database, two_storms):
+    """Without ``--min-flashes`` N_min is 10: storm A's 6 flashes are not kept."""
+    engine, url = database
+    assert run(url, min_flashes=None) == 0
+    stored = experiment(engine)
+    assert stored.parameters == CellsearchParameters().to_dict()
+    assert stored.parameters["min_flashes"] == 10
+    assert count(engine, "thunderstorm") == 0
+    assert (stored.summary["cells_total"], stored.summary["cells_kept"]) == (2, 0)
 
 
 def test_inaccurate_flashes_are_discarded_and_counted(database, provider):
@@ -938,7 +964,7 @@ def test_a_run_over_fmis_strokes_works_in_tm35fin(database, fmi_provider):
 
     stored = experiment(engine)
     assert stored.status == "complete"
-    assert stored.parameters == CellsearchParameters(srid=3067).to_dict()
+    assert stored.parameters == CellsearchParameters(min_flashes=MIN_FLASHES, srid=3067).to_dict()
     assert stored.lightning_filter == {"cloud_to_ground": True}
     assert stored.hull_parameters == {"ratio": 0.3, "allow_holes": False, "srid": 3067}
     assert count(engine, "thunderstorm") == 1
@@ -1229,7 +1255,7 @@ def test_a_run_over_alaskas_strokes_works_in_alaska_albers(database, alaska_prov
 
     stored = experiment(engine)
     assert stored.status == "complete"
-    assert stored.parameters == CellsearchParameters(srid=3338).to_dict()
+    assert stored.parameters == CellsearchParameters(min_flashes=MIN_FLASHES, srid=3338).to_dict()
     assert stored.lightning_filter == {"cloud_to_ground": True}
     assert stored.hull_parameters == {"ratio": 0.3, "allow_holes": False, "srid": 3338}
     assert stored.summary["flashes_total"] == 6
@@ -1359,7 +1385,8 @@ FMI_DAY = Path(__file__).parents[2] / "fixtures" / "data" / "fmi_regression" / "
 #: ``test/fixtures/data/fmi_regression/freeze_cellsearch_2018-07-03.py``; see
 #: its README. Regenerate it only for a deliberate change of output: an
 #: algorithm's (with a bump of ``gisfire_algorithms.__version__``) or the
-#: builder's defaults' (the runs are ground strokes only, the default).
+#: builder's defaults' (the runs are ground strokes only, the default, with
+#: N_min = MIN_FLASHES).
 FMI_EXPECTED = FMI_DAY.with_name("cellsearch_2018-07-03_expected.json")
 
 FMI_DAY_START = datetime.datetime(2018, 7, 3, tzinfo=UTC)
@@ -1404,8 +1431,9 @@ def test_the_fmi_runs_were_frozen_with_the_current_version():
     """A change of output comes with a version bump and a new frozen file."""
     expected = _fmi_expected()
     assert expected["software_version"] == gisfire_algorithms.__version__
+    frozen = CellsearchParameters(min_flashes=MIN_FLASHES, srid=3067)
     assert expected["parameters_but_c"] == {
-        key: value for key, value in CellsearchParameters(srid=3067).to_dict().items()
+        key: value for key, value in frozen.to_dict().items()
         if key != "time_distance_limit_min_km"}
     # The runs are the default ones: ground strokes only.
     assert expected["lightning_filter"] == {"cloud_to_ground": True}
@@ -1496,7 +1524,8 @@ ALASKA_DAY = (Path(__file__).parents[2] / "fixtures" / "data" / "alaska_uswfs_re
 #: ``test/fixtures/data/alaska_uswfs_regression/freeze_cellsearch_2019-06-30.py``;
 #: see its README. Regenerate it only for a deliberate change of output: an
 #: algorithm's (with a bump of ``gisfire_algorithms.__version__``) or the
-#: builder's defaults' (the runs are ground strokes only, the default).
+#: builder's defaults' (the runs are ground strokes only, the default, with
+#: N_min = MIN_FLASHES).
 ALASKA_EXPECTED = ALASKA_DAY.with_name("cellsearch_2019-06-30_expected.json")
 
 ALASKA_DAY_START = datetime.datetime(2019, 6, 30, 12, tzinfo=UTC)
@@ -1545,8 +1574,9 @@ def test_the_alaska_runs_were_frozen_with_the_current_version():
     """A change of output comes with a version bump and a new frozen file."""
     expected = _alaska_expected()
     assert expected["software_version"] == gisfire_algorithms.__version__
+    frozen = CellsearchParameters(min_flashes=MIN_FLASHES, srid=3338)
     assert expected["parameters_but_c"] == {
-        key: value for key, value in CellsearchParameters(srid=3338).to_dict().items()
+        key: value for key, value in frozen.to_dict().items()
         if key != "time_distance_limit_min_km"}
     # The runs are the default ones: ground strokes only.
     assert expected["lightning_filter"] == {"cloud_to_ground": True}
