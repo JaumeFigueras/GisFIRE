@@ -1759,3 +1759,60 @@ NUTS refines the administrative tree instead of crossing it
 
    providers/ign_provider
    providers/ign_admin_boundary
+
+US Census Bureau
+----------------
+
+The `US Census Bureau <https://www.census.gov>`_ publishes, every year, the *Cartographic
+Boundary Files*: generalised extracts of its MAF/TIGER database. GisFIRE imports two of the
+1:500,000 layers — the states (and DC) and the counties (and their equivalents) — as
+administrative levels 1 and 2 below the country:
+
+    https://www.census.gov/geographies/mapping-files/time-series/geo/cartographic-boundary.html
+
+:doc:`providers/census_provider`
+    The files themselves: why the cartographic files and not TIGER/Line, how the codes
+    nest, the LSAD codes and what the import leaves out.
+
+:doc:`providers/census_admin_boundary`
+    The boundary model. The code (the FIPS ``GEOID``), the name, the nesting and the
+    polygon are already the generic model's, so the subclass adds the edition, which
+    division it is and its LSAD code.
+
+Four properties of the source are worth knowing before importing it:
+
+The boundaries are the land
+    The cartographic files are clipped to the shoreline, where TIGER/Line runs the state
+    boundaries into the sea out to the 3-mile limit. The price is the generalisation to
+    1:500,000, a few hundred metres at most.
+
+The ``GEOID`` nests
+    Two digits for a state, the state's two plus three for a county, so a county's parent
+    is found by its first two digits. Two counties of one name in one state (Baltimore
+    County and the city of Baltimore) differ in their code and their LSAD.
+
+Each edition is a data provider of its own
+    Counties change — Connecticut replaced its eight with nine planning regions in 2022 —
+    and the file names carry the year, so ``--edition`` picks the files as well as the
+    provider row.
+
+Alaska crosses the antimeridian
+    The western Aleutians are published as parts at positive longitudes beside the rest of
+    the state, so in EPSG:4326 Alaska's bounding box spans the globe; in EPSG:3338 it is
+    whole. Alaska is the nominal region of the Alaska Lightning Detection Network (see
+    :doc:`algorithms/thunderstorm_rules`).
+
+.. warning::
+
+   The state file also holds the five inhabited territories (American Samoa, Guam, the
+   Northern Mariana Islands, Puerto Rico and the US Virgin Islands), and the county file
+   their 91 county equivalents. They are **not imported**: OCHA has each of them as a
+   country of its own, so keeping them here would put them under the United States as
+   well. Only the 50 states and DC (FIPS 01 to 56) and their 3 144 counties are.
+
+.. toctree::
+   :maxdepth: 1
+   :hidden:
+
+   providers/census_provider
+   providers/census_admin_boundary

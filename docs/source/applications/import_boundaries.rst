@@ -10,6 +10,7 @@ read by the other importers **at import time**, so they are imported first::
    src/apps/imports/admin_boundaries/ocha/import_admin_boundaries.py
    src/apps/imports/admin_boundaries/caop/import_admin_boundaries.py
    src/apps/imports/admin_boundaries/ign/import_admin_boundaries.py
+   src/apps/imports/admin_boundaries/united_states_census/import_admin_boundaries.py
    src/apps/imports/time_zones/timezone_boundary_builder/import_time_zones.py
 
 .. contents::
@@ -38,6 +39,11 @@ The countries come from OCHA, worldwide; the levels below the country from each 
     IGN's administrative database as levels 1 to 3 below the country. Carries the INE
     municipal code, which is what Spanish statistical and wildfire sources join on.
 
+:doc:`census_import_admin_boundaries`
+    Imports the US states and counties from the Census Bureau's 1:500,000 Cartographic
+    Boundary Files as levels 1 and 2 below the country: land boundaries, clipped to the
+    shoreline. Alaska is the nominal region of the Alaska lightning network.
+
 .. toctree::
    :maxdepth: 1
    :hidden:
@@ -45,6 +51,7 @@ The countries come from OCHA, worldwide; the levels below the country from each 
    ocha_import_admin_boundaries
    caop_import_admin_boundaries
    ign_import_admin_boundaries
+   census_import_admin_boundaries
 
 Time zones
 ----------

@@ -125,7 +125,7 @@ Each kind has a page of its own:
 
 :doc:`applications/import_boundaries`
     The reference data every other import reads: administrative boundaries (OCHA
-    countries worldwide; the Portuguese and Spanish divisions below them) and the IANA
+    countries worldwide; the Portuguese, Spanish and US divisions below them) and the IANA
     time zone areas. Imported first.
 
 :doc:`applications/import_wildfires`

@@ -68,3 +68,4 @@ from src.providers.catalonia_meteocat.lightning import MeteocatLightning  # noqa
 from src.providers.finland_fmi.lightning import FmiLightning  # noqa: E402,F401
 # Also attaches a partial index to ``lightning`` (the projected point of its views).
 from src.providers.alaska_uswfs.lightning import AlaskaUswfsLightning  # noqa: E402,F401
+from src.providers.united_states_census.admin_boundary import CensusAdminBoundary  # noqa: E402,F401
