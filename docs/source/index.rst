@@ -47,6 +47,7 @@ The documentation is organized as follows:
    providers
    algorithms
    applications
+   experiments
    qgis_plugins
    auxiliary_applications
    auxiliary_modules

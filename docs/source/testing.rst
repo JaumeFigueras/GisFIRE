@@ -34,7 +34,8 @@ without any truncation step.
 The test tree mirrors the source tree: ``test/data_model/`` for the generic models,
 ``test/providers/<provider>/`` for the provider-specific ones, ``test/apps/`` for the
 applications, ``test/algorithms/`` for ``gisfire_algorithms`` and ``test/experiments/`` for
-the sensitivity and time analyses of ``gisfire_experiments``.
+``gisfire_experiments`` (see :doc:`experiments`): Cellsearch's sensitivity and time
+analyses, and the lightning episodes study.
 
 Algorithm tests
 ^^^^^^^^^^^^^^^

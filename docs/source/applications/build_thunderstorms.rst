@@ -280,7 +280,7 @@ does not hold it. To measure it properly, the sweep's ``--time`` analysis runs
 ``cellsearch()`` over the same flashes ``--iterations`` times per combination, without
 the builder and without writing to the database, and writes every run to one CSV file
 and the minimum, mean, median, standard deviation and maximum per combination to another
-(see ``gisfire_experiments/thunderstorms/cellsearch_tuomi_larjavaara.py``).
+(see :doc:`../experiments/cellsearch_tuomi_larjavaara`).
 
 In QGIS
 -------

@@ -6,6 +6,10 @@ For Cellsearch with ``gap_s`` equal to the maximum waiting time T the split is
 **exact**: a gap longer than T closes every open cell, so no cell can span two
 pieces and running the pieces one after the other (carrying the label counter)
 gives the same result as one run over everything.
+
+Over the times of a network's zone flashes, with ``gap_s`` equal to *G*, the
+pieces are the **episodes** of rule 1 of the thunderstorm rules
+(``docs/source/algorithms/thunderstorm_rules.rst``).
 """
 
 from __future__ import annotations

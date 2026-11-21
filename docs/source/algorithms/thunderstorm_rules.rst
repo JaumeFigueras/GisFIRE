@@ -29,7 +29,7 @@ buffer included, is measured in the network's projected CRS.
      - Finland (the country)
      - EPSG:3067 (ETRS89 / TM35FIN)
    * - Alaska Lightning Detection Network (USWFS)
-     - Alaska (the state)
+     - Alaska (the state, from the Census Bureau's cartographic boundary files)
      - EPSG:3338 (NAD83 / Alaska Albers)
    * - MeteoCat XDDE
      - Catalonia (IGN's boundary of the autonomous community)
@@ -111,12 +111,20 @@ What the code already does as the rules say:
 - The Alaska strokes grouped into flashes with the NLDN rule, by the Alaska import.
 - A storm cut at ``--from`` or ``--to`` is detected: the run's summary records
   ``activity_before_start`` and ``cells_open_at_end``, and the builder warns.
+- The zones and rule 1, in the episodes study
+  (:doc:`../experiments/lightning_episodes`): for a given *G*, it
+  writes each episode's span and its zone flashes and strokes, and the quartiles of the
+  episodes' flashes. Its regions are OCHA's Finland, IGN's Catalonia and the Census
+  Bureau's Alaska (:doc:`../applications/census_import_admin_boundaries`); a stroke is in
+  the zone when it is at most 50 km from the region, tested with shapely. The episodes
+  are cut with :func:`~gisfire_algorithms.thunderstorm.chunking.split_at_gaps`. It takes
+  the flashes as published, without the 2 s regrouping below.
 
 What is still to do:
 
 - Regrouping the published flashes that last more than 2 s.
-- The zones: no code builds them, and the database has no polygon for Alaska.
-- Episodes: no code computes them, and *G* is still to be set.
+- *G*: still to be set; the episodes study is the tool to study it with.
+- The zones and the episodes in the builder, which so far uses neither.
 - Keeping only the storms with a zone flash, and taking their statistics from their
   zone flashes. The sensitivity analysis's ``--country`` follows another rule today: a
   storm counts when more than half of its flashes have their representative stroke in a
