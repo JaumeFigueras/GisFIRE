@@ -71,7 +71,13 @@ in space and time. Each algorithm has a page of its own:
     a new one. Flash-based: each flash is represented by its most accurate stroke.
 
 They are run over the database by :doc:`applications/build_thunderstorms`, which stores
-each run as a thunderstorm experiment.
+each run as a thunderstorm experiment. Whatever the algorithm, an analysis follows the
+same two rules, on episodes and on which thunderstorms count:
+
+:doc:`algorithms/thunderstorm_rules`
+    An episode is a run of flashes in the network's nominal region plus 50 km, ended by a
+    silence of *G*; a thunderstorm is built from the whole network and kept only with a
+    flash in that zone, its statistics coming from its flashes there.
 
 A flash-based algorithm needs flashes, and one network publishes strokes only:
 
@@ -87,6 +93,7 @@ A flash-based algorithm needs flashes, and one network publishes strokes only:
 
    algorithms/cellsearch_tuomi_larjavaara
    algorithms/flash_grouping_nldn
+   algorithms/thunderstorm_rules
 
 What the thunderstorm algorithms share
 --------------------------------------

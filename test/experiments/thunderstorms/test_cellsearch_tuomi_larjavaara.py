@@ -43,9 +43,21 @@ def test_the_statistics_of_a_run():
     assert result["isolated_pct"] == pytest.approx(25.0)
     # Densities 10, 5 and 12 flashes per 100 km²: the median is 10.
     assert result["density_median_per_100km2"] == pytest.approx(10.0)
-    assert result["diameter_mean_km"] == pytest.approx(
-        (2 * math.sqrt(100 / math.pi) + 2 * math.sqrt(400 / math.pi) + 2 * math.sqrt(50 / math.pi)) / 3)
+    assert result["diameter_median_km"] == pytest.approx(2 * math.sqrt(100 / math.pi))
+    # Type 8 places the largest of three at (3 - 1/3) / (3 + 1/3) = 0.8: beyond
+    # it, the 90th percentile is the largest diameter.
+    assert result["diameter_p90_km"] == pytest.approx(2 * math.sqrt(400 / math.pi))
     assert result["duration_median_min"] == pytest.approx(30.0)
+
+
+def test_the_diameter_percentile_is_hyndman_and_fans_type_8():
+    """Diameters of 1 to 11 km: the 90th percentile sits at the sorted position
+    (n + 1/3)·0.9 + 1/3 = 10.533…, between 10 and 11 km (type 7 would give 10)."""
+    storms = [Storm(flashes=10, flashes_in_region=10, area_km2=math.pi * (d / 2) ** 2,
+                    duration_min=10.0) for d in range(11, 0, -1)]
+    result = sweep.thunderstorm_statistics(storms, FlashCounts(clustered=110, discarded=0))
+    assert result["diameter_median_km"] == pytest.approx(6.0)
+    assert result["diameter_p90_km"] == pytest.approx(10.0 + 8.0 / 15.0)
 
 
 def test_an_even_number_of_thunderstorms_takes_the_mean_of_the_middle_two():
@@ -62,7 +74,8 @@ def test_a_thunderstorm_without_area_counts_but_has_no_density_or_diameter():
     result = sweep.thunderstorm_statistics(storms, FlashCounts(clustered=15, discarded=0))
     assert result["thunderstorms"] == 2
     assert result["density_median_per_100km2"] == pytest.approx(10.0)
-    assert result["diameter_mean_km"] == pytest.approx(2 * math.sqrt(100 / math.pi))
+    assert result["diameter_median_km"] == pytest.approx(2 * math.sqrt(100 / math.pi))
+    assert result["diameter_p90_km"] == pytest.approx(2 * math.sqrt(100 / math.pi))
     assert result["duration_median_min"] == pytest.approx(15.0)
 
 
@@ -72,7 +85,8 @@ def test_a_run_without_thunderstorms_has_empty_statistics():
     assert result["flashes_isolated"] == 7
     assert result["isolated_pct"] == pytest.approx(100.0)
     assert result["density_median_per_100km2"] is None
-    assert result["diameter_mean_km"] is None
+    assert result["diameter_median_km"] is None
+    assert result["diameter_p90_km"] is None
     assert result["duration_median_min"] is None
 
 
@@ -121,9 +135,11 @@ def test_the_file_has_one_row_per_experiment_with_its_parameters_and_statistics(
     sweep.write_csv(path, {off: 7, limited: 8}, results)
     rows = list(csv.reader(path.open()))
     assert rows[0] == sweep.CSV_COLUMNS
+    diameter = f"{2 * math.sqrt(100 / math.pi):.4f}"
     assert rows[1] == ["7", "15", "15", "20", "", "1", "3", "40", "30", "75.0000", "10.0000",
-                       f"{2 * math.sqrt(100 / math.pi):.4f}", "30.0000"]
-    assert rows[2] == ["8", "10", "15", "20", "40", "0", "3", "40", "40", "100.0000", "", "", ""]
+                       diameter, diameter, "30.0000"]
+    assert rows[2] == ["8", "10", "15", "20", "40", "0", "3", "40", "40", "100.0000", "", "", "",
+                       ""]
 
 
 def test_each_run_logs_its_computation_time(monkeypatch, caplog):

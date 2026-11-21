@@ -58,8 +58,13 @@ Counted in **flashes**, the units Cellsearch clusters, as the article does:
 * ``density_median_per_100km2``: the median over the thunderstorms of
   ``100 · flashes / area``, the area being the article's (``12·√det Σ``, the
   stored ``thunderstorm.area``, in km²), as in the QGIS views.
-* ``diameter_mean_km``: the mean over the thunderstorms of the diameter of the
-  circle of the same area, ``2·√(area / π)``.
+* ``diameter_median_km``, ``diameter_p90_km``: the median and the 90th
+  percentile over the thunderstorms of the diameter of the circle of the same
+  area, ``2·√(area / π)``. The percentile is Hyndman & Fan's (1996) type 8,
+  approximately median-unbiased whatever the distribution
+  (``numpy.percentile(..., method="median_unbiased")``); Hyndman, R. J. & Fan,
+  Y. (1996), Sample quantiles in statistical packages, *The American
+  Statistician* 50(4), 361–365.
 * ``duration_median_min``: the median over the thunderstorms of the time from
   their first flash to their last, in minutes.
 
@@ -417,6 +422,7 @@ def thunderstorm_statistics(storms: list[Storm], counts: FlashCounts) -> dict[st
     isolated = counts.clustered - in_storms
     kept = [storm for storm in storms if 2 * storm.flashes_in_region > storm.flashes]
     with_area = [storm for storm in kept if storm.area_km2]
+    diameters = [2.0 * math.sqrt(storm.area_km2 / math.pi) for storm in with_area]
     return {
         "thunderstorms": len(kept),
         "flashes_discarded_error": counts.discarded,
@@ -425,8 +431,9 @@ def thunderstorm_statistics(storms: list[Storm], counts: FlashCounts) -> dict[st
         "isolated_pct": 100.0 * isolated / counts.clustered if counts.clustered else None,
         "density_median_per_100km2": statistics.median(
             100.0 * storm.flashes / storm.area_km2 for storm in with_area) if with_area else None,
-        "diameter_mean_km": statistics.fmean(
-            2.0 * math.sqrt(storm.area_km2 / math.pi) for storm in with_area) if with_area else None,
+        "diameter_median_km": statistics.median(diameters) if diameters else None,
+        "diameter_p90_km": float(np.percentile(diameters, 90, method="median_unbiased"))
+        if diameters else None,
         "duration_median_min": statistics.median(
             storm.duration_min for storm in kept) if kept else None,
     }
@@ -564,7 +571,7 @@ PARAMETER_COLUMNS = ["attraction_radius_km", "max_waiting_time_min", "inertia",
 #: The statistics, as the CSV file's columns (see the module's docstring).
 STATISTIC_COLUMNS = ["thunderstorms", "flashes_discarded_error", "flashes_clustered",
                      "flashes_isolated", "isolated_pct", "density_median_per_100km2",
-                     "diameter_mean_km", "duration_median_min"]
+                     "diameter_median_km", "diameter_p90_km", "duration_median_min"]
 
 #: The CSV file's columns: the experiment, the parameters swept, its statistics.
 CSV_COLUMNS = ["experiment_id", *PARAMETER_COLUMNS, *STATISTIC_COLUMNS]
