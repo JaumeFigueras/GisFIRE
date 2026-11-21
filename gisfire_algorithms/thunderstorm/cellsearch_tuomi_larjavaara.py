@@ -38,6 +38,7 @@ seconds), so a boundary given exactly (15 km against 15 000 m, 15 min against
 from __future__ import annotations
 
 import math
+import time
 from collections import deque
 from collections.abc import Callable
 from dataclasses import asdict
@@ -194,6 +195,15 @@ class CellsearchResult:
     next_label : int
         The first label for a following run, so labels stay unique when the
         input is processed in chunks.
+    wall_time_s : float
+        The computation time of the search, in seconds of wall-clock time
+        (``time.perf_counter``): from the call to the result, so the E_max
+        filter, the search and the summary, plus whatever the ``progress`` and
+        ``is_cancelled`` callbacks take. Building the flashes, done by the
+        caller before, is not included.
+    cpu_time_s : float
+        The same span in CPU time of the process (``time.process_time``),
+        which depends less on the other work of the machine.
     """
 
     label: np.ndarray
@@ -204,6 +214,8 @@ class CellsearchResult:
     summary: dict[str, Any]
     open_at_end: int
     next_label: int
+    wall_time_s: float
+    cpu_time_s: float
 
     def kept_flash_mask(self) -> np.ndarray:
         """``True`` for the flashes that belong to a kept cell."""
@@ -289,6 +301,8 @@ def cellsearch(
     Returns
     -------
     CellsearchResult
+        With the computation time of the call (``wall_time_s``,
+        ``cpu_time_s``).
 
     Raises
     ------
@@ -297,6 +311,8 @@ def cellsearch(
     ValueError
         If ``first_label`` is not an integer of at least 1.
     """
+    wall_start = time.perf_counter()
+    cpu_start = time.process_time()
     first_label = _integer("first_label", first_label, 1)
     total = len(flashes)
     radius_m = params.attraction_radius_km * 1000.0
@@ -373,15 +389,18 @@ def cellsearch(
     )
     for array in (label, sequence, centre_x, centre_y, kept_labels):
         array.setflags(write=False)
+    summary = _summary(sizes, params.min_flashes, total, discarded)
     return CellsearchResult(
         label=label,
         sequence=sequence,
         centre_x=centre_x,
         centre_y=centre_y,
         kept_labels=kept_labels,
-        summary=_summary(sizes, params.min_flashes, total, discarded),
+        summary=summary,
         open_at_end=len(open_cells),
         next_label=next_label,
+        wall_time_s=time.perf_counter() - wall_start,
+        cpu_time_s=time.process_time() - cpu_start,
     )
 
 

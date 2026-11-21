@@ -9,6 +9,7 @@ cases use values that are exact in binary (15 000 m, 900 s), so ``d = R`` and
 
 import json
 import math
+import time
 
 import numpy as np
 import pytest
@@ -341,6 +342,25 @@ def test_result_arrays_are_read_only():
     result = run([(0.0, 0.0, 0.0)])
     with pytest.raises(ValueError):
         result.label[0] = 5
+
+
+@pytest.mark.parametrize("rows", [[], synthetic_day(seed=3)], ids=["empty", "day"])
+def test_the_computation_time_is_returned_out_of_the_summary(rows):
+    result = run(rows)
+    for seconds in (result.wall_time_s, result.cpu_time_s):
+        assert isinstance(seconds, float)
+        assert math.isfinite(seconds) and seconds >= 0.0
+    assert not {"wall_time_s", "cpu_time_s"} & result.summary.keys()
+
+
+def test_the_computation_time_counts_the_callbacks():
+    rows = [(float(k), 0.0, 0.0) for k in range(2 * CHECK_EVERY + 5)]
+    pause_s = 0.05
+    result = cellsearch(make_flashes(rows), CellsearchParameters(),
+                        progress=lambda done, total: time.sleep(pause_s))
+    # progress runs three times (two checks and the end); sleeping takes no CPU.
+    assert result.wall_time_s >= 3 * pause_s
+    assert result.cpu_time_s < result.wall_time_s
 
 
 # --- parameters ------------------------------------------------------------------

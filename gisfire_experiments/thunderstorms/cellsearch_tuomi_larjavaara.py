@@ -1,16 +1,31 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Sensitivity analysis of Cellsearch (Tuomi & Larjavaara 2005).
+"""Sensitivity and time analyses of Cellsearch (Tuomi & Larjavaara 2005).
 
 ::
 
     python3 -m gisfire_experiments.thunderstorms.cellsearch_tuomi_larjavaara \\
-        --provider FMI --from 2018-07-01 --to 2018-08-01
+        --sensitivity --provider FMI --from 2018-07-01 --to 2018-08-01
+    python3 -m gisfire_experiments.thunderstorms.cellsearch_tuomi_larjavaara \\
+        --time --iterations 17 --provider FMI --from 2018-07-01 --to 2018-08-01
+
+Both analyses run the same grid of parameters (below) over the period; one of
+``--sensitivity`` and ``--time`` is required:
+
+* ``--sensitivity`` stores every combination in the database, through the
+  thunderstorm builder, and writes the statistics of its thunderstorms (see
+  `Sensitivity analysis`_).
+* ``--time`` writes nothing to the database: it reads the strokes once and
+  times ``cellsearch()`` on every combination ``--iterations`` times (default
+  10), and writes the time statistics (see `Time analysis`_).
 
 Each parameter swept has its own list of values below. The other parameters
 (E_max, N_min and the CRS) keep their defaults; the CRS is the provider's. Only
 cloud-to-ground strokes are clustered, the builder's default, as in the
 article.
+
+Sensitivity analysis
+--------------------
 
 Every combination of the lists is one run of the thunderstorm builder
 (:mod:`src.apps.thunderstorms.build_thunderstorms`) over the period, stored as
@@ -18,6 +33,9 @@ one thunderstorm experiment. A combination already stored for the period, from
 an earlier run of this script, is not run again, so an interrupted analysis
 goes on where it stopped. A run that fails stops the analysis; it stays stored
 as ``failed``, and is reported, until it is deleted.
+
+Each run's Cellsearch computation time (wall-clock and CPU seconds of the
+algorithm alone, from the builder) is logged; it is not stored yet.
 
 At the end the experiment ids of all the combinations are read back from the
 database, and the complete ones are written to a CSV file in ``--output-dir``,
@@ -57,6 +75,34 @@ thunderstorm is when more than half of its flashes are. The flash counts are
 then those of the country's flashes, recounted from the strokes as the builder
 groups them; without ``--country`` they are the runs' own summaries.
 
+Time analysis
+-------------
+
+The strokes of the period are read once, in a read-only transaction, with the
+builder's reader (ground strokes, the provider's CRS), and grouped into flashes
+once: the same flashes the builder clusters. Then ``cellsearch()`` runs over
+them, in memory, for every combination, and its own computation time is taken
+(``wall_time_s`` and ``cpu_time_s`` of its result: the search alone, not the
+reading nor the flashes). Nothing is written to the database.
+
+The runs go round the grid: a first round warms up and is left out of
+everything; then ``--iterations`` timed rounds, every combination once in each,
+so that a change in the load of the machine spreads over all the combinations
+instead of falling on a few. Two CSV files are written at the end, named as the
+sensitivity's with ``_times`` or ``_times_runs`` after the algorithm:
+
+* ``..._times_...``: one row per combination, with the parameters swept,
+  ``iterations``, the minimum, mean, median, sample standard deviation and
+  maximum of the wall-clock seconds (``wall_min_s``, ``wall_mean_s``,
+  ``wall_median_s``, ``wall_std_s``, ``wall_max_s``; the standard deviation
+  needs two iterations), the same of the CPU seconds (``cpu_...``), and
+  ``host``, the machine they were measured on;
+* ``..._times_runs_...``: every timed run, one row each, in the order they ran
+  (round by round), with the parameters swept, ``iteration`` (from 1),
+  ``wall_s``, ``cpu_s`` and ``host``.
+
+``--country`` does not apply: the time is that of the whole run.
+
 Database settings come from the environment (``.env``, see
 :mod:`src.settings`); every one of them can be overridden with a command-line
 argument.
@@ -71,6 +117,7 @@ import itertools
 import logging
 import math
 import os
+import platform
 import statistics
 import sys
 
@@ -88,6 +135,9 @@ from sqlalchemy import text
 import src.settings  # noqa: F401  (imported for the side effect of loading .env)
 
 from gisfire_algorithms.thunderstorm import CellsearchParameters
+from gisfire_algorithms.thunderstorm import Flashes
+from gisfire_algorithms.thunderstorm import Strokes
+from gisfire_algorithms.thunderstorm import cellsearch
 from gisfire_algorithms.thunderstorm import discard_by_error
 from gisfire_algorithms.thunderstorm import strokes_to_flashes
 from src.apps.imports import common
@@ -101,6 +151,7 @@ from src.apps.thunderstorms.build_thunderstorms import parse_instant
 from src.apps.thunderstorms.build_thunderstorms import pieces
 from src.apps.thunderstorms.build_thunderstorms import provider_id
 from src.apps.thunderstorms.readers import READERS
+from src.apps.thunderstorms.readers import strokes_from_rows
 
 #: The algorithm, by its name in the builder's ``ALGORITHMS``.
 ALGORITHM = "cellsearch_tuomi_larjavaara"
@@ -117,14 +168,27 @@ INERTIAS = [10, 20, 30, 40, 60, 80]
 #: C, the time-distance limit, in min·km; ``None`` turns the condition off.
 TIME_DISTANCE_LIMITS_MIN_KM = [None, 10, 20, 40, 80, 160]
 
+#: How many timed runs of each combination ``--time`` makes by default.
+ITERATIONS = 10
+
 
 def parse_arguments(argv: list[str] | None = None) -> argparse.Namespace:
-    """The provider, the period and the database settings."""
+    """The analysis, the provider, the period and the database settings."""
     parser = argparse.ArgumentParser(
-        description="Sensitivity analysis of Cellsearch over one provider's strokes.",
+        description="Sensitivity or time analysis of Cellsearch over one provider's strokes.",
         epilog="The period is half-open, [from, to); an instant with no offset is UTC. "
                "Database settings not given here are read from the environment (.env).",
     )
+    analysis = parser.add_mutually_exclusive_group(required=True)
+    analysis.add_argument("--sensitivity", action="store_true",
+                          help="store every combination in the database and write the "
+                               "statistics of its thunderstorms")
+    analysis.add_argument("--time", action="store_true",
+                          help="time cellsearch() on every combination, writing nothing to "
+                               "the database, and write the time statistics")
+    parser.add_argument("--iterations", type=int, default=None, metavar="N",
+                        help=f"--time only: the timed runs of each combination, after one "
+                             f"warm-up run (default: {ITERATIONS})")
     parser.add_argument("--provider", required=True, choices=sorted(READERS),
                         help="whose strokes to cluster")
     parser.add_argument("--from", dest="start", required=True, type=parse_instant,
@@ -132,16 +196,26 @@ def parse_arguments(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--to", dest="end", required=True, type=parse_instant,
                         help="end of the period (excluded)")
     parser.add_argument("--country", default=None,
-                        help="compute the statistics over this country only (a level-0 "
-                             "boundary name, e.g. Finland); the runs still cluster the "
-                             "provider's whole area")
+                        help="--sensitivity only: compute the statistics over this country "
+                             "only (a level-0 boundary name, e.g. Finland); the runs still "
+                             "cluster the provider's whole area")
     parser.add_argument("--output-dir", type=Path, default=Path("."),
                         help="where the CSV file goes (default: the current directory)")
     parser.add_argument("--log-level", default=os.getenv("GISFIRE_LOG_LEVEL", "INFO"),
                         choices=["CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG"],
                         help="verbosity (env: GISFIRE_LOG_LEVEL, default INFO)")
     common.add_database_arguments(parser)
-    return parser.parse_args(argv)
+    args = parser.parse_args(argv)
+    if args.sensitivity and args.iterations is not None:
+        parser.error("--iterations goes with --time")
+    if args.time:
+        if args.country is not None:
+            parser.error("--country goes with --sensitivity: the time is that of the whole run")
+        if args.iterations is None:
+            args.iterations = ITERATIONS
+        elif args.iterations < 1:
+            parser.error("--iterations must be at least 1")
+    return args
 
 
 def connect(args: argparse.Namespace, logger: logging.Logger) -> tuple[Engine, int]:
@@ -197,10 +271,13 @@ def run_grid(engine: Engine, data_provider_id: int, provider: str,
             continue
         logger.info("Combination %d of %d (%s)", number, len(grid), describe(parameters))
         try:
-            build_thunderstorms(engine, provider, ALGORITHM, parameters, start, end, logger)
+            _, wall_time_s, cpu_time_s = build_thunderstorms(engine, provider, ALGORITHM,
+                                                             parameters, start, end, logger)
         except Exception as error:
             raise RuntimeError(f"Combination {number} ({describe(parameters)}) failed: "
                                f"{error}") from error
+        logger.info("Combination %d of %d (%s): computation time %.4f s wall, %.4f s CPU",
+                    number, len(grid), describe(parameters), wall_time_s, cpu_time_s)
 
 
 def experiment_ids(engine: Engine, data_provider_id: int, provider: str,
@@ -380,22 +457,104 @@ def experiment_statistics(engine: Engine, data_provider_id: int, provider: str,
 
 
 # --------------------------------------------------------------------------
-# The CSV file
+# Time analysis
+# --------------------------------------------------------------------------
+
+def read_flashes(engine: Engine, data_provider_id: int, provider: str,
+                 start: datetime.datetime, end: datetime.datetime) -> Flashes:
+    """The flashes of ``[start, end)`` the builder clusters, read in a read-only transaction."""
+    reader = READERS[provider]
+    with engine.connect() as connection:
+        connection.execute(text("SET TRANSACTION READ ONLY"))
+        batches = list(reader.read(connection, data_provider_id, start, end, reader.default_srid))
+        connection.rollback()
+    if not batches:
+        return strokes_to_flashes(strokes_from_rows([]))
+    return strokes_to_flashes(Strokes(*(np.concatenate([getattr(batch, name) for batch in batches])
+                                        for name in ("ids", "flash_keys", "t", "x", "y", "error"))))
+
+
+def time_runs(flashes: Flashes, grid: list[CellsearchParameters], iterations: int,
+              logger: logging.Logger) -> dict[CellsearchParameters, list[tuple[float, float]]]:
+    """For every combination, the ``(wall, CPU)`` seconds of its ``iterations`` timed runs.
+
+    Round 0 runs every combination once to warm up and is not counted; then
+    every round runs every combination once, in the grid's order.
+    """
+    samples: dict[CellsearchParameters, list[tuple[float, float]]] = {
+        parameters: [] for parameters in grid}
+    for iteration in range(iterations + 1):
+        for parameters in grid:
+            result = cellsearch(flashes, parameters)
+            if iteration:
+                samples[parameters].append((result.wall_time_s, result.cpu_time_s))
+        if iteration:
+            logger.info("Iteration %d of %d done", iteration, iterations)
+        else:
+            logger.info("Warm-up round done")
+    return samples
+
+
+def time_statistics(samples: list[tuple[float, float]]) -> dict[str, Any]:
+    """The minimum, mean, median, sample standard deviation and maximum of the
+    wall and CPU seconds; the standard deviation is ``None`` for one sample."""
+    result: dict[str, Any] = {"iterations": len(samples)}
+    for clock, seconds in (("wall", [wall for wall, _ in samples]),
+                           ("cpu", [cpu for _, cpu in samples])):
+        result |= {
+            f"{clock}_min_s": min(seconds),
+            f"{clock}_mean_s": statistics.fmean(seconds),
+            f"{clock}_median_s": statistics.median(seconds),
+            f"{clock}_std_s": statistics.stdev(seconds) if len(seconds) > 1 else None,
+            f"{clock}_max_s": max(seconds),
+        }
+    return result
+
+
+def time_analysis(engine: Engine, data_provider_id: int, args: argparse.Namespace,
+                  grid: list[CellsearchParameters], logger: logging.Logger) -> int:
+    """Time every combination and write the two CSV files; nothing goes to the database."""
+    flashes = read_flashes(engine, data_provider_id, args.provider, args.start, args.end)
+    logger.info("%d flash(es) read; timing cellsearch() %d time(s) on every combination, "
+                "after a warm-up round", len(flashes), args.iterations)
+    samples = time_runs(flashes, grid, args.iterations, logger)
+    host = platform.node()
+    results = {parameters: {**time_statistics(runs), "host": host}
+               for parameters, runs in samples.items()}
+    path = args.output_dir / csv_filename(args.provider, args.start, args.end, suffix="times")
+    runs_path = args.output_dir / csv_filename(args.provider, args.start, args.end,
+                                               suffix="times_runs")
+    try:
+        write_time_csv(path, results)
+        write_time_runs_csv(runs_path, samples, host)
+    except OSError as error:
+        logger.error("Cannot write %s: %s", error.filename, error)
+        return 1
+    logger.info("Wrote %s (%d combinations) and %s (%d runs)", path, len(results), runs_path,
+                sum(len(runs) for runs in samples.values()))
+    return 0
+
+
+# --------------------------------------------------------------------------
+# The CSV files
 # --------------------------------------------------------------------------
 
 def csv_filename(provider: str, start: datetime.datetime, end: datetime.datetime,
-                 country: str | None = None) -> str:
+                 country: str | None = None, suffix: str = "") -> str:
     """``cellsearch_tuomi_larjavaara_FMI_20180703T000000Z_20180704T000000Z.csv``.
 
-    The algorithm, the provider as given to ``--provider``, the country if one
-    is given (spaces as ``_``: ``..._FMI_Finland_...``), and the period
-    ``[start, end)`` in UTC, in the ISO 8601 basic format (no colons).
+    The algorithm (followed by ``_`` and ``suffix`` if given: ``times`` and
+    ``times_runs`` for the time analysis), the provider as given to
+    ``--provider``, the country if one is given (spaces as ``_``:
+    ``..._FMI_Finland_...``), and the period ``[start, end)`` in UTC, in the
+    ISO 8601 basic format (no colons).
     """
     def instant(value: datetime.datetime) -> str:
         return value.astimezone(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
 
+    analysis = f"{ALGORITHM}_{suffix}" if suffix else ALGORITHM
     where = provider if country is None else f"{provider}_{country.replace(' ', '_')}"
-    return f"{ALGORITHM}_{where}_{instant(start)}_{instant(end)}.csv"
+    return f"{analysis}_{where}_{instant(start)}_{instant(end)}.csv"
 
 
 #: The parameters swept, as the CSV file's columns.
@@ -410,35 +569,80 @@ STATISTIC_COLUMNS = ["thunderstorms", "flashes_discarded_error", "flashes_cluste
 #: The CSV file's columns: the experiment, the parameters swept, its statistics.
 CSV_COLUMNS = ["experiment_id", *PARAMETER_COLUMNS, *STATISTIC_COLUMNS]
 
+#: The time statistics, as the time analysis' summary file's columns.
+TIME_COLUMNS = ["iterations",
+                *(f"{clock}_{statistic}_s" for clock in ("wall", "cpu")
+                  for statistic in ("min", "mean", "median", "std", "max")),
+                "host"]
 
-def _cell(value: Any) -> str:
-    """A CSV cell: empty for ``None``, a float to 4 decimals, anything else as is."""
+#: The time analysis' summary file's columns: the parameters swept, the time statistics.
+TIME_CSV_COLUMNS = [*PARAMETER_COLUMNS, *TIME_COLUMNS]
+
+#: The time analysis' runs file's columns: the parameters swept, one timed run.
+TIME_RUNS_CSV_COLUMNS = [*PARAMETER_COLUMNS, "iteration", "wall_s", "cpu_s", "host"]
+
+
+def _cell(value: Any, decimals: int = 4) -> str:
+    """A CSV cell: empty for ``None``, a float to ``decimals`` decimals, anything else as is."""
     if value is None:
         return ""
     if isinstance(value, float):
-        return f"{value:.4f}"
+        return f"{value:.{decimals}f}"
     return str(value)
+
+
+def _parameter_cells(parameters: CellsearchParameters) -> list[Any]:
+    """The parameters swept, as cells; C off is an empty cell."""
+    limit = parameters.time_distance_limit_min_km
+    return [f"{parameters.attraction_radius_km:g}", f"{parameters.max_waiting_time_min:g}",
+            parameters.inertia, "" if limit is None else f"{limit:g}"]
+
+
+def _write(path: Path, columns: list[str], rows: list[list[Any]]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", newline="", encoding="utf-8") as file:
+        writer = csv.writer(file)
+        writer.writerow(columns)
+        writer.writerows(rows)
 
 
 def write_csv(path: Path, experiments: dict[CellsearchParameters, int],
               results: dict[CellsearchParameters, dict[str, Any]]) -> None:
-    """One row per experiment, in the order given; C off is an empty cell."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", newline="", encoding="utf-8") as file:
-        writer = csv.writer(file)
-        writer.writerow(CSV_COLUMNS)
-        for parameters, experiment_id in experiments.items():
-            limit = parameters.time_distance_limit_min_km
-            writer.writerow([experiment_id, f"{parameters.attraction_radius_km:g}",
-                             f"{parameters.max_waiting_time_min:g}", parameters.inertia,
-                             "" if limit is None else f"{limit:g}",
-                             *(_cell(results[parameters][column]) for column in STATISTIC_COLUMNS)])
+    """The sensitivity analysis: one row per experiment, in the order given."""
+    _write(path, CSV_COLUMNS, [
+        [experiment_id, *_parameter_cells(parameters),
+         *(_cell(results[parameters][column]) for column in STATISTIC_COLUMNS)]
+        for parameters, experiment_id in experiments.items()])
+
+
+def write_time_csv(path: Path, results: dict[CellsearchParameters, dict[str, Any]]) -> None:
+    """The time analysis' summary: one row per combination, in the order given;
+    seconds to 6 decimals."""
+    _write(path, TIME_CSV_COLUMNS, [
+        [*_parameter_cells(parameters),
+         *(_cell(results[parameters][column], decimals=6) for column in TIME_COLUMNS)]
+        for parameters in results])
+
+
+def write_time_runs_csv(path: Path, samples: dict[CellsearchParameters, list[tuple[float, float]]],
+                        host: str) -> None:
+    """The time analysis' runs: one row per timed run, in the order they ran (round by
+    round, the combinations in the order given); seconds to 6 decimals.
+
+    Every combination has the same number of runs, as :func:`time_runs` makes them.
+    """
+    iterations = len(next(iter(samples.values()), []))
+    _write(path, TIME_RUNS_CSV_COLUMNS, [
+        [*_parameter_cells(parameters), iteration + 1, _cell(runs[iteration][0], decimals=6),
+         _cell(runs[iteration][1], decimals=6), host]
+        for iteration in range(iterations)
+        for parameters, runs in samples.items()])
 
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_arguments(argv)
     logging.basicConfig(level=args.log_level, format=LOG_FORMAT)
-    logger = logging.getLogger("cellsearch-sensitivity")
+    logger = logging.getLogger("cellsearch-time" if args.time else "cellsearch-sensitivity")
     if args.end <= args.start:
         logger.error("--to must be later than --from")
         return 1
@@ -459,6 +663,8 @@ def main(argv: list[str] | None = None) -> int:
         grid = parameter_grid(READERS[args.provider].default_srid)
         logger.info("%d combinations over %s strokes (data provider %d), %s to %s", len(grid),
                     args.provider, data_provider_id, args.start.isoformat(), args.end.isoformat())
+        if args.time:
+            return time_analysis(engine, data_provider_id, args, grid, logger)
         try:
             run_grid(engine, data_provider_id, args.provider, grid, args.start, args.end, logger)
         except RuntimeError as error:

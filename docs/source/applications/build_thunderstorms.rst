@@ -263,6 +263,25 @@ of which 46 have at least five flashes and hold 2,130 flashes; no cell is near e
 of the day. The size classes are in the stored summary. A run over the whole archive has
 not been timed yet.
 
+The last line of a run is the **algorithm's computation time**, added up over the
+pieces: the clustering alone (for Cellsearch, its ``cellsearch()`` calls), in seconds of
+wall-clock time and of the process's CPU time. The ``in 1s`` of the line above is the
+whole run, reading the strokes and writing the thunderstorms included. FMI's regression
+day (1,481 ground strokes, 900 flashes), with the defaults, gives:
+
+.. code-block:: text
+
+   INFO CELLSEARCH_TUOMI_LARJAVAARA_2005 computation time: 0.0013 s wall, 0.0013 s CPU, over 1 piece(s)
+
+The time is also returned by ``build_thunderstorms()``, as
+``(summary, wall_time_s, cpu_time_s)``, and the Cellsearch sweep's ``--sensitivity``
+analysis logs it for each combination. It is **not stored**: the experiment's summary
+does not hold it. To measure it properly, the sweep's ``--time`` analysis runs
+``cellsearch()`` over the same flashes ``--iterations`` times per combination, without
+the builder and without writing to the database, and writes every run to one CSV file
+and the minimum, mean, median, standard deviation and maximum per combination to another
+(see ``gisfire_experiments/thunderstorms/cellsearch_tuomi_larjavaara.py``).
+
 In QGIS
 -------
 
