@@ -38,7 +38,10 @@ The zone
 --------
 
 Each network has a fixed nominal region (:data:`REGIONS`): FMI OCHA's Finland,
-MeteoCat IGN's Catalonia, USWFS the Census Bureau's Alaska. The **zone** is
+MeteoCat IGN's Catalonia, USWFS the Census Bureau's Alaska. Finland is OCHA's
+``FIN`` alone: the Åland Islands, which OCHA publishes as an entity of their own
+(``ALA``), are not part of the region, and count only where they lie within 50 km
+of it (decided on 2026-11-22). The **zone** is
 everything within 50 km of it (:data:`ZONE_BUFFER_M`), measured in the network's
 projected CRS (the reader's ``default_srid``: EPSG:3067, 25831, 3338). A stroke is
 in the zone when its distance to the region is at most 50 km, tested with shapely
@@ -84,13 +87,23 @@ The files
 ``start`` and ``end`` (its first and last zone flashes, UTC, ISO 8601),
 ``duration_s``, ``flashes`` and ``strokes``.
 
-``<stem>_quartiles.csv`` beside it: one row, the number of kept ``episodes`` and the
+``<stem>_quartiles.csv`` beside it: one row, the number of kept ``episodes``, the
 minimum, quartiles and maximum of their flashes (``flashes_min``, ``flashes_q1``,
 ``flashes_median``, ``flashes_q3``, ``flashes_max``), with NumPy's default method
-(linear interpolation, Hyndman & Fan's type 7). Empty cells when no episode is kept.
+(linear interpolation, Hyndman & Fan's type 7), and how many episodes each quarter
+holds: ``episodes_to_q1`` (flashes ≤ Q1), ``episodes_q1_to_median`` (Q1 < flashes ≤
+median), ``episodes_median_to_q3`` (median < flashes ≤ Q3) and
+``episodes_q3_to_max`` (flashes > Q3). An episode on a quartile is in the lower
+quarter. Each quarter holds about a quarter of the episodes by construction; the
+counts differ when the number of episodes is not a multiple of 4, or when episodes
+tie at a quartile. Empty cells when no episode is kept.
 
 All the strokes of the period are held in memory: a year at a time is the natural
-run.
+run. While they are read, the progress is shown in hours of the period read
+(``Hours read: ...``), since the strokes come in time order: a bar redrawn in
+place on a terminal; a log line every 30 days of the period
+(:data:`PROGRESS_EVERY_H`), and one at the end, when the output goes to a file. The
+reads past ``--to`` log a line each.
 
 An example: FMI 2018
 --------------------
@@ -107,8 +120,8 @@ The first rows of ``fmi_2018.csv``::
 
 and ``fmi_2018_quartiles.csv``::
 
-    episodes,flashes_min,flashes_q1,flashes_median,flashes_q3,flashes_max
-    38,110.00,180.75,619.50,2425.00,68377.00
+    episodes,flashes_min,flashes_q1,flashes_median,flashes_q3,flashes_max,episodes_to_q1,episodes_q1_to_median,episodes_median_to_q3,episodes_q3_to_max
+    38,110.00,180.75,619.50,2425.00,68377.00,10,9,9,10
 
 The largest episode, 2018-08-01 06:56 to 08-06 18:03 UTC, holds 68 377 zone
 flashes over five and a half days: with G = 5 h the zone was never silent for
@@ -121,6 +134,7 @@ import argparse
 import csv
 import datetime
 import logging
+import math
 import os
 import sys
 
@@ -163,6 +177,10 @@ MIN_FLASHES = 100
 #: How much further each read reaches when an episode is still running at ``--to``.
 FOLLOW_STEP = datetime.timedelta(days=1)
 
+#: Hours of the period read between two progress log lines, when the output is not a
+#: terminal (on a terminal the bar is redrawn in place instead).
+PROGRESS_EVERY_H = 30 * 24
+
 
 @dataclass(frozen=True)
 class Region:
@@ -191,6 +209,8 @@ class Region:
 #: Each network's nominal region (see the thunderstorm rules), by the name given to
 #: ``--provider``.
 REGIONS = {
+    # OCHA's Finland alone: the Åland Islands are an OCHA entity of their own (ALA),
+    # and are not part of the region (decided on 2026-11-22).
     finland_fmi.PROVIDER_NAME: Region(
         "ocha_admin_boundary", "p.iso_3", "FIN", "OCHA's Finland (iso_3 FIN)"),
     catalonia_meteocat.PROVIDER_NAME: Region(
@@ -219,7 +239,8 @@ EPISODE_COLUMNS = ["episode", "start", "end", "duration_s", "flashes", "strokes"
 
 #: The quartiles file's columns.
 QUARTILE_COLUMNS = ["episodes", "flashes_min", "flashes_q1", "flashes_median", "flashes_q3",
-                    "flashes_max"]
+                    "flashes_max", "episodes_to_q1", "episodes_q1_to_median",
+                    "episodes_median_to_q3", "episodes_q3_to_max"]
 
 
 @dataclass(frozen=True)
@@ -304,14 +325,23 @@ def concatenate(parts: list[Strokes]) -> Strokes:
 
 
 def read_strokes(connection: Connection, provider: str, data_provider_id: int,
-                 start: datetime.datetime, end: datetime.datetime,
-                 region: shapely.Geometry) -> tuple[Strokes, np.ndarray]:
-    """The ground strokes of ``[start, end)`` and, for each, whether it is in the zone."""
+                 start: datetime.datetime, end: datetime.datetime, region: shapely.Geometry,
+                 progress: common.ProgressReporter | None = None) -> tuple[Strokes, np.ndarray]:
+    """The ground strokes of ``[start, end)`` and, for each, whether it is in the zone.
+
+    ``progress``, if given, counts the whole hours from ``start`` that the batches have
+    reached (they come in time order), and is finished at ``end``.
+    """
     reader = READERS[provider]
     parts, inside = [], []
     for batch in reader.read(connection, data_provider_id, start, end, reader.default_srid):
         parts.append(batch)
         inside.append(shapely.dwithin(region, shapely.points(batch.x, batch.y), ZONE_BUFFER_M))
+        if progress is not None:
+            progress.advance(int((batch.t[-1] - start.timestamp()) // 3600) - progress.count)
+    if progress is not None:
+        progress.advance(progress.total - progress.count)
+        progress.finish()
     return concatenate(parts), (np.concatenate(inside) if inside else np.empty(0, dtype=bool))
 
 
@@ -364,8 +394,11 @@ def period_episodes(engine: Engine, provider: str, data_provider_id: int,
     start_s, end_s = start.timestamp(), end.timestamp()
     with engine.connect() as connection:
         connection.execute(text("SET TRANSACTION READ ONLY"))
+        hours = math.ceil((end - (start - gap)).total_seconds() / 3600)
+        progress = common.ProgressReporter(hours, "Hours read", logger,
+                                           log_every=PROGRESS_EVERY_H)
         strokes, inside = read_strokes(connection, provider, data_provider_id, start - gap, end,
-                                       region)
+                                       region, progress)
         logger.info("%d ground stroke(s) read from %s, %d in the zone", len(strokes),
                     (start - gap).isoformat(), int(inside.sum()))
         read_end = end
@@ -414,6 +447,16 @@ def quartiles(episodes: list[Episode]) -> list[float]:
             np.percentile([episode.flashes for episode in episodes], [0, 25, 50, 75, 100])]
 
 
+def quarter_counts(episodes: list[Episode], values: list[float]) -> list[int]:
+    """How many episodes each quarter holds, from the :func:`quartiles` ``values``.
+
+    The quarters are flashes ≤ Q1, Q1 < flashes ≤ median, median < flashes ≤ Q3 and
+    flashes > Q3: an episode on a quartile is in the lower quarter.
+    """
+    flashes = [episode.flashes for episode in episodes]
+    return np.bincount(np.searchsorted(values[1:4], flashes, side="left"), minlength=4).tolist()
+
+
 def quartiles_path(path: Path) -> Path:
     """``episodes.csv`` → ``episodes_quartiles.csv``, beside it."""
     return path.with_name(f"{path.stem}_quartiles{path.suffix}")
@@ -433,7 +476,8 @@ def write_files(path: Path, episodes: list[Episode]) -> None:
     with quartiles_path(path).open("w", newline="", encoding="utf-8") as file:
         writer = csv.writer(file)
         writer.writerow(QUARTILE_COLUMNS)
-        writer.writerow([len(episodes), *(f"{value:.2f}" for value in values)]
+        writer.writerow([len(episodes), *(f"{value:.2f}" for value in values),
+                         *quarter_counts(episodes, values)]
                         if values else [0, *[""] * (len(QUARTILE_COLUMNS) - 1)])
 
 

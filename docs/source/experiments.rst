@@ -29,9 +29,9 @@ its nominal region (see :doc:`algorithms/thunderstorm_rules`), before any thunde
 built.
 
 :doc:`experiments/lightning_episodes`
-    The episodes of rule 1 over a period, with the flashes and strokes of each and the
-    quartiles of the episodes' flashes: the tool to set *G* with and to size the
-    episodes of each network. Read-only.
+    The episodes of rule 1 over a period, with the flashes and strokes of each, the
+    quartiles of the episodes' flashes and the episodes in each quarter: the tool to set
+    *G* with and to size the episodes of each network. Read-only.
 
 .. toctree::
    :maxdepth: 1

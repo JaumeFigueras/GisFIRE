@@ -5,7 +5,7 @@ The lightning **episodes** of one network over the zone of its nominal region, a
 of :doc:`../algorithms/thunderstorm_rules` defines them: the zone's flashes cut wherever
 the zone stays silent for longer than *G*. For each episode the study writes its span and
 counts its zone flashes and their strokes in the zone; it also writes the minimum,
-quartiles and maximum of the episodes' flashes.
+quartiles and maximum of the episodes' flashes, and how many episodes each quarter holds.
 
 It is the tool to set *G*, which the rules leave to a study of its own: run it over the
 same period once per value of *G* and compare how many episodes each gives and how large

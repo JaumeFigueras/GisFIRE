@@ -101,6 +101,19 @@ def test_the_quartiles_use_numpys_default_interpolation():
     assert study.quartiles([]) == []
 
 
+def test_each_quarter_counts_its_episodes():
+    episodes = [Episode(0.0, 1.0, flashes, 0) for flashes in (300, 100, 1000, 200)]
+    assert study.quarter_counts(episodes, study.quartiles(episodes)) == [1, 1, 1, 1]
+
+
+def test_an_episode_on_a_quartile_is_in_the_lower_quarter():
+    """Flashes 1 to 5: Q1 = 2, median 3, Q3 = 4, each one an episode's count."""
+    episodes = [Episode(0.0, 1.0, flashes, 0) for flashes in (1, 2, 3, 4, 5)]
+    values = study.quartiles(episodes)
+    assert values == [1.0, 2.0, 3.0, 4.0, 5.0]
+    assert study.quarter_counts(episodes, values) == [2, 1, 1, 1]
+
+
 def test_the_files(tmp_path):
     path = tmp_path / "out" / "fmi_2018.csv"
     day = datetime.datetime(2018, 7, 3, tzinfo=UTC).timestamp()
@@ -114,7 +127,8 @@ def test_the_files(tmp_path):
          "101", "150"]]
     assert study.quartiles_path(path) == tmp_path / "out" / "fmi_2018_quartiles.csv"
     assert list(csv.reader(study.quartiles_path(path).open())) == [
-        study.QUARTILE_COLUMNS, ["2", "101.00", "105.75", "110.50", "115.25", "120.00"]]
+        study.QUARTILE_COLUMNS,
+        ["2", "101.00", "105.75", "110.50", "115.25", "120.00", "1", "0", "0", "1"]]
 
 
 def test_the_files_with_no_episode(tmp_path):
@@ -122,7 +136,7 @@ def test_the_files_with_no_episode(tmp_path):
     study.write_files(path, [])
     assert list(csv.reader(path.open())) == [study.EPISODE_COLUMNS]
     assert list(csv.reader(study.quartiles_path(path).open())) == [
-        study.QUARTILE_COLUMNS, ["0", "", "", "", "", ""]]
+        study.QUARTILE_COLUMNS, ["0", *[""] * 9]]
 
 
 # --- a day of MeteoCat strokes ---------------------------------------------------------
@@ -262,7 +276,11 @@ def test_the_episodes_of_a_day(database, tmp_path, caplog):
         ["2", "2020-07-13T23:30:00.000+00:00", "2020-07-14T01:10:00.000+00:00", "6000.000",
          "3", "6"]]
     assert list(csv.reader(study.quartiles_path(path).open())) == [
-        study.QUARTILE_COLUMNS, ["2", "3.00", "3.50", "4.00", "4.50", "5.00"]]
+        study.QUARTILE_COLUMNS,
+        ["2", "3.00", "3.50", "4.00", "4.50", "5.00", "1", "0", "0", "1"]]
+    # The read from --from - G (23:00) to --to: 25 hours, logged as a line since the
+    # output is not a terminal.
+    assert "Hours read: 25/25 (100%)" in caplog.text
     assert "The episode running at --from (since 2020-07-12T23:30:00.000+00:00" in caplog.text
     assert "still running: read on to 2020-07-15T00:00:00+00:00" in caplog.text
     assert "3 episode(s) start in the period: 2 kept, 1 with fewer than 3 zone flashes" in \

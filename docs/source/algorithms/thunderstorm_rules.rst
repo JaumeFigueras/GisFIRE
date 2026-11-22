@@ -26,7 +26,8 @@ buffer included, is measured in the network's projected CRS.
      - Nominal region (boundary)
      - Projected CRS
    * - FMI
-     - Finland (the country)
+     - Finland (OCHA's country boundary, ``FIN``, without the Åland Islands, which
+       OCHA publishes as an entity of their own, ``ALA``)
      - EPSG:3067 (ETRS89 / TM35FIN)
    * - Alaska Lightning Detection Network (USWFS)
      - Alaska (the state, from the Census Bureau's cartographic boundary files)
