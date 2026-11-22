@@ -176,18 +176,21 @@ PARAMETERS = CellsearchParameters(min_flashes=MIN_FLASHES)
 
 def run(url: str, *extra: str, start: datetime.datetime = DAY,
         end: datetime.datetime = NEXT_DAY, provider: str = "MeteoCat",
-        min_flashes: int | None = MIN_FLASHES) -> int:
+        min_flashes: int | None = MIN_FLASHES, algorithm: str = ALGORITHM,
+        zone: bool = False) -> int:
     """Run the application exactly as the command line would.
 
     ``--min-flashes MIN_FLASHES`` is passed unless ``extra`` gives its own or
-    ``min_flashes`` is ``None`` (the application's default).
+    ``min_flashes`` is ``None`` (the application's default). ``--all-storms`` is
+    passed unless ``zone``: most of these tests' databases hold no region, and the
+    regression days were frozen with every storm.
     """
     info = url.split("//", 1)[1]
     credentials, host_part = info.split("@", 1)
     user, _, password = credentials.partition(":")
     host_port, _, name = host_part.partition("/")
     host, _, port = host_port.partition(":")
-    argv = ["--provider", provider, "--algorithm", ALGORITHM,
+    argv = ["--provider", provider, "--algorithm", algorithm,
             "--from", start.isoformat(), "--to", end.isoformat(),
             "--db-host", host, "--db-port", port or "5432", "--db-name", name,
             "--db-user", user, "--log-level", "DEBUG"]
@@ -195,6 +198,8 @@ def run(url: str, *extra: str, start: datetime.datetime = DAY,
         argv += ["--db-password", password]
     if min_flashes is not None and "--min-flashes" not in extra:
         argv += ["--min-flashes", str(min_flashes)]
+    if not zone:
+        argv.append("--all-storms")
     return app.main(argv + list(extra))
 
 
@@ -567,7 +572,7 @@ def test_the_computation_time_is_returned_and_not_stored(database, two_storms):
     engine, _ = database
     summary, wall_time_s, cpu_time_s = app.build_thunderstorms(
         engine, "MeteoCat", ALGORITHM, CellsearchParameters(), DAY, NEXT_DAY,
-        logging.getLogger("test"))
+        logging.getLogger("test"), zone=False)
     stored = experiment(engine).summary
     assert summary == stored
     assert not {"wall_time_s", "cpu_time_s"} & stored.keys()
@@ -586,7 +591,7 @@ def test_the_computation_time_is_added_up_over_the_pieces(database, two_storms, 
     with caplog.at_level(logging.INFO):
         _, wall_time_s, cpu_time_s = app.build_thunderstorms(
             engine, "MeteoCat", ALGORITHM, CellsearchParameters(), DAY, NEXT_DAY,
-            logging.getLogger("test"))
+            logging.getLogger("test"), zone=False)
     assert (wall_time_s, cpu_time_s) == (2.0, 1.0)
     assert (f"{app.CELLSEARCH_ALGORITHM} computation time: 2.0000 s wall, 1.0000 s CPU, "
             f"over 2 piece(s)") in caplog.text
@@ -1101,9 +1106,9 @@ def test_include_cloud_strokes_clusters_them_too_as_another_experiment(database,
 def test_the_configuration_records_the_filter():
     start, end = DAY, NEXT_DAY
     ground = app.experiment_configuration(7, "FMI", ALGORITHM, CellsearchParameters(srid=3067),
-                                          start, end)
+                                          start, end, zone=False)
     both = app.experiment_configuration(7, "FMI", ALGORITHM, CellsearchParameters(srid=3067),
-                                        start, end, cloud_to_ground_only=False)
+                                        start, end, cloud_to_ground_only=False, zone=False)
     assert ground["lightning_filter"] == {"cloud_to_ground": True}
     assert both["lightning_filter"] == {}
     assert {key: value for key, value in ground.items() if key != "lightning_filter"} == \

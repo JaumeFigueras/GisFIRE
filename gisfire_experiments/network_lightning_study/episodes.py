@@ -37,12 +37,14 @@ every one of them can be overridden with a command-line argument (``--db-host``,
 The zone
 --------
 
-Each network has a fixed nominal region (:data:`REGIONS`): FMI OCHA's Finland,
-MeteoCat IGN's Catalonia, USWFS the Census Bureau's Alaska. Finland is OCHA's
-``FIN`` alone: the Åland Islands, which OCHA publishes as an entity of their own
+The regions and the zone test are those of :mod:`src.apps.thunderstorms.zones`,
+shared with the thunderstorm builder. Each network has a fixed nominal region
+(:data:`~src.apps.thunderstorms.zones.REGIONS`): FMI OCHA's Finland, MeteoCat
+IGN's Catalonia, USWFS the Census Bureau's Alaska. Finland is OCHA's ``FIN``
+alone: the Åland Islands, which OCHA publishes as an entity of their own
 (``ALA``), are not part of the region, and count only where they lie within 50 km
-of it (decided on 2026-11-22). The **zone** is
-everything within 50 km of it (:data:`ZONE_BUFFER_M`), measured in the network's
+of it (decided on 2026-11-22). The **zone** is everything within 50 km of it
+(:data:`~src.apps.thunderstorms.zones.ZONE_BUFFER_M`), measured in the network's
 projected CRS (the reader's ``default_srid``: EPSG:3067, 25831, 3338). A stroke is
 in the zone when its distance to the region is at most 50 km, tested with shapely
 on the region's polygon: exact, with no buffer polygon to approximate it (a 50 km
@@ -160,15 +162,12 @@ from src.apps.thunderstorms.build_thunderstorms import parse_instant
 from src.apps.thunderstorms.build_thunderstorms import provider_id
 from src.apps.thunderstorms.readers import READERS
 from src.apps.thunderstorms.readers import strokes_from_rows
-from src.providers import alaska_uswfs
-from src.providers import catalonia_meteocat
-from src.providers import finland_fmi
+from src.apps.thunderstorms.zones import REGIONS
+from src.apps.thunderstorms.zones import in_zone
+from src.apps.thunderstorms.zones import read_region
+from src.apps.thunderstorms.zones import zone_stroke_counts
 
 UTC = datetime.timezone.utc
-
-#: The zone: everything within this distance of the region, in metres of the
-#: network's projected CRS.
-ZONE_BUFFER_M = 50_000.0
 
 #: Episodes with fewer zone flashes are left out of both files, unless
 #: ``--min-flashes`` says otherwise.
@@ -181,53 +180,6 @@ FOLLOW_STEP = datetime.timedelta(days=1)
 #: terminal (on a terminal the bar is redrawn in place instead).
 PROGRESS_EVERY_H = 30 * 24
 
-
-@dataclass(frozen=True)
-class Region:
-    """A network's nominal region: one boundary row, found by one column of its source.
-
-    Attributes
-    ----------
-    table : str
-        The boundary's provider table (``ocha_admin_boundary``, ...), joined to
-        ``admin_boundary`` as ``p``.
-    column : str
-        The column that identifies the boundary, qualified: ``p.`` for the
-        provider table, ``b.`` for ``admin_boundary``.
-    value : str
-        Its value.
-    description : str
-        What the boundary is, for the messages.
-    """
-
-    table: str
-    column: str
-    value: str
-    description: str
-
-
-#: Each network's nominal region (see the thunderstorm rules), by the name given to
-#: ``--provider``.
-REGIONS = {
-    # OCHA's Finland alone: the Åland Islands are an OCHA entity of their own (ALA),
-    # and are not part of the region (decided on 2026-11-22).
-    finland_fmi.PROVIDER_NAME: Region(
-        "ocha_admin_boundary", "p.iso_3", "FIN", "OCHA's Finland (iso_3 FIN)"),
-    catalonia_meteocat.PROVIDER_NAME: Region(
-        "ign_admin_boundary", "b.source_id", "34090000000",
-        "IGN's Catalonia (NATCODE 34090000000)"),
-    alaska_uswfs.PROVIDER_NAME: Region(
-        "census_admin_boundary", "b.source_id", "02", "the Census Bureau's Alaska (GEOID 02)"),
-}
-
-#: The region's polygon in the network's projected CRS.
-REGION_SQL = """
-SELECT b.id, ST_AsBinary(ST_Transform(b.geometry, :srid)) AS wkb
-FROM admin_boundary AS b
-JOIN {table} AS p ON p.id = b.id
-WHERE {column} = :value
-ORDER BY b.id
-"""
 
 #: Whether the provider has any stroke at or after an instant.
 DATA_AFTER_SQL = """
@@ -293,29 +245,6 @@ def parse_arguments(argv: list[str] | None = None) -> argparse.Namespace:
 # Reading
 # --------------------------------------------------------------------------
 
-def read_region(connection: Connection, provider: str) -> shapely.Geometry:
-    """The provider's nominal region, in its projected CRS, prepared for the zone test.
-
-    Raises
-    ------
-    RuntimeError
-        If the boundary is not in the database, or more than one row matches (two
-        editions of its source, say).
-    """
-    region = REGIONS[provider]
-    rows = connection.execute(text(REGION_SQL.format(table=region.table, column=region.column)),
-                              {"srid": READERS[provider].default_srid,
-                               "value": region.value}).all()
-    if not rows:
-        raise RuntimeError(f"No boundary for {region.description} in the database: import it first")
-    if len(rows) > 1:
-        raise RuntimeError(f"{len(rows)} boundaries match {region.description} (admin_boundary "
-                           f"ids {', '.join(str(row.id) for row in rows)}): keep one")
-    geometry = shapely.from_wkb(bytes(rows[0].wkb))
-    shapely.prepare(geometry)
-    return geometry
-
-
 def concatenate(parts: list[Strokes]) -> Strokes:
     """The strokes of consecutive reads as one :class:`Strokes`."""
     if not parts:
@@ -336,7 +265,7 @@ def read_strokes(connection: Connection, provider: str, data_provider_id: int,
     parts, inside = [], []
     for batch in reader.read(connection, data_provider_id, start, end, reader.default_srid):
         parts.append(batch)
-        inside.append(shapely.dwithin(region, shapely.points(batch.x, batch.y), ZONE_BUFFER_M))
+        inside.append(in_zone(region, batch.x, batch.y))
         if progress is not None:
             progress.advance(int((batch.t[-1] - start.timestamp()) // 3600) - progress.count)
     if progress is not None:
@@ -356,8 +285,7 @@ def zone_flashes(strokes: Strokes, inside: np.ndarray) -> tuple[np.ndarray, np.n
     its representative stroke's.
     """
     flashes = strokes_to_flashes(strokes)
-    counts = np.bincount(flashes.stroke_flash_index, weights=inside.astype(np.float64),
-                         minlength=len(flashes)).astype(np.int64)
+    counts = zone_stroke_counts(flashes, inside)
     zone = counts > 0
     return flashes.t[zone], counts[zone]
 

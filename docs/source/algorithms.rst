@@ -22,6 +22,7 @@ from::
        chunking.py                     split a time-ordered sequence at quiet gaps
        flash_grouping.py               strokes → flashes, when a network publishes none
        cellsearch_tuomi_larjavaara.py  Cellsearch (Tuomi & Larjavaara 2005)
+       time_distance_galanaki.py       time-distance clustering (Galanaki et al. 2018)
 
 Three rules keep it usable from both sides:
 
@@ -70,6 +71,11 @@ in space and time. Each algorithm has a page of its own:
     the open cell with the closest centre within a radius and a waiting time, or opening
     a new one. Flash-based: each flash is represented by its most accurate stroke.
 
+:doc:`algorithms/time_distance_galanaki`
+    Time-distance clustering (Galanaki et al. 2018): two flashes within a distance *D*
+    and a time difference *T* belong to the same thunderstorm, and so does every flash
+    linked to them by a chain of such pairs. Flash-based, like Cellsearch.
+
 They are run over the database by :doc:`applications/build_thunderstorms`, which stores
 each run as a thunderstorm experiment. Whatever the algorithm, an analysis follows the
 same two rules, on episodes and on which thunderstorms count:
@@ -92,6 +98,7 @@ A flash-based algorithm needs flashes, and one network publishes strokes only:
    :hidden:
 
    algorithms/cellsearch_tuomi_larjavaara
+   algorithms/time_distance_galanaki
    algorithms/flash_grouping_nldn
    algorithms/thunderstorm_rules
 

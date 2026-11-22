@@ -45,14 +45,28 @@ Thunderstorm experiments
 ``gisfire_experiments/thunderstorms/``: the algorithms that group flashes into
 thunderstorms (see :doc:`algorithms`), run over a grid of their parameters.
 
-:doc:`experiments/cellsearch_tuomi_larjavaara`
-    Cellsearch's sensitivity analysis (every combination of R, T, I and C stored through
-    the thunderstorm builder, and the statistics of its thunderstorms) and its time
-    analysis (the computation time of every combination, nothing written to the
-    database).
+:doc:`experiments/sweep`
+    The sensitivity analysis of an algorithm (every combination of its grid stored
+    through the thunderstorm builder, and the statistics of its thunderstorms) and its
+    time analysis (the computation time of every combination, nothing written to the
+    database), for Cellsearch (R, T, I and C) and the time-distance clustering (D and
+    T).
+
+:doc:`experiments/sobol_indices`
+    The Sobol indices of the sweep's statistics, per episode: how much of each one's
+    variation each parameter explains, alone, with its interactions, and two by two,
+    exact over the sweep's full grid. Reads the sweep's CSV files only.
+
+:doc:`experiments/sobol_chart`
+    The figure of those indices: a panel per KPI, a bar per parameter stacking its
+    first-order index and its interactions, a whisker over the episodes' IQR; a PNG,
+    16 cm wide at 600 dpi, in English or Catalan, with a Word table of the medians
+    (q1–q3).
 
 .. toctree::
    :maxdepth: 1
    :hidden:
 
-   experiments/cellsearch_tuomi_larjavaara
+   experiments/sweep
+   experiments/sobol_indices
+   experiments/sobol_chart

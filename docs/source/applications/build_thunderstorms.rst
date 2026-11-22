@@ -30,6 +30,10 @@ Usage
        --algorithm cellsearch_tuomi_larjavaara
 
    python3 -m src.apps.thunderstorms.build_thunderstorms \
+       --provider FMI --from 2018-07-01 --to 2018-08-01 \
+       --algorithm time_distance_galanaki
+
+   python3 -m src.apps.thunderstorms.build_thunderstorms \
        --algorithm cellsearch_tuomi_larjavaara --help
 
 ``--provider``, ``--from``, ``--to`` and ``--algorithm`` are required.
@@ -40,8 +44,9 @@ Usage
     offset (``2020-07-13T12:00``) is UTC; one with an offset (``2020-07-13T14:00+02:00``)
     is converted.
 ``--algorithm``
-    The algorithm's flags come from its parameters (for Cellsearch, see
-    :doc:`../algorithms/cellsearch_tuomi_larjavaara`): each field becomes a flag named
+    ``cellsearch_tuomi_larjavaara`` (:doc:`../algorithms/cellsearch_tuomi_larjavaara`) or
+    ``time_distance_galanaki`` (:doc:`../algorithms/time_distance_galanaki`).
+    The algorithm's flags come from its parameters: each field becomes a flag named
     without its unit, ``attraction_radius_km`` becoming ``--attraction-radius KM``, with
     the field's type and default. A flag left out takes its default, and the experiment
     stores every parameter, defaults included. ``--algorithm NAME --help`` lists them.
@@ -51,9 +56,14 @@ Usage
     (NAD83 / Alaska Albers) for the Alaska network (``--provider USWFS``).
 ``--include-cloud-strokes``
     Reads the cloud strokes too. By default only **cloud-to-ground strokes** are read, as
-    in Tuomi & Larjavaara's article, whose data were ground flashes. The two are two
+    in the articles of both algorithms, whose data were ground strokes. The two are two
     experiments: the stored ``lightning_filter`` holds ``"cloud_to_ground": true`` for a
     ground-only run, and not for this one.
+``--all-storms``
+    Stores every thunderstorm. By default only the thunderstorms with a **zone flash**
+    are stored, as rule 2 of :doc:`../algorithms/thunderstorm_rules` says (see `The
+    zone`_ below). The two are two experiments: the stored ``lightning_filter`` holds the
+    zone by default, and not with ``--all-storms``.
 ``--dry-run``
     Does everything — reads, clusters, writes — in one transaction and rolls it back, and
     logs what it would have stored. It still connects, and still refuses a configuration
@@ -152,16 +162,34 @@ no polarity filter.
 
 **The strokes are clustered in pieces.** They are cut, about every 200,000 strokes, at a
 quiet gap longer than the algorithm's own — for Cellsearch, *T*, which closes every
-cell — and never through a flash. Each piece is clustered with the label counter carried
+cell; for the time-distance clustering, *T*, across which no flash is linked — and
+never through a flash. Each piece is clustered with the label counter carried
 over, written and **committed on its own**, so a period of years needs neither the
 memory nor the transaction of all of it, and the result is exactly that of one run over
 everything (a test checks it).
+
+.. _The zone:
+
+**The zone.** The whole network's strokes are clustered, but a thunderstorm is kept only
+when one of its flashes is a **zone flash**: a flash with any of its strokes within 50 km
+of the network's nominal region (OCHA's Finland without Åland for FMI, IGN's Catalonia
+for MeteoCat, the Census Bureau's Alaska for the Alaska network), tested with shapely in
+the run's projected CRS (``src/apps/thunderstorms/zones.py``, shared with
+:doc:`../experiments/lightning_episodes`). A kept storm is stored whole: all its strokes,
+its hull over all its flashes, its whole time span. The storms left out keep their
+labels out of the numbering, as those under N\ :sub:`min` do, and are counted in the
+summary's ``cells_outside_zone``. The region is read once per run; a run whose region is
+not in the database is refused (import it, or pass ``--all-storms``). The stored
+``lightning_filter`` records the zone, ``"zone": {"region": "FIN", "buffer_km": 50.0}``
+(the region's code), so a zone run and an ``--all-storms`` run are two experiments.
+Both regression days run with ``--all-storms``: they were frozen with every storm.
 
 **What is stored**, for each kept cell, through ``COPY`` into temporary tables and one
 ``INSERT … SELECT`` per table (``src/apps/thunderstorms/writers.py``):
 
 - a ``thunderstorm`` row with its label, its number of flashes and its area from the
-  algorithm, and its time span and number of strokes computed **in the database** from
+  algorithm (for the time-distance clustering, the area of the concave hull below,
+  computed in the projected CRS, and ``NULL`` with no hull), and its time span and number of strokes computed **in the database** from
   its linked strokes, so they are exactly theirs;
 - its **concave hull**, ``ST_ConcaveHull(points, 0.3, false)`` over the points the
   algorithm clustered (for Cellsearch, each flash's representative stroke, the same
@@ -186,8 +214,8 @@ about it:
 Run a long period as **one** experiment rather than as consecutive ones, and the only
 boundaries are its two ends.
 
-**The run ends** by storing the summary — the algorithm's, plus ``strokes_total`` and
-the two flags above — and marking the experiment ``complete``. On any error, or an
+**The run ends** by storing the summary — the algorithm's, plus ``strokes_total``, the
+two flags above and, with the zone, ``cells_outside_zone`` — and marking the experiment ``complete``. On any error, or an
 interrupt (Ctrl-C), the experiment's thunderstorms are deleted and it is marked
 ``failed``; the error is logged and the exit status is 1. An empty period is not an
 error: the experiment is complete with no thunderstorms, and a warning says so.
@@ -274,13 +302,14 @@ day (1,481 ground strokes, 900 flashes), with the defaults, gives:
    INFO CELLSEARCH_TUOMI_LARJAVAARA_2005 computation time: 0.0013 s wall, 0.0013 s CPU, over 1 piece(s)
 
 The time is also returned by ``build_thunderstorms()``, as
-``(summary, wall_time_s, cpu_time_s)``, and the Cellsearch sweep's ``--sensitivity``
-analysis logs it for each combination. It is **not stored**: the experiment's summary
-does not hold it. To measure it properly, the sweep's ``--time`` analysis runs
-``cellsearch()`` over the same flashes ``--iterations`` times per combination, without
+``(summary, wall_time_s, cpu_time_s)``, and the sweep's ``--sensitivity`` analysis
+logs it for each combination. It is **not stored**: the experiment's summary does not
+hold it. To measure it properly, the sweep's ``--time`` analysis runs the algorithm
+(``cellsearch()`` or ``time_distance()``) over the same flashes ``--iterations`` times
+per combination, without
 the builder and without writing to the database, and writes every run to one CSV file
 and the minimum, mean, median, standard deviation and maximum per combination to another
-(see :doc:`../experiments/cellsearch_tuomi_larjavaara`).
+(see :doc:`../experiments/sweep`).
 
 In QGIS
 -------
@@ -312,5 +341,9 @@ API reference
    :show-inheritance:
 
 .. automodule:: src.apps.thunderstorms.writers
+   :members:
+   :show-inheritance:
+
+.. automodule:: src.apps.thunderstorms.zones
    :members:
    :show-inheritance:

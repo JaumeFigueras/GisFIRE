@@ -7,6 +7,9 @@
     python3 -m src.apps.thunderstorms.build_thunderstorms \\
         --provider MeteoCat --from 2020-07-13T00:00Z --to 2020-07-14T00:00Z \\
         --algorithm cellsearch_tuomi_larjavaara [--time-distance-limit 50] ...
+    python3 -m src.apps.thunderstorms.build_thunderstorms \\
+        --provider FMI --from 2018-07-01 --to 2018-08-01 \\
+        --algorithm time_distance_galanaki [--max-distance 10] ...
 
 One run is one :class:`~src.data_model.thunderstorm.ThunderstormExperiment`:
 the provider, the period, the stroke filter, the algorithm and its complete
@@ -15,11 +18,22 @@ The algorithm itself lives in :mod:`gisfire_algorithms.thunderstorm`; this
 module reads the strokes (:mod:`src.apps.thunderstorms.readers`), runs it and
 stores the result (:mod:`src.apps.thunderstorms.writers`).
 
-Only **cloud-to-ground strokes** are read, as in Tuomi & Larjavaara's article,
-unless ``--include-cloud-strokes`` is given; the experiment's
+Only **cloud-to-ground strokes** are read, as in the articles of both
+algorithms, unless ``--include-cloud-strokes`` is given; the experiment's
 ``lightning_filter`` records which (``{"cloud_to_ground": true}`` for ground
 strokes only), so the two runs are two experiments (see
 :mod:`src.apps.thunderstorms.readers`).
+
+Only the thunderstorms with a **zone flash** are stored, as rule 2 of the
+thunderstorm rules says (:doc:`/algorithms/thunderstorm_rules`), unless
+``--all-storms`` is given: the whole network's strokes are clustered, and a
+storm is kept when one of its flashes has a stroke within 50 km of the
+network's nominal region (:mod:`src.apps.thunderstorms.zones`); a kept storm is
+stored whole. The experiment's ``lightning_filter`` records the zone
+(``"zone": {"region": ..., "buffer_km": 50.0}``), and its summary the storms
+left out (``cells_outside_zone``); a run with ``--all-storms`` records neither,
+as every run did before the zone. A run whose region is not in the database is
+refused.
 
 Algorithms
 ----------
@@ -39,10 +53,12 @@ How a run goes
 2. The experiment is inserted ``running`` and committed.
 3. The strokes are streamed in time order and cut into **pieces** at quiet
    gaps longer than the algorithm's gap (Cellsearch: T, which closes every
-   cell, so the result is the same as one run over everything). Each piece is
-   clustered, carrying the label counter, and written and committed on its
-   own, so a period of years needs neither the memory nor the transaction of
-   all of it.
+   cell; time-distance: T, across which no flash is linked; so the result is
+   the same as one run over everything). Each piece is
+   clustered, carrying the label counter, its storms with no zone flash are
+   left out (but with ``--all-storms``), and it is written and committed on
+   its own, so a period of years needs neither the memory nor the transaction
+   of all of it.
 4. The window is strict, ``[from, to)``: a storm across a boundary becomes cut
    cells. The summary records ``cells_open_at_end`` (cells of any size whose
    latest flash is within the gap of ``to``, so a later flash could have
@@ -78,6 +94,7 @@ from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
+import shapely
 
 from sqlalchemy import Connection
 from sqlalchemy import Engine
@@ -90,12 +107,15 @@ import src.settings  # noqa: F401  (imported for the side effect of loading .env
 from gisfire_algorithms.thunderstorm import CELLSEARCH_ALGORITHM
 from gisfire_algorithms.thunderstorm import CellsearchParameters
 from gisfire_algorithms.thunderstorm import Strokes
+from gisfire_algorithms.thunderstorm import TIME_DISTANCE_ALGORITHM
+from gisfire_algorithms.thunderstorm import TimeDistanceParameters
 from gisfire_algorithms.thunderstorm import cell_area_km2
 from gisfire_algorithms.thunderstorm import cellsearch
 from gisfire_algorithms.thunderstorm import discard_by_error
 from gisfire_algorithms.thunderstorm import merge_summaries
 from gisfire_algorithms.thunderstorm import split_at_gaps
 from gisfire_algorithms.thunderstorm import strokes_to_flashes
+from gisfire_algorithms.thunderstorm import time_distance
 from src.apps.imports import common
 from src.apps.thunderstorms import writers
 from src.apps.thunderstorms.readers import READERS
@@ -103,6 +123,10 @@ from src.apps.thunderstorms.readers import StrokeReader
 from src.apps.thunderstorms.readers import strokes_from_rows
 from src.apps.thunderstorms.writers import Cells
 from src.apps.thunderstorms.writers import CellsearchFlashes
+from src.apps.thunderstorms.zones import REGIONS
+from src.apps.thunderstorms.zones import ZONE_BUFFER_M
+from src.apps.thunderstorms.zones import in_zone
+from src.apps.thunderstorms.zones import read_region
 from src.data_model.thunderstorm import DEFAULT_HULL_PARAMETERS
 
 LOG_FORMAT = "%(asctime)s %(levelname)s %(message)s"
@@ -187,6 +211,9 @@ class Algorithm:
         ``write_specific(connection, experiment_id, piece.specific, srid)``.
     flag_help : dict
         Help text for each parameter's flag.
+    hull_area : bool
+        Whether a thunderstorm's area is its concave hull's (``run`` gives the
+        cells no area, and the writer computes it); otherwise ``run`` gives it.
     """
 
     name: str
@@ -196,6 +223,7 @@ class Algorithm:
     active: Callable[[Strokes, Any], bool]
     write_specific: Callable[[Connection, int, Any, int], None] | None = None
     flag_help: dict[str, str] = dataclasses.field(default_factory=dict)
+    hull_area: bool = False
 
 
 # --------------------------------------------------------------------------
@@ -209,6 +237,15 @@ def _groups(labels: np.ndarray) -> tuple[np.ndarray, np.ndarray, list[np.ndarray
         return labels, order, []
     unique, starts = np.unique(labels[order], return_index=True)
     return unique, order, np.split(order, starts[1:])
+
+
+def _last_flash_times(label: np.ndarray, t: np.ndarray) -> np.ndarray:
+    """Every cell's latest flash time, by label; a label below 0 is no cell."""
+    # The last occurrence of each label (the flashes are in time order).
+    assigned = np.flatnonzero(label >= 0)
+    reversed_labels = label[assigned][::-1]
+    _, last_from_end = np.unique(reversed_labels, return_index=True)
+    return t[assigned[len(assigned) - 1 - last_from_end]]
 
 
 def run_cellsearch(strokes: Strokes, params: CellsearchParameters, first_label: int) -> Piece:
@@ -248,13 +285,9 @@ def run_cellsearch(strokes: Strokes, params: CellsearchParameters, first_label: 
         centre_x=result.centre_x[index],
         centre_y=result.centre_y[index],
     )
-    # Every cell's latest flash: the last occurrence of its label (time order).
-    assigned = np.flatnonzero(result.label >= 0)
-    reversed_labels = result.label[assigned][::-1]
-    _, last_from_end = np.unique(reversed_labels, return_index=True)
-    cell_last_t = flashes.t[assigned[len(assigned) - 1 - last_from_end]]
     return Piece(cells=cells, specific=specific, summary=result.summary,
-                 cell_last_t=cell_last_t, next_label=result.next_label, flashes=len(flashes),
+                 cell_last_t=_last_flash_times(result.label, flashes.t),
+                 next_label=result.next_label, flashes=len(flashes),
                  wall_time_s=result.wall_time_s, cpu_time_s=result.cpu_time_s)
 
 
@@ -263,6 +296,39 @@ def cellsearch_active(strokes: Strokes, params: CellsearchParameters) -> bool:
     flashes = strokes_to_flashes(strokes)
     kept, _ = discard_by_error(flashes, params.max_location_error_km * 1000.0)
     return bool(kept.any())
+
+
+# --------------------------------------------------------------------------
+# Time-distance clustering (Galanaki et al. 2018)
+# --------------------------------------------------------------------------
+
+def run_time_distance(strokes: Strokes, params: TimeDistanceParameters, first_label: int) -> Piece:
+    """Time-distance clustering over one piece: strokes → flashes → clusters.
+
+    Every stroke of a flash in a kept cluster is linked; the hull is drawn over
+    the flashes' representative strokes, and the area is the hull's.
+    """
+    flashes = strokes_to_flashes(strokes)
+    result = time_distance(flashes, params, first_label=first_label)
+    kept = result.kept_flash_mask()
+    index = np.flatnonzero(kept)
+    labels, sizes = np.unique(result.label[index], return_counts=True)
+    stroke_flash = flashes.stroke_flash_index
+    linked = kept[stroke_flash]
+    cells = Cells(
+        label=labels,
+        number_of_flashes=sizes,
+        area=None,
+        link_label=result.label[stroke_flash[linked]],
+        link_lightning_id=strokes.ids[linked],
+        hull_label=result.label[index],
+        hull_x=flashes.x[index],
+        hull_y=flashes.y[index],
+    )
+    return Piece(cells=cells, specific=None, summary=result.summary,
+                 cell_last_t=_last_flash_times(result.label, flashes.t),
+                 next_label=result.next_label, flashes=len(flashes),
+                 wall_time_s=result.wall_time_s, cpu_time_s=result.cpu_time_s)
 
 
 #: The algorithms, by the name given to ``--algorithm``.
@@ -285,6 +351,21 @@ ALGORITHMS: dict[str, Algorithm] = {
             "min_flashes": "N_min: cells with fewer flashes are not stored (at least 3)",
             "srid": "EPSG code of the projected CRS (metres) the algorithm works in",
         },
+    ),
+    "time_distance_galanaki": Algorithm(
+        name=TIME_DISTANCE_ALGORITHM,
+        parameters=TimeDistanceParameters,
+        run=run_time_distance,
+        gap_s=lambda params: params.max_time_difference_min * 60.0,
+        active=lambda strokes, params: len(strokes) > 0,
+        flag_help={
+            "max_distance_km": "D, the largest distance between two linked flashes, in km",
+            "max_time_difference_min": "T, the largest time difference between two linked "
+                                       "flashes, in minutes",
+            "min_flashes": "N_min: clusters with fewer flashes are not stored",
+            "srid": "EPSG code of the projected CRS (metres) the algorithm works in",
+        },
+        hull_area=True,
     ),
 }
 
@@ -379,7 +460,11 @@ def build_parser(algorithm: str | None) -> argparse.ArgumentParser:
                         help="the clustering algorithm")
     parser.add_argument("--include-cloud-strokes", action="store_true",
                         help="read cloud strokes too; by default only cloud-to-ground strokes "
-                             "are read, as in Tuomi & Larjavaara")
+                             "are read, as in the algorithms' articles")
+    parser.add_argument("--all-storms", action="store_true",
+                        help="store every thunderstorm; by default only those with a flash in "
+                             "the network's zone (its nominal region plus 50 km) are stored, as "
+                             "the thunderstorm rules say")
     parser.add_argument("--dry-run", action="store_true",
                         help="run everything and roll it back: nothing is stored")
     parser.add_argument("--log-file", type=str, default=None,
@@ -477,6 +562,25 @@ def pieces(batches: Iterator[Strokes], gap_s: float, piece_strokes: int) -> Iter
         yield pending
 
 
+def keep_zone_storms(piece: Piece, strokes: Strokes, region: shapely.Geometry) -> tuple[Piece, int]:
+    """The piece with only its kept cells that have a zone flash, and how many it lost.
+
+    Rule 2 of the thunderstorm rules: a thunderstorm is built from the whole
+    network's strokes, and kept only with at least one **zone flash**, a flash
+    with any of its strokes within 50 km of the region (``region``, in the CRS of
+    ``strokes``). Every stroke of a kept cell's flashes is linked to it, so a cell
+    has a zone flash when one of its linked strokes is in the zone. The cells
+    left out keep their labels out of the numbering, as those under N_min do; a
+    kept cell is written whole.
+    """
+    inside = in_zone(region, strokes.x, strokes.y)
+    linked_inside = np.isin(piece.cells.link_lightning_id, strokes.ids[inside])
+    labels = np.unique(piece.cells.link_label[linked_inside])
+    cells = piece.cells.only(labels)
+    specific = None if piece.specific is None else piece.specific.only(labels)
+    return dataclasses.replace(piece, cells=cells, specific=specific), len(piece.cells) - len(cells)
+
+
 # --------------------------------------------------------------------------
 # The run
 # --------------------------------------------------------------------------
@@ -493,17 +597,24 @@ def provider_id(connection: Connection, reader: StrokeReader) -> int:
 
 def experiment_configuration(data_provider_id: int, provider: str, algorithm_key: str,
                              parameters: Any, start: datetime.datetime, end: datetime.datetime,
-                             cloud_to_ground_only: bool = True) -> dict[str, Any]:
+                             cloud_to_ground_only: bool = True,
+                             zone: bool = True) -> dict[str, Any]:
     """What a run is stored with and recognised by (``writers.CONFIGURATION``).
 
     :func:`build_thunderstorms` refuses a run whose configuration is already
-    stored; ``writers.find_experiment`` finds that run's id from this.
+    stored; ``writers.find_experiment`` finds that run's id from this. With
+    ``zone``, ``lightning_filter`` records the zone the stored storms have a
+    flash in: ``{"region": <the region's code>, "buffer_km": 50.0}``.
     """
+    lightning_filter = READERS[provider].filter_for(cloud_to_ground_only)
+    if zone:
+        lightning_filter["zone"] = {"region": REGIONS[provider].value,
+                                    "buffer_km": ZONE_BUFFER_M / 1000.0}
     return {
         "data_provider_id": data_provider_id,
         "algorithm": ALGORITHMS[algorithm_key].name,
         "parameters": parameters.to_dict(),
-        "lightning_filter": READERS[provider].filter_for(cloud_to_ground_only),
+        "lightning_filter": lightning_filter,
         "hull_parameters": {**DEFAULT_HULL_PARAMETERS, "srid": parameters.srid},
         "date_time_start": start,
         "date_time_end": end,
@@ -515,11 +626,13 @@ def build_thunderstorms(engine: Engine, provider: str, algorithm_key: str, param
                         start: datetime.datetime, end: datetime.datetime,
                         logger: logging.Logger, dry_run: bool = False,
                         piece_strokes: int | None = None,
-                        cloud_to_ground_only: bool = True) -> tuple[dict[str, Any], float, float]:
+                        cloud_to_ground_only: bool = True,
+                        zone: bool = True) -> tuple[dict[str, Any], float, float]:
     """Run one experiment and store it.
 
     Only cloud-to-ground strokes are read unless ``cloud_to_ground_only`` is
-    false.
+    false. With ``zone`` (the default) only the thunderstorms with a zone flash
+    are stored, as rule 2 of the thunderstorm rules says (see :func:`keep_zone_storms`).
 
     Returns
     -------
@@ -534,7 +647,8 @@ def build_thunderstorms(engine: Engine, provider: str, algorithm_key: str, param
     DuplicateExperiment
         If the configuration is already stored.
     RuntimeError
-        If the provider is not in the database or a table is missing.
+        If the provider is not in the database, a table is missing, or (with
+        ``zone``) the provider's region is not in the database.
     """
     if end <= start:
         raise ValueError("--to must be later than --from")
@@ -542,12 +656,19 @@ def build_thunderstorms(engine: Engine, provider: str, algorithm_key: str, param
     algorithm = ALGORITHMS[algorithm_key]
     gap_s = algorithm.gap_s(parameters)
     piece_strokes = piece_strokes or PIECE_STROKES
-    common.require_tables(engine, TABLES, logger)
+    common.require_tables(engine, TABLES + (["admin_boundary"] if zone else []), logger)
 
     with engine.connect() as reading, engine.connect() as writing:
         data_provider_id = provider_id(writing, reader)
+        region = None
+        if zone:
+            try:
+                region = read_region(writing, provider, parameters.srid)
+            except RuntimeError as error:
+                raise RuntimeError(f"{error}, or pass --all-storms to store every storm") from error
         configuration = experiment_configuration(data_provider_id, provider, algorithm_key,
-                                                 parameters, start, end, cloud_to_ground_only)
+                                                 parameters, start, end, cloud_to_ground_only,
+                                                 zone)
         hull_parameters = configuration["hull_parameters"]
         existing = writers.find_experiment(writing, configuration)
         if existing is not None:
@@ -567,7 +688,7 @@ def build_thunderstorms(engine: Engine, provider: str, algorithm_key: str, param
             summary, wall_time_s, cpu_time_s = _run(
                 reading, writing, reader, algorithm, parameters, data_provider_id, experiment_id,
                 start, end, gap_s, hull_parameters, piece_strokes, logger, dry_run,
-                cloud_to_ground_only)
+                cloud_to_ground_only, region)
             writers.complete_experiment(writing, experiment_id, summary)
             if dry_run:
                 writing.rollback()
@@ -589,8 +710,12 @@ def _run(reading: Connection, writing: Connection, reader: StrokeReader, algorit
          parameters: Any, data_provider_id: int, experiment_id: int, start: datetime.datetime,
          end: datetime.datetime, gap_s: float, hull_parameters: dict[str, Any],
          piece_strokes: int, logger: logging.Logger, dry_run: bool,
-         cloud_to_ground_only: bool) -> tuple[dict[str, Any], float, float]:
-    """Stream, cluster and write every piece; the run's summary and computation time."""
+         cloud_to_ground_only: bool,
+         region: shapely.Geometry | None) -> tuple[dict[str, Any], float, float]:
+    """Stream, cluster and write every piece; the run's summary and computation time.
+
+    With a ``region``, only the cells with a zone flash are written.
+    """
     srid = parameters.srid
     started = time.monotonic()
     summary: dict[str, Any] | None = None
@@ -604,6 +729,7 @@ def _run(reading: Connection, writing: Connection, reader: StrokeReader, algorit
     pieces_done = 0
     wall_time_s = 0.0
     cpu_time_s = 0.0
+    outside_zone = 0
 
     # One read from ``start - gap``: the strokes before ``start`` only tell
     # whether the period may cut a cell at its start (``activity_before_start``).
@@ -614,6 +740,9 @@ def _run(reading: Connection, writing: Connection, reader: StrokeReader, algorit
                            start.timestamp(), before)
     for strokes in pieces(batches, gap_s, piece_strokes):
         piece = algorithm.run(strokes, parameters, next_label)
+        if region is not None:
+            piece, dropped = keep_zone_storms(piece, strokes, region)
+            outside_zone += dropped
         writers.write_cells(writing, experiment_id, piece.cells, hull_parameters)
         if algorithm.write_specific is not None:
             algorithm.write_specific(writing, experiment_id, piece.specific, srid)
@@ -642,6 +771,9 @@ def _run(reading: Connection, writing: Connection, reader: StrokeReader, algorit
 
     summary = {**summary, "strokes_total": strokes_total, "cells_open_at_end": open_at_end,
                "activity_before_start": activity_before_start}
+    if region is not None:
+        summary["cells_outside_zone"] = outside_zone
+        logger.info("%d thunderstorm(s) with no flash in the zone not stored", outside_zone)
     if open_at_end:
         logger.warning("%d cell(s) still open at the end of the period (a flash within "
                        "%.0f min of it) may have been cut by it", open_at_end, gap_s / 60.0)
@@ -695,7 +827,8 @@ def _main(args: argparse.Namespace, logger: logging.Logger) -> int:
     try:
         build_thunderstorms(engine, args.provider, args.algorithm, parameters, args.start,
                             args.end, logger, dry_run=args.dry_run,
-                            cloud_to_ground_only=not args.include_cloud_strokes)
+                            cloud_to_ground_only=not args.include_cloud_strokes,
+                            zone=not args.all_storms)
     except Exception as error:  # noqa: BLE001  (the CLI boundary: report, do not traceback)
         logger.error("Build failed: %s", error)
         return 1

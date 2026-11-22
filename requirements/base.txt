@@ -20,6 +20,7 @@ shapely>=2.0
 numpy>=2.1
 pandas>=2.2
 geopandas>=1.0
+matplotlib>=3.8          # the experiments' figures (gisfire_experiments)
 
 # --- Spreadsheet input ---
 # Reads the Greek Fire Service .xlsx workbooks (src/providers/greece_ffa). Needed

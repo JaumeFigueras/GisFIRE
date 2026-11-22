@@ -9,6 +9,7 @@
   flash rate and density of a group of flashes.
 - :mod:`.chunking`: split a time-ordered sequence at quiet gaps.
 - :mod:`.cellsearch_tuomi_larjavaara`: Cellsearch (Tuomi & Larjavaara 2005).
+- :mod:`.time_distance_galanaki`: time-distance clustering (Galanaki et al. 2018).
 """
 
 from .cell_statistics import cell_area_km2
@@ -28,6 +29,10 @@ from .flashes import Flashes
 from .flashes import Strokes
 from .flashes import discard_by_error
 from .flashes import strokes_to_flashes
+from .time_distance_galanaki import ALGORITHM as TIME_DISTANCE_ALGORITHM
+from .time_distance_galanaki import TimeDistanceParameters
+from .time_distance_galanaki import TimeDistanceResult
+from .time_distance_galanaki import time_distance
 
 __all__ = [
     "CELLSEARCH_ALGORITHM",
@@ -37,6 +42,9 @@ __all__ = [
     "FlashGroupingParameters",
     "Flashes",
     "Strokes",
+    "TIME_DISTANCE_ALGORITHM",
+    "TimeDistanceParameters",
+    "TimeDistanceResult",
     "cell_area_km2",
     "cellsearch",
     "density_per_100km2",
@@ -47,4 +55,5 @@ __all__ = [
     "merge_summaries",
     "split_at_gaps",
     "strokes_to_flashes",
+    "time_distance",
 ]

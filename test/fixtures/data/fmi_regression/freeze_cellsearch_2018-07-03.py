@@ -21,7 +21,8 @@ and the experiments with their C, for a look in QGIS before the file is
 committed.
 
 The runs are the builder's default ones, over **cloud-to-ground strokes only**,
-but for N_min, which is the tests' ``MIN_FLASHES`` (5, the default when they
+but with every storm (``zone=False``, ``--all-storms``: they were frozen before
+the zone) and for N_min, which is the tests' ``MIN_FLASHES`` (5, the default when they
 were frozen). The file records their ``lightning_filter``. The strokes layer of
 ``--gpkg`` holds the cloud strokes too, with ``cloud_to_ground`` to tell them
 apart.
@@ -156,7 +157,7 @@ def main(argv: list[str] | None = None) -> None:
             time_distance_limit_min_km=None if limit == "None" else float(limit),
             min_flashes=_tests.MIN_FLASHES, srid=3067)
         app.build_thunderstorms(engine, finland_fmi.PROVIDER_NAME, ALGORITHM, parameters,
-                                _tests.FMI_DAY_START, _tests.FMI_DAY_END, logger)
+                                _tests.FMI_DAY_START, _tests.FMI_DAY_END, logger, zone=False)
         with engine.connect() as connection:
             experiment_id = connection.execute(text(
                 "SELECT max(id) FROM thunderstorm_experiment")).scalar_one()

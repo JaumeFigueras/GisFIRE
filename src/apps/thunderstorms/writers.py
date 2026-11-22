@@ -10,10 +10,12 @@ period of years.
 
 Generic, for every algorithm (:func:`write_cells`):
 
-* ``thunderstorm``: the label, the flash count and the area come from the
-  algorithm; the time span and the number of strokes are computed **in the
-  database** from the linked strokes, so they are exactly theirs, with no
-  round trip through floating-point seconds; the concave hull is
+* ``thunderstorm``: the label and the flash count come from the algorithm, and
+  the area too unless it gives none: then the area is the concave hull's, in
+  the projected CRS (time-distance clustering). The time span and the number
+  of strokes are computed **in the database** from the linked strokes, so they
+  are exactly theirs, with no round trip through floating-point seconds; the
+  concave hull is
   ``ST_ConcaveHull`` over the points the algorithm clustered, in the projected
   CRS, reprojected to EPSG:4326, and ``NULL`` when it is not a polygon (fewer
   than three distinct points, or all in a line).
@@ -51,8 +53,10 @@ class Cells:
         One per cell, unique within the run.
     number_of_flashes : numpy.ndarray of int64 or None
         One per cell, for a flash-based algorithm.
-    area : list of float or None
-        One per cell, in km², ``None`` when undefined.
+    area : list of float or None, or None
+        One per cell, in km², ``None`` when undefined. ``None`` instead of a
+        list: each cell's area is its concave hull's, computed by
+        :func:`write_cells` in the projected CRS (``None`` with no hull).
     link_label, link_lightning_id : numpy.ndarray of int64
         One per linked stroke: its cell and its id.
     hull_label : numpy.ndarray of int64
@@ -63,7 +67,7 @@ class Cells:
 
     label: np.ndarray
     number_of_flashes: np.ndarray | None
-    area: list[float | None]
+    area: list[float | None] | None
     link_label: np.ndarray
     link_lightning_id: np.ndarray
     hull_label: np.ndarray
@@ -72,6 +76,22 @@ class Cells:
 
     def __len__(self) -> int:
         return len(self.label)
+
+    def only(self, labels: np.ndarray) -> Cells:
+        """These cells but for those whose label is not in ``labels``."""
+        cell = np.isin(self.label, labels)
+        link = np.isin(self.link_label, labels)
+        hull = np.isin(self.hull_label, labels)
+        return Cells(
+            label=self.label[cell],
+            number_of_flashes=None if self.number_of_flashes is None else self.number_of_flashes[cell],
+            area=None if self.area is None else [a for a, keep in zip(self.area, cell) if keep],
+            link_label=self.link_label[link],
+            link_lightning_id=self.link_lightning_id[link],
+            hull_label=self.hull_label[hull],
+            hull_x=self.hull_x[hull],
+            hull_y=self.hull_y[hull],
+        )
 
 
 @dataclass(frozen=True, eq=False)
@@ -95,6 +115,13 @@ class CellsearchFlashes:
     lightning_id: np.ndarray
     centre_x: np.ndarray
     centre_y: np.ndarray
+
+    def only(self, labels: np.ndarray) -> CellsearchFlashes:
+        """These flashes but for those whose cell's label is not in ``labels``."""
+        keep = np.isin(self.label, labels)
+        return CellsearchFlashes(label=self.label[keep], sequence=self.sequence[keep],
+                                 lightning_id=self.lightning_id[keep],
+                                 centre_x=self.centre_x[keep], centre_y=self.centre_y[keep])
 
 
 # --------------------------------------------------------------------------
@@ -177,7 +204,9 @@ INSERT_THUNDERSTORMS_SQL = """
 INSERT INTO thunderstorm (experiment_id, label, date_time_start, date_time_end,
                           number_of_lightnings, number_of_flashes, area, concave_hull)
 SELECT :experiment_id, cell.label, span.date_time_start, span.date_time_end,
-       span.number_of_lightnings, cell.number_of_flashes, cell.area,
+       span.number_of_lightnings, cell.number_of_flashes,
+       CASE WHEN NOT :hull_area THEN cell.area
+            WHEN GeometryType(hull.hull) = 'POLYGON' THEN ST_Area(hull.hull) / 1e6 END,
        CASE WHEN GeometryType(hull.hull) = 'POLYGON'
             THEN ST_Transform(hull.hull, 4326) END
 FROM staging_cell AS cell
@@ -215,8 +244,9 @@ def write_cells(connection: Connection, experiment_id: int, cells: Cells,
         return
     flashes = ([None] * len(cells) if cells.number_of_flashes is None
                else _ints(cells.number_of_flashes))
+    area = [None] * len(cells) if cells.area is None else cells.area
     _stage(connection, "staging_cell", "label bigint, number_of_flashes integer, area double precision",
-           zip(_ints(cells.label), flashes, cells.area))
+           zip(_ints(cells.label), flashes, area))
     _stage(connection, "staging_link", "label bigint, lightning_id integer",
            zip(_ints(cells.link_label), _ints(cells.link_lightning_id)))
     _stage(connection, "staging_hull_point", "label bigint, x double precision, y double precision",
@@ -224,7 +254,7 @@ def write_cells(connection: Connection, experiment_id: int, cells: Cells,
     connection.execute(text(INSERT_THUNDERSTORMS_SQL), {
         "experiment_id": experiment_id, "srid": int(hull_parameters["srid"]),
         "ratio": float(hull_parameters["ratio"]),
-        "allow_holes": bool(hull_parameters["allow_holes"])})
+        "allow_holes": bool(hull_parameters["allow_holes"]), "hull_area": cells.area is None})
     connection.execute(text(INSERT_LINKS_SQL), {"experiment_id": experiment_id})
 
 

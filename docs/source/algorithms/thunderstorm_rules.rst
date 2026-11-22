@@ -65,7 +65,8 @@ Rule 1: episodes
 - An episode **starts** at a zone flash with no zone flash in the *G* before it, and
   **ends** at its last zone flash: the first one followed by *G* with no zone flash.
   *G* is only the silence test; it is not added to the episode.
-- *G* is always longer than the algorithm's waiting time (Cellsearch: *T*). Its value
+- *G* is always longer than the algorithm's waiting time (Cellsearch and the
+  time-distance clustering: *T*). Its value
   will come from a study of its own.
 - E\ :sub:`max` is not part of the rule: it is a parameter of the algorithms.
 
@@ -120,13 +121,18 @@ What the code already does as the rules say:
   the zone when it is at most 50 km from the region, tested with shapely. The episodes
   are cut with :func:`~gisfire_algorithms.thunderstorm.chunking.split_at_gaps`. It takes
   the flashes as published, without the 2 s regrouping below.
+- Rule 2's zone, in :doc:`../applications/build_thunderstorms`: the whole network is
+  clustered, and only the thunderstorms with a zone flash are stored, whole
+  (``--all-storms`` stores them all). The zone and its test are shared with the episodes
+  study (``src/apps/thunderstorms/zones.py``).
+- Rule 2's statistics, in the sweep (:doc:`../experiments/sweep`): a thunderstorm's time
+  from all its flashes, everything else (its flashes, area, density, diameter) from its
+  zone flashes, and the clustered, discarded and isolated flashes counted over zone
+  flashes. Its ``--country``, with a rule of its own, was removed.
 
 What is still to do:
 
 - Regrouping the published flashes that last more than 2 s.
 - *G*: still to be set; the episodes study is the tool to study it with.
-- The zones and the episodes in the builder, which so far uses neither.
-- Keeping only the storms with a zone flash, and taking their statistics from their
-  zone flashes. The sensitivity analysis's ``--country`` follows another rule today: a
-  storm counts when more than half of its flashes have their representative stroke in a
-  level-0 country, and the statistics use all of its flashes.
+- The episodes in the builder, which runs over a period (or, through the sweep's
+  ``--periods``, over each episode of an episodes study's file, widened by an hour).
