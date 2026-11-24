@@ -14,6 +14,9 @@
         --sensitivity --defaults --provider FMI --periods fmi_2018_extract.csv
     python3 -m gisfire_experiments.thunderstorms.sweep --algorithm time_distance_galanaki \\
         --sensitivity --gap --provider FMI --periods fmi_2018_extract.csv
+    python3 -m gisfire_experiments.thunderstorms.sweep --algorithm time_distance_galanaki \\
+        --sensitivity --provider FMI --periods fmi_2018_extract.csv \\
+        --d 2 4 6 8 10 12 14 16 20 --t 2 4 6 8 10 12 15 20 30
 
 ``--algorithm`` chooses the algorithm, by its name in the thunderstorm builder:
 Cellsearch (``cellsearch_tuomi_larjavaara``, the default) or the time-distance
@@ -45,6 +48,19 @@ last one changing fastest:
 The other parameters keep their defaults (Cellsearch's E_max and N_min); the
 CRS is the provider's. Only cloud-to-ground strokes are clustered, the
 builder's default, as in both articles.
+
+Values can be added to the lists from the command line, with one flag per
+symbol in lower case, each followed by its values: ``--d`` and ``--t`` for the
+time-distance clustering, ``--r``, ``--t``, ``--i`` and ``--c`` for Cellsearch
+(``off`` is C off), for example ``--d 2 4 6 --t 2 4``. Each list becomes its
+values and the flag's, sorted ascending (C off first) without repeats
+(:func:`grid_lists`), and the grid every combination of them, the new values
+with the old ones included: still one complete grid, as the Sobol indices
+need. A combination already stored is not run again, so adding values runs
+only the new combinations. The lists are logged before the runs, ``Grid: D 2,
+4, 5, … 30 km; T 2, 4, 5, … 60 min: 143 combinations``. The flags are not
+remembered: each run writes the sensitivity file of its own grid, so a run
+without them writes the lists' grid alone. They do not go with ``--defaults``.
 
 ``--defaults`` runs one combination instead of the grid: the algorithm's
 defaults, its recommended values, with the :data:`FIXED` ones (Cellsearch: R
@@ -186,11 +202,13 @@ and agree when the two use the same GEOS version. ``isolated_pct`` does not
 depend on it.
 
 The rows go to a second CSV file, named as the sensitivity's with ``_gap`` after
-the provider (see :func:`periods_csv_filename` and :func:`csv_filename`), and
-written episode by episode: a run that fails leaves in it the episodes done. For
-each period, its real rows (the sensitivity file's), then every combination on
-the first shuffle, on the second, and so on. Its columns are, after the
-episode's ``episode``, ``start`` and ``end`` with ``--periods``:
+the provider (see :func:`periods_csv_filename` and :func:`csv_filename`). It is
+written to ``<name>.part``, episode by episode (a grid's shuffled rows are too
+many to keep until the end), and takes the place of ``<name>`` when the run
+ends, so a run that fails leaves ``<name>`` as it was. For each period, its real
+rows (the sensitivity file's), then every combination on the first shuffle, on
+the second, and so on. Its columns are, after the episode's ``episode``,
+``start`` and ``end`` with ``--periods``:
 
 * ``run``: ``real`` or ``shuffled``;
 * ``seed``: where the shuffle started (empty on a real row); with the period's
@@ -199,6 +217,28 @@ episode's ``episode``, ``start`` and ``end`` with ``--periods``:
   ``flashes_discarded_error``, the same on every row of the period);
 * ``experiment_id``: the stored experiment, on a real row only;
 * the parameters swept and the statistics, as in the sensitivity file.
+
+A gap file already there, from an earlier run, is not run again: what it holds
+is copied, and only what it lacks is run. This is how values added to the grid
+(see `The grids`_) cost only their own runs.
+
+* Before any run it is checked (:func:`gap_file_blocks`): its columns must be
+  this run's, and each of its pairs must have ``--shuffles`` shuffled rows, the
+  first from ``--seed``. Otherwise the sweep stops: give the same values, or
+  delete the file to start again.
+* For each period, a combination with shuffled rows in it is copied, and the
+  others are run on the same shuffles. An old row is copied only from the seed
+  of its shuffle in this run; another seed means that the period's flashes
+  changed since the file was written, and the sweep stops. When the file holds
+  every combination of a period, its strokes are not even read.
+* Its pairs out of the grid are kept, after the grid's pairs in each block (the
+  real rows, then each shuffle), and its episodes out of the periods file after
+  the periods file's episodes, as they were.
+* It is read one episode at a time (:func:`gap_file_blocks` says where each
+  one's lines are), so it is never held whole in memory.
+* At the end it becomes ``<name>.old``, the copy of what there was, and the new
+  file takes its name. With the same grid and some combinations more, the new
+  file is the one a run of them all from scratch would write.
 
 The gap itself is not computed here.
 
@@ -360,6 +400,13 @@ def parse_arguments(argv: list[str] | None = None) -> argparse.Namespace:
                         help="run the algorithm's defaults alone (its recommended values, "
                              "with the grid's fixed ones) instead of its grid, into files of "
                              "their own")
+    for symbol in sorted({symbol for fields in GRIDS.values() for symbol, _, _ in fields.values()}):
+        swept = ", ".join(f"{algorithm}'s {field}" for algorithm, fields in GRIDS.items()
+                          for field, (other, _, _) in fields.items() if other == symbol)
+        parser.add_argument(f"--{symbol.lower()}", dest=f"grid_{symbol}", type=grid_value,
+                            nargs="+", default=None, metavar="VALUE",
+                            help=f"values added to the grid's {symbol} ({swept})"
+                                 + ("; off turns it off" if symbol == "C" else ""))
     parser.add_argument("--iterations", type=int, default=None, metavar="N",
                         help=f"--time only: the timed runs of each combination, after one "
                              f"warm-up run (default: {ITERATIONS})")
@@ -415,6 +462,22 @@ def parse_arguments(argv: list[str] | None = None) -> argparse.Namespace:
             parser.error(f"--seed must be from 1 to {GENERATOR_MODULUS - 1}")
     elif args.shuffles is not None or args.seed is not None:
         parser.error("--shuffles and --seed go with --gap")
+    args.extra = {}
+    for field, (symbol, _, _) in GRIDS[args.algorithm].items():
+        values = getattr(args, f"grid_{symbol}", None)
+        if values is not None:
+            args.extra[field] = values
+    symbols = {symbol for symbol, _, _ in GRIDS[args.algorithm].values()}
+    for name, values in vars(args).items():
+        if name.startswith("grid_") and values is not None and name[5:] not in symbols:
+            parser.error(f"--{name[5:].lower()} is not a parameter of {args.algorithm}'s grid")
+    if args.extra:
+        if args.defaults:
+            parser.error("--defaults runs no grid: it takes no grid values")
+        try:
+            parameter_grid(READERS[args.provider].default_srid, args.algorithm, extra=args.extra)
+        except (TypeError, ValueError) as error:
+            parser.error(f"a grid value is wrong: {error}")
     return args
 
 
@@ -440,16 +503,45 @@ def algorithm_of(parameters: Any) -> str:
                 if isinstance(parameters, algorithm.parameters))
 
 
+def grid_value(text: str) -> int | float | None:
+    """A value of a grid flag: ``off`` (C off) is ``None``, a whole number stays an integer."""
+    if text == "off":
+        return None
+    try:
+        return int(text)
+    except ValueError:
+        return float(text)
+
+
+def grid_lists(algorithm: str, extra: dict[str, list[Any]] | None = None) -> dict[str, list[Any]]:
+    """Each parameter swept and its values: its list in :data:`GRIDS` with the ``extra``
+    values of its flag added, sorted ascending (C off first), without repeats."""
+    extra = extra or {}
+    return {field: sorted(set(values) | set(extra.get(field, [])),
+                          key=lambda value: (value is not None, value or 0))
+            for field, (_, _, values) in GRIDS[algorithm].items()}
+
+
 def parameter_grid(srid: int, algorithm: str = DEFAULT_ALGORITHM,
-                   defaults: bool = False) -> list[Any]:
-    """Every combination of the algorithm's lists, the last one changing fastest; with
-    ``defaults``, the algorithm's defaults alone (with the :data:`FIXED` values)."""
+                   defaults: bool = False, extra: dict[str, list[Any]] | None = None) -> list[Any]:
+    """Every combination of the algorithm's lists (with the ``extra`` values of the grid
+    flags, see :func:`grid_lists`), the last one changing fastest; with ``defaults``, the
+    algorithm's defaults alone (with the :data:`FIXED` values)."""
     parameters = ALGORITHMS[algorithm].parameters
     if defaults:
         return [parameters(**FIXED[algorithm], srid=srid)]
-    fields = GRIDS[algorithm]
-    return [parameters(**dict(zip(fields, values)), **FIXED[algorithm], srid=srid)
-            for values in itertools.product(*(values for _, _, values in fields.values()))]
+    lists = grid_lists(algorithm, extra)
+    return [parameters(**dict(zip(lists, values)), **FIXED[algorithm], srid=srid)
+            for values in itertools.product(*lists.values())]
+
+
+def describe_grid(algorithm: str, extra: dict[str, list[Any]] | None = None) -> str:
+    """The lists swept, e.g. ``D 5, 10 km; T 5, 10 min`` or ``...; C off, 10 min·km``."""
+    lists = grid_lists(algorithm, extra)
+    return "; ".join(
+        f"{symbol} " + ", ".join("off" if value is None else f"{value:g}" for value in lists[field])
+        + (f" {unit}" if unit else "")
+        for field, (symbol, unit, _) in GRIDS[algorithm].items())
 
 
 def describe(parameters: Any) -> str:
@@ -897,7 +989,7 @@ def memory_storms(strokes: Strokes, zone_ids: np.ndarray,
 def gap_rows(engine: Engine, data_provider_id: int, args: argparse.Namespace, grid: list[Any],
              start: datetime.datetime, end: datetime.datetime, complete: dict[Any, int],
              results: dict[Any, dict[str, Any]], logger: logging.Logger,
-             episode: str | None = None) -> list[list[Any]]:
+             episode: str | None = None, old: list[list[str]] | None = None) -> list[list[Any]]:
     """``--gap``'s rows of ``[start, end)``, from ``run`` on (see :data:`GAP_COLUMNS`).
 
     First its real runs, ``complete`` and ``results`` as :func:`sensitivity` returns
@@ -905,28 +997,85 @@ def gap_rows(engine: Engine, data_provider_id: int, args: argparse.Namespace, gr
     first from ``args.seed``, each next one from where the last stopped), every
     combination of ``grid``, run and counted in memory (:func:`memory_storms`). Every
     row carries the period's zone flashes.
+
+    ``old`` holds the period's rows of the gap file already there (from ``run`` on,
+    checked by :func:`gap_file_blocks`). A combination with shuffled rows there is
+    copied, not run again; when every one is, the strokes are not read. A pair of
+    ``old`` not in ``grid`` is kept as it was, after the grid's pairs in each block
+    (the real rows, then each shuffle). An old row is copied only from the seed of
+    its shuffle in this run: another means that the period's flashes changed
+    (``RuntimeError``).
     """
-    strokes = read_strokes(engine, data_provider_id, args.provider, start, end)
-    with engine.connect() as connection:
-        region = read_region(connection, args.provider)
-        connection.rollback()
-    zone_ids = strokes.ids[in_zone(region, strokes.x, strokes.y)]
-    flashes = int(np.count_nonzero(zone_stroke_counts(strokes_to_flashes(strokes),
-                                                      np.isin(strokes.ids, zone_ids))))
+    count = len(GRIDS[args.algorithm])
+    pair_of = {parameters: tuple(_parameter_cells(parameters, args.algorithm))
+               for parameters in grid}
+    old_real: dict[tuple[str, ...], list[str]] = {}
+    old_shuffled: dict[tuple[tuple[str, ...], str], list[str]] = {}
+    old_seeds: dict[tuple[str, ...], list[str]] = {}
+    for row in old or []:
+        pair = tuple(row[len(GAP_COLUMNS):len(GAP_COLUMNS) + count])
+        seeds = old_seeds.setdefault(pair, [])
+        if row[0] == "real":
+            old_real[pair] = row
+        else:
+            old_shuffled[pair, row[1]] = row
+            seeds.append(row[1])
+    in_grid = set(pair_of.values())
+    kept = [pair for pair in old_seeds if pair not in in_grid]
+    new = {parameters for parameters in grid if not old_seeds.get(pair_of[parameters])}
+    logger.info("Gap file%s: %d combination(s) copied, %d run, %d kept out of the grid",
+                f" ({episode})" if episode else "", len(grid) - len(new), len(new), len(kept))
+
+    def copied(pair: tuple[str, ...], seed: Any) -> list[str]:
+        if (pair, str(seed)) not in old_shuffled:
+            raise RuntimeError(f"The gap file has no shuffle from seed {seed} for "
+                               f"{', '.join(pair)}{f' in {episode}' if episode else ''}: the "
+                               f"period's flashes changed since it was written; delete it")
+        return old_shuffled[pair, str(seed)]
+
+    if new:
+        strokes = read_strokes(engine, data_provider_id, args.provider, start, end)
+        with engine.connect() as connection:
+            region = read_region(connection, args.provider)
+            connection.rollback()
+        zone_ids = strokes.ids[in_zone(region, strokes.x, strokes.y)]
+        flashes: Any = int(np.count_nonzero(zone_stroke_counts(strokes_to_flashes(strokes),
+                                                               np.isin(strokes.ids, zone_ids))))
+    else:
+        flashes = old[0][2]
+        # The seeds of the old shuffles, in order: every pair has the same.
+        chain = next(seeds for seeds in old_seeds.values() if seeds)
     rows = [["real", "", flashes, *row]
             for row in _experiment_rows(complete, results, args.algorithm)]
-    seed = args.seed
+    rows += [old_real[pair] for pair in kept if pair in old_real]
+    seed: Any = args.seed
     for number in range(1, args.shuffles + 1):
-        logger.info("Shuffle %d of %d%s", number, args.shuffles,
-                    f" ({episode})" if episode else "")
-        shuffled, next_seed_ = shuffle_times(strokes, seed)
+        if new:
+            logger.info("Shuffle %d of %d%s", number, args.shuffles,
+                        f" ({episode})" if episode else "")
+            shuffled, next_seed_ = shuffle_times(strokes, seed)
+        else:
+            seed = chain[number - 1]
         for parameters in grid:
-            values = thunderstorm_statistics(*memory_storms(shuffled, zone_ids, parameters))
-            rows.append(["shuffled", seed, flashes, "",
-                         *_parameter_cells(parameters, args.algorithm),
-                         *(_cell(values[column]) for column in STATISTIC_COLUMNS)])
-        seed = next_seed_
+            if parameters in new:
+                values = thunderstorm_statistics(*memory_storms(shuffled, zone_ids, parameters))
+                rows.append(["shuffled", seed, flashes, "",
+                             *_parameter_cells(parameters, args.algorithm),
+                             *(_cell(values[column]) for column in STATISTIC_COLUMNS)])
+            else:
+                rows.append(copied(pair_of[parameters], seed))
+        rows += [copied(pair, seed) for pair in kept if old_seeds[pair]]
+        if new:
+            seed = next_seed_
     return rows
+
+
+def _gap_block(path: Path, lines: tuple[int, int]) -> list[list[str]]:
+    """The rows of a gap file from its line ``lines[0]`` to ``lines[1]`` (from 1, the
+    header's), the lines before them skipped unread (see :func:`gap_file_blocks`)."""
+    first, last = lines
+    with path.open(newline="", encoding="utf-8") as file:
+        return list(csv.reader(itertools.islice(file, first - 1, last)))
 
 
 # --------------------------------------------------------------------------
@@ -1050,6 +1199,67 @@ def write_time_csv(path: Path, results: dict[Any, dict[str, Any]],
         for parameters in results])
 
 
+def gap_file_columns(algorithm: str, periods: bool) -> list[str]:
+    """``--gap``'s file's columns: the episode's with ``--periods``, :data:`GAP_COLUMNS`,
+    the parameters swept and the statistics."""
+    return [*(["episode", "start", "end"] if periods else []), *GAP_COLUMNS, *GRIDS[algorithm],
+            *STATISTIC_COLUMNS]
+
+
+def gap_file_blocks(path: Path, columns: list[str], shuffles: int,
+                    seed: int) -> dict[str | None, tuple[int, int]]:
+    """Check a gap file already there against this run, and where each episode's rows are.
+
+    Read once, keeping per episode and pair only how many shuffled rows it has and the
+    seed of the first. Every pair must have ``shuffles`` of them, the first from
+    ``seed``.
+
+    Returns
+    -------
+    dict
+        For each episode (``None`` in a file with no episode column), in the file's
+        order, its first and last line (from 1, the header's).
+
+    Raises
+    ------
+    ValueError
+        If the columns are not ``columns``, an episode's rows are not together, a row is
+        neither ``real`` nor ``shuffled``, or a pair's shuffled rows are not this run's.
+    """
+    run = columns.index("run")
+    parameters = slice(run + len(GAP_COLUMNS), len(columns) - len(STATISTIC_COLUMNS))
+    blocks: dict[str | None, list[int]] = {}
+    shuffled: dict[tuple[str | None, tuple[str, ...]], list[Any]] = {}
+    with path.open(newline="", encoding="utf-8") as file:
+        reader = csv.reader(file)
+        if next(reader, None) != columns:
+            raise ValueError(f"{path}: its columns are not those of this run's gap file (another "
+                             f"algorithm's, or not a gap file)")
+        current: Any = object()
+        for row in reader:
+            episode = row[0] if run else None
+            if episode != current:
+                if episode in blocks:
+                    raise ValueError(f"{path}: episode {episode}'s rows are not together")
+                blocks[episode] = [reader.line_num, reader.line_num]
+                current = episode
+            blocks[episode][1] = reader.line_num
+            if row[run] == "shuffled":
+                counted = shuffled.setdefault((episode, tuple(row[parameters])), [0, row[run + 1]])
+                counted[0] += 1
+            elif row[run] != "real":
+                raise ValueError(f"{path}, line {reader.line_num}: run {row[run]!r} is neither "
+                                 f"real nor shuffled")
+    names = columns[parameters]
+    for (episode, pair), (count, first) in shuffled.items():
+        if count != shuffles or first != str(seed):
+            where = ", ".join(f"{name} {value}" for name, value in zip(names, pair))
+            raise ValueError(f"{path}: {f'episode {episode}, ' if run else ''}{where} has {count} "
+                             f"shuffled row(s) from seed {first}, not {shuffles} from {seed}: give "
+                             f"the same --seed and --shuffles, or delete the file")
+    return {episode: (first, last) for episode, (first, last) in blocks.items()}
+
+
 def write_time_runs_csv(path: Path, samples: dict[Any, list[tuple[float, float]]], host: str,
                         algorithm: str = DEFAULT_ALGORITHM) -> None:
     """The time analysis' runs: one row per timed run, in the order they ran (round by
@@ -1124,7 +1334,11 @@ def main(argv: list[str] | None = None) -> int:
         logger.error("%s", error)
         return 1
     try:
-        grid = parameter_grid(READERS[args.provider].default_srid, args.algorithm, args.defaults)
+        grid = parameter_grid(READERS[args.provider].default_srid, args.algorithm, args.defaults,
+                              args.extra)
+        if not args.defaults:
+            logger.info("Grid: %s: %d combinations", describe_grid(args.algorithm, args.extra),
+                        len(grid))
         if periods:
             logger.info("%d combinations of %s over %s strokes (data provider %d), for each of "
                         "%d episode(s) of %s", len(grid), args.algorithm, args.provider,
@@ -1135,16 +1349,26 @@ def main(argv: list[str] | None = None) -> int:
                         args.start.isoformat(), args.end.isoformat())
         if args.time:
             return time_analysis(engine, data_provider_id, args, grid, logger)
-        gap_columns = [*GAP_COLUMNS, *GRIDS[args.algorithm], *STATISTIC_COLUMNS]
         gap_written = 0
         try:
+            if args.gap:
+                # Written to <name>.part, episode by episode (a grid's shuffled rows are too
+                # many to keep), from what the gap file already there holds and what is new;
+                # it takes the file's place at the end, the file becoming <name>.old.
+                gap_path = args.output_dir / (
+                    periods_csv_filename(args.provider, args.periods, algorithm=args.algorithm,
+                                         defaults=args.defaults, gap=True) if periods else
+                    csv_filename(args.provider, args.start, args.end, algorithm=args.algorithm,
+                                 defaults=args.defaults, gap=True))
+                gap_columns = gap_file_columns(args.algorithm, periods=bool(periods))
+                blocks = (gap_file_blocks(gap_path, gap_columns, args.shuffles, args.seed)
+                          if gap_path.exists() else {})
+                if blocks:
+                    logger.info("%s holds %d period(s) already: what it has is copied, not run "
+                                "again", gap_path, len(blocks))
+                part = gap_path.with_name(f"{gap_path.name}.part")
+                _write(part, gap_columns, [])
             if periods:
-                if args.gap:
-                    # Written episode by episode: a grid's shuffled rows are too many to keep.
-                    gap_path = args.output_dir / periods_csv_filename(
-                        args.provider, args.periods, algorithm=args.algorithm,
-                        defaults=args.defaults, gap=True)
-                    _write(gap_path, ["episode", "start", "end", *gap_columns], [])
                 collected = []
                 unfinished = False
                 for number, period in enumerate(periods, start=1):
@@ -1159,12 +1383,23 @@ def main(argv: list[str] | None = None) -> int:
                     collected.append((period, complete, results))
                     unfinished = unfinished or incomplete
                     if args.gap:
+                        old = ([row[3:] for row in _gap_block(gap_path, blocks[period.episode])]
+                               if period.episode in blocks else None)
                         rows = gap_rows(engine, data_provider_id, args, grid, period.run_start,
                                         period.run_end, complete, results, logger,
-                                        episode=f"episode {number} of {len(periods)}")
-                        _append(gap_path, [[period.episode, period.start.isoformat(),
-                                            period.end.isoformat(), *row] for row in rows])
+                                        episode=f"episode {number} of {len(periods)}", old=old)
+                        _append(part, [[period.episode, period.start.isoformat(),
+                                        period.end.isoformat(), *row] for row in rows])
                         gap_written += len(rows)
+                if args.gap:
+                    episodes = {period.episode for period in periods}
+                    for episode, lines in blocks.items():
+                        if episode not in episodes:
+                            rows = _gap_block(gap_path, lines)
+                            _append(part, rows)
+                            gap_written += len(rows)
+                            logger.info("Episode %s of %s is not in %s: kept as it was", episode,
+                                        gap_path.name, args.periods)
                 path = args.output_dir / periods_csv_filename(args.provider, args.periods,
                                                               algorithm=args.algorithm,
                                                               defaults=args.defaults)
@@ -1179,14 +1414,16 @@ def main(argv: list[str] | None = None) -> int:
                 write_csv(path, complete, results, algorithm=args.algorithm)
                 written = len(complete)
                 if args.gap:
-                    gap_path = args.output_dir / csv_filename(
-                        args.provider, args.start, args.end, algorithm=args.algorithm,
-                        defaults=args.defaults, gap=True)
+                    old = _gap_block(gap_path, blocks[None]) if None in blocks else None
                     rows = gap_rows(engine, data_provider_id, args, grid, args.start, args.end,
-                                    complete, results, logger)
-                    _write(gap_path, gap_columns, rows)
+                                    complete, results, logger, old=old)
+                    _append(part, rows)
                     gap_written = len(rows)
-        except RuntimeError as error:
+            if args.gap:
+                if gap_path.exists():
+                    os.replace(gap_path, gap_path.with_name(f"{gap_path.name}.old"))
+                os.replace(part, gap_path)
+        except (RuntimeError, ValueError) as error:
             logger.error("%s", error)
             return 1
         except OSError as error:

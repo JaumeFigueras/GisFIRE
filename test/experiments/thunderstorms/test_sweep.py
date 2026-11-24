@@ -1078,3 +1078,307 @@ def test_shuffling_the_times_breaks_the_storms_up(database, tmp_path, monkeypatc
     for record in shuffled:
         assert record["flashes_clustered"] == "21"
         assert float(record["isolated_pct"]) > float(real["isolated_pct"])
+
+
+# --- extra grid values from the command line ----------------------------------------------
+
+EXTRA_D = ["2", "4", "6", "8", "10", "12", "14", "16", "20"]
+EXTRA_T = ["2", "4", "6", "8", "10", "12", "15", "20", "30"]
+
+
+def test_the_grid_flags_add_their_values_to_the_lists_sorted():
+    args = sweep.parse_arguments(["--sensitivity", "--algorithm", TIME_DISTANCE, "--d", *EXTRA_D,
+                                  "--t", *EXTRA_T, *PERIOD])
+    assert args.extra == {"max_distance_km": [int(d) for d in EXTRA_D],
+                          "max_time_difference_min": [int(t) for t in EXTRA_T]}
+    assert sweep.grid_lists(TIME_DISTANCE, args.extra) == {
+        "max_distance_km": [2, 4, 5, 6, 8, 10, 12, 14, 15, 16, 20, 25, 30],
+        "max_time_difference_min": [2, 4, 5, 6, 8, 10, 12, 15, 20, 30, 60]}
+    grid = sweep.parameter_grid(3067, TIME_DISTANCE, extra=args.extra)
+    assert len(grid) == 13 * 11 == 143
+    assert [(p.max_distance_km, p.max_time_difference_min) for p in grid[:3]] == \
+        [(2, 2), (2, 4), (2, 5)]
+    assert (grid[-1].max_distance_km, grid[-1].max_time_difference_min) == (30, 60)
+    # Every pair of the lists alone is in it, the same parameters: stored ones are found again.
+    assert all(parameters in grid for parameters in sweep.parameter_grid(3067, TIME_DISTANCE))
+
+
+def test_cellsearch_s_grid_flags_take_off_decimals_and_repeats():
+    args = sweep.parse_arguments(["--sensitivity", "--r", "2.5", "--i", "15", "20",
+                                  "--c", "off", "5", *PERIOD])
+    lists = sweep.grid_lists(CELLSEARCH, args.extra)
+    assert lists["attraction_radius_km"] == [2.5, 5, 10, 15, 20, 25, 30]
+    assert lists["inertia"] == [10, 15, 20, 30, 40, 50]
+    assert lists["time_distance_limit_min_km"] == [None, 5, 10, 20, 40, 80, 160]
+    assert lists["max_waiting_time_min"] == sweep.MAX_WAITING_TIMES_MIN
+    assert len(sweep.parameter_grid(25831, CELLSEARCH, extra=args.extra)) == 7 * 6 * 6 * 7
+
+
+def test_without_grid_flags_the_grid_is_the_lists():
+    assert sweep.parse_arguments(["--sensitivity", *PERIOD]).extra == {}
+    for algorithm in (CELLSEARCH, TIME_DISTANCE):
+        assert sweep.parameter_grid(3067, algorithm, extra={}) == \
+            sweep.parameter_grid(3067, algorithm)
+        assert sweep.grid_lists(algorithm, {}) == {
+            field: values for field, (_, _, values) in sweep.GRIDS[algorithm].items()}
+
+
+@pytest.mark.parametrize("argv", [["--algorithm", TIME_DISTANCE, "--r", "5"],
+                                  ["--c", "5", "--algorithm", TIME_DISTANCE],
+                                  ["--algorithm", TIME_DISTANCE, "--defaults", "--d", "2"],
+                                  ["--algorithm", TIME_DISTANCE, "--d", "0"],
+                                  ["--algorithm", TIME_DISTANCE, "--d", "off"],
+                                  ["--algorithm", TIME_DISTANCE, "--d", "two"],
+                                  ["--i", "2.5"]],
+                         ids=["r-with-time-distance", "c-with-time-distance", "with-defaults",
+                              "not-positive", "d-off", "not-a-number", "i-not-whole"])
+def test_a_wrong_grid_flag_is_refused(argv):
+    with pytest.raises(SystemExit):
+        sweep.parse_arguments(["--sensitivity", *argv, *PERIOD])
+
+
+def test_a_grid_flag_runs_only_the_new_combinations(database, tmp_path, monkeypatch, caplog):
+    """The grid cut to D 10 km, T 16 min, run; then with --d 20: D 10 is skipped."""
+    engine, arguments = database
+    monkeypatch.setitem(sweep.GRIDS, TIME_DISTANCE, {"max_distance_km": ("D", "km", [10]),
+                                                     "max_time_difference_min": ("T", "min", [16])})
+    argv = ["--sensitivity", "--algorithm", TIME_DISTANCE, "--provider", "MeteoCat", "--from",
+            DAY.isoformat(), "--to", NEXT_DAY.isoformat(), "--output-dir", str(tmp_path),
+            *arguments]
+    assert sweep.main(argv) == 0
+    with caplog.at_level(logging.INFO):
+        assert sweep.main([*argv, "--d", "20"]) == 0
+    messages = [record.getMessage() for record in caplog.records]
+    assert "Grid: D 10, 20 km; T 16 min: 2 combinations" in messages
+    assert any(message.startswith("Experiment 1 of 2 (D 10 km, T 16 min): already stored")
+               for message in messages)
+    assert "Experiment 2 of 2 (D 20 km, T 16 min)" in messages
+    with engine.connect() as connection:
+        assert connection.execute(text("SELECT count(*) FROM thunderstorm_experiment")).scalar() == 2
+    output = tmp_path / sweep.csv_filename("MeteoCat", DAY, NEXT_DAY, algorithm=TIME_DISTANCE)
+    assert [record["max_distance_km"] for record in csv.DictReader(output.open())] == ["10", "20"]
+
+
+# --- an old gap file: reading and checking it ---------------------------------------------
+
+def gap_file(path: Path, rows: list[tuple[str, str, str, int, int]], periods: bool = True,
+             algorithm: str = TIME_DISTANCE) -> Path:
+    """A made-up gap file: each row ``(episode, run, seed, D, T)``, its other cells filler."""
+    columns = sweep.gap_file_columns(algorithm, periods)
+    lines = [",".join(columns)]
+    for episode, run, seed, d, t in rows:
+        cells = [episode, "2020-07-15T14:06:00+00:00", "2020-07-15T14:14:00+00:00"] if periods else []
+        cells += [run, seed, "3", "1" if run == "real" else "", str(d), str(t),
+                  *["0"] * len(sweep.STATISTIC_COLUMNS)]
+        lines.append(",".join(cells))
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return path
+
+
+def two_shuffles(episode: str, d: int, first: str = str(sweep.SEED),
+                 second: str = "764990744") -> list[tuple[str, str, str, int, int]]:
+    """A pair's rows with T 16 min: its real row and two shuffled rows."""
+    return [(episode, "real", "", d, 16), (episode, "shuffled", first, d, 16),
+            (episode, "shuffled", second, d, 16)]
+
+
+def test_a_gap_file_written_by_the_sweep_is_read_back(database, tmp_path, monkeypatch):
+    """The file of :func:`test_the_gap_option_adds_its_file_and_changes_nothing_else`:
+    a header, then 6 rows per episode."""
+    engine, arguments = database
+    two_combinations(monkeypatch)
+    episodes_path = store_two_episodes(engine, tmp_path)
+    assert sweep.main(["--sensitivity", "--gap", "--shuffles", "2", "--algorithm", TIME_DISTANCE,
+                       "--provider", "MeteoCat", "--periods", str(episodes_path), "--output-dir",
+                       str(tmp_path), *arguments]) == 0
+    path = tmp_path / sweep.periods_csv_filename("MeteoCat", episodes_path, algorithm=TIME_DISTANCE,
+                                                 gap=True)
+    assert sweep.gap_file_blocks(path, sweep.gap_file_columns(TIME_DISTANCE, True), 2,
+                                 sweep.SEED) == {"1": (2, 7), "2": (8, 13)}
+
+
+def test_a_period_s_gap_file_is_one_block(tmp_path):
+    path = gap_file(tmp_path / "gap.csv", two_shuffles("", 10) + two_shuffles("", 20),
+                    periods=False)
+    assert sweep.gap_file_blocks(path, sweep.gap_file_columns(TIME_DISTANCE, False), 2,
+                                 sweep.SEED) == {None: (2, 7)}
+
+
+@pytest.mark.parametrize(("rows", "shuffles", "seed", "message"), [
+    (two_shuffles("1", 10), 3, sweep.SEED, "has 2 shuffled row"),
+    (two_shuffles("1", 10, first="7"), 2, sweep.SEED, "from seed 7"),
+    (two_shuffles("1", 10) + two_shuffles("2", 10) + two_shuffles("1", 20), 2, sweep.SEED,
+     "rows are not together"),
+    ([("1", "other", "", 10, 16)], 2, sweep.SEED, "neither real nor shuffled"),
+], ids=["fewer-shuffles", "another-seed", "episode-split", "unknown-run"])
+def test_a_gap_file_that_does_not_match_the_run_is_refused(tmp_path, rows, shuffles, seed, message):
+    path = gap_file(tmp_path / "gap.csv", rows)
+    with pytest.raises(ValueError, match=message):
+        sweep.gap_file_blocks(path, sweep.gap_file_columns(TIME_DISTANCE, True), shuffles, seed)
+
+
+def test_another_algorithm_s_gap_file_is_refused(tmp_path):
+    path = gap_file(tmp_path / "gap.csv", two_shuffles("1", 10))
+    with pytest.raises(ValueError, match="columns"):
+        sweep.gap_file_blocks(path, sweep.gap_file_columns(CELLSEARCH, True), 2, sweep.SEED)
+
+
+def test_the_two_episodes_of_one_pair_are_each_complete(tmp_path):
+    """D 10 in episodes 1 and 2, two shuffles in each: each has its 2, so it is accepted."""
+    path = gap_file(tmp_path / "gap.csv", two_shuffles("1", 10) + two_shuffles("2", 10))
+    assert sweep.gap_file_blocks(path, sweep.gap_file_columns(TIME_DISTANCE, True), 2,
+                                 sweep.SEED) == {"1": (2, 4), "2": (5, 7)}
+
+
+# --- the gap file merge ---------------------------------------------------------------------
+
+def grid_of(monkeypatch, distances: list[int]) -> None:
+    """Time-distance's grid cut to D ``distances`` km, T 16 min."""
+    monkeypatch.setitem(sweep.GRIDS, TIME_DISTANCE, {"max_distance_km": ("D", "km", distances),
+                                                     "max_time_difference_min": ("T", "min", [16])})
+
+
+def gap_run(arguments: list[str], output_dir: Path, *extra: str) -> int:
+    """A --gap run of two shuffles of time-distance on MeteoCat's strokes."""
+    return sweep.main(["--sensitivity", "--gap", "--shuffles", "2", "--algorithm", TIME_DISTANCE,
+                       "--provider", "MeteoCat", "--output-dir", str(output_dir), *arguments, *extra])
+
+
+def computed_distances(monkeypatch) -> list[float]:
+    """The D of every run made in memory from now on."""
+    calls = []
+    run = sweep.memory_storms
+
+    def counting(strokes, zone_ids, parameters):
+        calls.append(parameters.max_distance_km)
+        return run(strokes, zone_ids, parameters)
+
+    monkeypatch.setattr(sweep, "memory_storms", counting)
+    return calls
+
+
+def episodes_file_records(path: Path) -> list[dict[str, str]]:
+    with path.open(newline="", encoding="utf-8") as file:
+        return list(csv.DictReader(file))
+
+
+@pytest.mark.parametrize("periods", [True, False], ids=["periods", "from-to"])
+def test_adding_a_pair_runs_only_it_and_writes_a_fresh_run_s_file(database, tmp_path, monkeypatch,
+                                                                  periods):
+    """D 10, then D 10 and 20: only D 20 is run in memory, the old file is kept as .old, and
+    the new one is the file of a run of both from scratch."""
+    engine, arguments = database
+    grid_of(monkeypatch, [10])
+    if periods:
+        episodes_path = store_two_episodes(engine, tmp_path)
+        arguments = [*arguments, "--periods", str(episodes_path)]
+        name = sweep.periods_csv_filename("MeteoCat", episodes_path, algorithm=TIME_DISTANCE,
+                                          gap=True)
+    else:
+        arguments = [*arguments, "--from", DAY.isoformat(), "--to", NEXT_DAY.isoformat()]
+        name = sweep.csv_filename("MeteoCat", DAY, NEXT_DAY, algorithm=TIME_DISTANCE, gap=True)
+    assert gap_run(arguments, tmp_path / "out") == 0
+    first = (tmp_path / "out" / name).read_bytes()
+    computed = computed_distances(monkeypatch)
+    assert gap_run(arguments, tmp_path / "out", "--d", "20") == 0
+    assert computed == [20.0] * 2 * (2 if periods else 1)
+    assert (tmp_path / "out" / f"{name}.old").read_bytes() == first
+    assert not (tmp_path / "out" / f"{name}.part").exists()
+    assert gap_run(arguments, tmp_path / "fresh", "--d", "20") == 0
+    assert (tmp_path / "out" / name).read_bytes() == (tmp_path / "fresh" / name).read_bytes()
+
+
+def test_a_pair_out_of_the_grid_is_kept_after_the_grid_s_pairs(database, tmp_path, monkeypatch):
+    """D 10 and 20, then D 20 and 30: every block has D 20, D 30, then D 10 as it was."""
+    engine, arguments = database
+    episodes_path = store_two_episodes(engine, tmp_path)
+    arguments = [*arguments, "--periods", str(episodes_path)]
+    path = tmp_path / sweep.periods_csv_filename("MeteoCat", episodes_path, algorithm=TIME_DISTANCE,
+                                                 gap=True)
+    grid_of(monkeypatch, [10, 20])
+    assert gap_run(arguments, tmp_path) == 0
+    old = [record for record in episodes_file_records(path) if record["max_distance_km"] == "10"]
+    grid_of(monkeypatch, [20])
+    assert gap_run(arguments, tmp_path, "--d", "30") == 0
+    records = episodes_file_records(path)
+    assert [(record["episode"], record["run"], record["max_distance_km"]) for record in records] == [
+        (episode, run, d) for episode in ("1", "2") for run in ("real", "shuffled", "shuffled")
+        for d in ("20", "30", "10")]
+    assert [record for record in records if record["max_distance_km"] == "10"] == old
+
+
+def test_an_episode_out_of_the_periods_file_is_kept_after_its_episodes(database, tmp_path,
+                                                                      monkeypatch):
+    """Both episodes, then a periods file with episode 2 only: episode 1 follows, as it was."""
+    engine, arguments = database
+    grid_of(monkeypatch, [10])
+    episodes_path = store_two_episodes(engine, tmp_path)
+    arguments = [*arguments, "--periods", str(episodes_path)]
+    path = tmp_path / sweep.periods_csv_filename("MeteoCat", episodes_path, algorithm=TIME_DISTANCE,
+                                                 gap=True)
+    assert gap_run(arguments, tmp_path) == 0
+    old = episodes_file_records(path)
+    header, _, second = episodes_path.read_text(encoding="utf-8").splitlines()
+    episodes_path.write_text(f"{header}\n{second}\n", encoding="utf-8")
+    computed = computed_distances(monkeypatch)
+    assert gap_run(arguments, tmp_path) == 0
+    assert computed == []
+    records = episodes_file_records(path)
+    assert [record["episode"] for record in records] == ["2"] * 3 + ["1"] * 3
+    assert records[3:] == old[:3]
+    assert records[:3] == old[3:]
+
+
+def test_an_episode_with_nothing_new_reads_no_strokes(database, tmp_path, monkeypatch, caplog):
+    """The same run twice: the second copies every row, reading only the statistics' strokes."""
+    engine, arguments = database
+    grid_of(monkeypatch, [10])
+    episodes_path = store_two_episodes(engine, tmp_path)
+    arguments = [*arguments, "--periods", str(episodes_path)]
+    path = tmp_path / sweep.periods_csv_filename("MeteoCat", episodes_path, algorithm=TIME_DISTANCE,
+                                                 gap=True)
+    assert gap_run(arguments, tmp_path) == 0
+    first = path.read_bytes()
+    reads = []
+    read = sweep.read_strokes
+    monkeypatch.setattr(sweep, "read_strokes", lambda *args: reads.append(args) or read(*args))
+    computed = computed_distances(monkeypatch)
+    with caplog.at_level(logging.INFO):
+        assert gap_run(arguments, tmp_path) == 0
+    assert computed == []
+    assert len(reads) == 2  # the statistics of each episode's stored runs, nothing more
+    assert not [record for record in caplog.records if record.getMessage().startswith("Shuffle ")]
+    assert path.read_bytes() == first
+
+
+def test_a_failed_run_leaves_the_gap_file_as_it_was(database, tmp_path, monkeypatch):
+    engine, arguments = database
+    grid_of(monkeypatch, [10])
+    episodes_path = store_two_episodes(engine, tmp_path)
+    arguments = [*arguments, "--periods", str(episodes_path)]
+    name = sweep.periods_csv_filename("MeteoCat", episodes_path, algorithm=TIME_DISTANCE, gap=True)
+    assert gap_run(arguments, tmp_path) == 0
+    first = (tmp_path / name).read_bytes()
+
+    def failing(strokes, zone_ids, parameters):
+        raise RuntimeError("the machine stopped")
+
+    monkeypatch.setattr(sweep, "memory_storms", failing)
+    assert gap_run(arguments, tmp_path, "--d", "20") == 1
+    assert (tmp_path / name).read_bytes() == first
+    assert (tmp_path / f"{name}.part").exists()
+    assert not (tmp_path / f"{name}.old").exists()
+
+
+def test_a_gap_file_of_other_shuffles_stops_the_run_before_it_starts(database, tmp_path,
+                                                                   monkeypatch, caplog):
+    engine, arguments = database
+    grid_of(monkeypatch, [10])
+    episodes_path = store_two_episodes(engine, tmp_path)
+    arguments = [*arguments, "--periods", str(episodes_path)]
+    assert gap_run(arguments, tmp_path) == 0
+    before = row_counts(engine)
+    with caplog.at_level(logging.ERROR):
+        assert gap_run(arguments, tmp_path, "--shuffles", "3", "--d", "20") == 1
+    assert row_counts(engine) == before
+    assert "give the same --seed and --shuffles, or delete the file" in caplog.text
