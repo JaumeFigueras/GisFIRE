@@ -12,6 +12,8 @@
         --sensitivity --provider FMI --periods fmi_2018_extract.csv
     python3 -m gisfire_experiments.thunderstorms.sweep --algorithm time_distance_galanaki \\
         --sensitivity --defaults --provider FMI --periods fmi_2018_extract.csv
+    python3 -m gisfire_experiments.thunderstorms.sweep --algorithm time_distance_galanaki \\
+        --sensitivity --gap --provider FMI --periods fmi_2018_extract.csv
 
 ``--algorithm`` chooses the algorithm, by its name in the thunderstorm builder:
 Cellsearch (``cellsearch_tuomi_larjavaara``, the default) or the time-distance
@@ -21,7 +23,8 @@ required:
 
 * ``--sensitivity`` stores every combination in the database, through the
   thunderstorm builder, and writes the statistics of its thunderstorms (see
-  `Sensitivity analysis`_).
+  `Sensitivity analysis`_). With ``--gap`` it also runs every combination on
+  copies of the period with its flashes' times shuffled (see `Shuffled runs`_).
 * ``--time`` writes nothing to the database: it reads the strokes once and
   times the algorithm's own function (``cellsearch()`` or ``time_distance()``)
   on every combination ``--iterations`` times (default 10), and writes the time
@@ -142,6 +145,63 @@ A thunderstorm with no area (fewer than three zone flashes, or all on a line)
 counts in ``thunderstorms`` and the duration, not in the density or the
 diameter. A statistic with no thunderstorm to take it over is an empty cell.
 
+Shuffled runs
+-------------
+
+``--gap`` (``--sensitivity`` only) gathers the data of a gap statistic
+(Tibshirani, R., Walther, G. & Hastie, T. (2001), Estimating the number of
+clusters in a data set via the gap statistic, *Journal of the Royal Statistical
+Society: Series B* 63(2), 411–423), which compares the real runs with runs on
+data that hold no storms. After the normal runs of a period (of each episode,
+with ``--periods``), every combination is run again on ``--shuffles`` copies of
+it (default 30) whose flashes' times are shuffled. Nothing more is stored: the
+shuffled runs are made in memory, and the real runs, their statistics and their
+file are what they are without ``--gap``.
+
+A shuffle (:func:`shuffle_times`) takes every flash the period's run reads (the
+whole network's, margins included), in the builder's order (time, then
+representative stroke), and gives each one another one's time, a permutation of
+them (:func:`permutation`, a Fisher–Yates shuffle); its strokes move with it.
+Places, errors and flashes stay: where the lightning falls and how many flashes
+come each minute are kept, and only which place goes with which time is broken.
+Rules 1 and 2 of :doc:`/algorithms/thunderstorm_rules` hold as for the real
+runs: the zone depends on places only.
+
+The permutation is driven by Park & Miller's (1988) "minimal standard"
+generator, ``Z ← 16807·Z mod (2³¹ − 1)``, written here, with no library, so
+that a seed gives the same shuffle whatever the versions installed. A period's
+first shuffle starts at ``--seed`` (default 24061117, from 1 to 2³¹ − 2), and
+each next one where the last stopped: with this generator consecutive seeds
+would give related shuffles. Every period starts again from ``--seed``, so its
+rows do not depend on the other periods run. Each shuffle is made once, and
+every combination is run on it: they all have the same shuffles. Each is logged,
+``Shuffle 2 of 30 (episode 1 of 10)``.
+
+A shuffled run is the builder's run over the whole period at once (exact: the
+builder cuts its pieces at gaps longer than T only), and its statistics are
+those of `Sensitivity analysis`_, counted in memory (:func:`memory_storms`) as
+they are for a stored run. The area is the zone flashes' concave hull with
+shapely, where the real runs' is PostGIS's ``ST_ConcaveHull``: both are GEOS's,
+and agree when the two use the same GEOS version. ``isolated_pct`` does not
+depend on it.
+
+The rows go to a second CSV file, named as the sensitivity's with ``_gap`` after
+the provider (see :func:`periods_csv_filename` and :func:`csv_filename`), and
+written episode by episode: a run that fails leaves in it the episodes done. For
+each period, its real rows (the sensitivity file's), then every combination on
+the first shuffle, on the second, and so on. Its columns are, after the
+episode's ``episode``, ``start`` and ``end`` with ``--periods``:
+
+* ``run``: ``real`` or ``shuffled``;
+* ``seed``: where the shuffle started (empty on a real row); with the period's
+  strokes it repeats the shuffle;
+* ``flashes``: the period's zone flashes (``flashes_clustered`` plus
+  ``flashes_discarded_error``, the same on every row of the period);
+* ``experiment_id``: the stored experiment, on a real row only;
+* the parameters swept and the statistics, as in the sensitivity file.
+
+The gap itself is not computed here.
+
 Time analysis
 -------------
 
@@ -191,6 +251,7 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+import shapely
 
 from sqlalchemy import Connection
 from sqlalchemy import Engine
@@ -268,6 +329,12 @@ FIXED: dict[str, dict[str, Any]] = {
 #: How many timed runs of each combination ``--time`` makes by default.
 ITERATIONS = 10
 
+#: How many shuffled copies of each period ``--gap`` runs by default.
+SHUFFLES = 30
+
+#: Where ``--gap``'s first shuffle starts by default (see :func:`permutation`).
+SEED = 24_061_117
+
 #: How much the run of each episode of ``--periods`` is widened on each side.
 PERIOD_MARGIN = datetime.timedelta(minutes=60)
 
@@ -296,6 +363,16 @@ def parse_arguments(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--iterations", type=int, default=None, metavar="N",
                         help=f"--time only: the timed runs of each combination, after one "
                              f"warm-up run (default: {ITERATIONS})")
+    parser.add_argument("--gap", action="store_true",
+                        help="--sensitivity only: also run every combination, in memory, on "
+                             "copies of each period with its flashes' times shuffled, and "
+                             "write them with the real runs into a second file")
+    parser.add_argument("--shuffles", type=int, default=None, metavar="B",
+                        help=f"--gap only: the shuffled copies of each period "
+                             f"(default: {SHUFFLES})")
+    parser.add_argument("--seed", type=int, default=None, metavar="S",
+                        help=f"--gap only: where the first shuffle starts, from 1 to 2**31 - 2 "
+                             f"(default: {SEED})")
     parser.add_argument("--provider", required=True, choices=sorted(READERS),
                         help="whose strokes to cluster")
     parser.add_argument("--from", dest="start", type=parse_instant,
@@ -327,6 +404,17 @@ def parse_arguments(argv: list[str] | None = None) -> argparse.Namespace:
             args.iterations = ITERATIONS
         elif args.iterations < 1:
             parser.error("--iterations must be at least 1")
+    if args.gap:
+        if args.time:
+            parser.error("--gap goes with --sensitivity")
+        args.shuffles = SHUFFLES if args.shuffles is None else args.shuffles
+        args.seed = SEED if args.seed is None else args.seed
+        if args.shuffles < 1:
+            parser.error("--shuffles must be at least 1")
+        if not 1 <= args.seed <= GENERATOR_MODULUS - 1:
+            parser.error(f"--seed must be from 1 to {GENERATOR_MODULUS - 1}")
+    elif args.shuffles is not None or args.seed is not None:
+        parser.error("--shuffles and --seed go with --gap")
     return args
 
 
@@ -706,6 +794,142 @@ def time_analysis(engine: Engine, data_provider_id: int, args: argparse.Namespac
 
 
 # --------------------------------------------------------------------------
+# Shuffled runs
+# --------------------------------------------------------------------------
+
+#: Park & Miller's (1988) "minimal standard" generator, ``Z ← 16807·Z mod (2³¹ − 1)``:
+#: its values, and so its seeds, are 1 … 2³¹ − 2. Written here, with no library, so a
+#: seed gives the same shuffle whatever the versions installed. Park, S. K. & Miller,
+#: K. W. (1988), Random number generators: good ones are hard to find,
+#: *Communications of the ACM* 31(10), 1192–1201.
+GENERATOR_MULTIPLIER = 16807
+GENERATOR_MODULUS = 2**31 - 1
+
+
+def next_seed(seed: int) -> int:
+    """The generator's value after ``seed``."""
+    return GENERATOR_MULTIPLIER * seed % GENERATOR_MODULUS
+
+
+def permutation(n: int, seed: int) -> tuple[np.ndarray, int]:
+    """A Fisher–Yates shuffle of ``n`` places driven by the generator from ``seed``.
+
+    From the last place ``i`` down to the second, one value ``Z`` picks the place
+    ``j = (Z − 1)·(i + 1) // (2³¹ − 2)``, from 0 to ``i``, and the two are swapped:
+    whole numbers only, so every computer gives the same order.
+
+    Returns
+    -------
+    order : numpy.ndarray
+        Place ``k`` takes what was at ``order[k]``.
+    seed : int
+        The last value drawn (``seed`` itself when ``n`` < 2, which draws none),
+        where the next shuffle starts.
+    """
+    order = list(range(n))
+    for i in range(n - 1, 0, -1):
+        seed = next_seed(seed)
+        j = (seed - 1) * (i + 1) // (GENERATOR_MODULUS - 1)
+        order[i], order[j] = order[j], order[i]
+    return np.array(order, dtype=np.int64), seed
+
+
+def shuffle_times(strokes: Strokes, seed: int) -> tuple[Strokes, int]:
+    """The strokes with their flashes' times shuffled, and where the generator stopped.
+
+    The flashes are the builder's, in its order (time, then representative id), and
+    :func:`permutation` gives each one another flash's time. Its strokes move with
+    it, keeping their offsets from its representative stroke, whose time is the new
+    one exactly; places, errors and flashes stay. The strokes come back sorted by time,
+    then id, as the reader sorts them.
+    """
+    flashes = strokes_to_flashes(strokes)
+    order, seed = permutation(len(flashes), seed)
+    flash = flashes.stroke_flash_index
+    t = flashes.t[order][flash] + (strokes.t - flashes.t[flash])
+    by_time = np.lexsort((strokes.ids, t))
+    return Strokes(ids=strokes.ids[by_time], flash_keys=strokes.flash_keys[by_time],
+                   t=t[by_time], x=strokes.x[by_time], y=strokes.y[by_time],
+                   error=strokes.error[by_time]), seed
+
+
+def memory_storms(strokes: Strokes, zone_ids: np.ndarray,
+                  parameters: Any) -> tuple[list[Storm], FlashCounts]:
+    """One run in memory, and its thunderstorms and zone flashes as the statistics need them.
+
+    The algorithm's run is the builder's (``ALGORITHMS``), over all ``strokes`` at
+    once; each storm is then what :data:`STORMS_SQL` reads of a stored one. Its flashes
+    are its linked strokes that represent one, its zone flashes those with a stroke in
+    ``zone_ids`` (the ids of the strokes in the zone), its area their concave hull's
+    (shapely, with the builder's hull settings, points in id order as ``ST_Collect``
+    takes them) and its duration from all its flashes. A storm with no zone flash is
+    returned with none, and :func:`thunderstorm_statistics` leaves it out, as the
+    builder's zone filter leaves it unstored.
+    """
+    piece = ALGORITHMS[algorithm_of(parameters)].run(strokes, parameters, 1)
+    flashes = strokes_to_flashes(strokes)
+    zone = zone_stroke_counts(flashes, np.isin(strokes.ids, zone_ids)) > 0
+    counts = zone_flash_counts(flashes, zone, getattr(parameters, "max_location_error_km", None))
+    if not len(piece.cells.link_lightning_id):
+        return [], counts
+    # Each flash's storm, through the link of its representative stroke.
+    links = np.argsort(piece.cells.link_lightning_id)
+    linked = piece.cells.link_lightning_id[links]
+    place = np.minimum(np.searchsorted(linked, flashes.representative_id), len(linked) - 1)
+    in_storm = np.flatnonzero(linked[place] == flashes.representative_id)
+    label = piece.cells.link_label[links][place][in_storm]
+    # By storm, and within one by representative id, the order ST_Collect takes them in.
+    order = np.lexsort((flashes.representative_id[in_storm], label))
+    storms = []
+    for members in np.split(in_storm[order], np.flatnonzero(np.diff(label[order])) + 1):
+        zone_members = members[zone[members]]
+        hull = shapely.concave_hull(
+            shapely.multipoints(np.column_stack((flashes.x[zone_members], flashes.y[zone_members]))),
+            ratio=float(DEFAULT_HULL_PARAMETERS["ratio"]),
+            allow_holes=bool(DEFAULT_HULL_PARAMETERS["allow_holes"]))
+        storms.append(Storm(
+            flashes=len(zone_members),
+            area_km2=hull.area / 1e6 if hull.geom_type == "Polygon" and not hull.is_empty else None,
+            duration_min=float(flashes.t[members].max() - flashes.t[members].min()) / 60.0))
+    return storms, counts
+
+
+def gap_rows(engine: Engine, data_provider_id: int, args: argparse.Namespace, grid: list[Any],
+             start: datetime.datetime, end: datetime.datetime, complete: dict[Any, int],
+             results: dict[Any, dict[str, Any]], logger: logging.Logger,
+             episode: str | None = None) -> list[list[Any]]:
+    """``--gap``'s rows of ``[start, end)``, from ``run`` on (see :data:`GAP_COLUMNS`).
+
+    First its real runs, ``complete`` and ``results`` as :func:`sensitivity` returns
+    them; then, for each of ``args.shuffles`` shuffles of the period's strokes (the
+    first from ``args.seed``, each next one from where the last stopped), every
+    combination of ``grid``, run and counted in memory (:func:`memory_storms`). Every
+    row carries the period's zone flashes.
+    """
+    strokes = read_strokes(engine, data_provider_id, args.provider, start, end)
+    with engine.connect() as connection:
+        region = read_region(connection, args.provider)
+        connection.rollback()
+    zone_ids = strokes.ids[in_zone(region, strokes.x, strokes.y)]
+    flashes = int(np.count_nonzero(zone_stroke_counts(strokes_to_flashes(strokes),
+                                                      np.isin(strokes.ids, zone_ids))))
+    rows = [["real", "", flashes, *row]
+            for row in _experiment_rows(complete, results, args.algorithm)]
+    seed = args.seed
+    for number in range(1, args.shuffles + 1):
+        logger.info("Shuffle %d of %d%s", number, args.shuffles,
+                    f" ({episode})" if episode else "")
+        shuffled, next_seed_ = shuffle_times(strokes, seed)
+        for parameters in grid:
+            values = thunderstorm_statistics(*memory_storms(shuffled, zone_ids, parameters))
+            rows.append(["shuffled", seed, flashes, "",
+                         *_parameter_cells(parameters, args.algorithm),
+                         *(_cell(values[column]) for column in STATISTIC_COLUMNS)])
+        seed = next_seed_
+    return rows
+
+
+# --------------------------------------------------------------------------
 # The CSV files
 # --------------------------------------------------------------------------
 
@@ -716,32 +940,37 @@ def _analysis(algorithm: str, defaults: bool, suffix: str = "") -> str:
 
 def csv_filename(provider: str, start: datetime.datetime, end: datetime.datetime,
                  suffix: str = "", algorithm: str = DEFAULT_ALGORITHM,
-                 defaults: bool = False) -> str:
+                 defaults: bool = False, gap: bool = False) -> str:
     """``cellsearch_tuomi_larjavaara_FMI_20180703T000000Z_20180704T000000Z.csv``.
 
     The algorithm (followed by ``_defaults`` for ``--defaults``, and by ``_`` and
     ``suffix`` if given: ``times`` and ``times_runs`` for the time analysis), the
-    provider as given to ``--provider``, and the period ``[start, end)`` in UTC,
-    in the ISO 8601 basic format (no colons).
+    provider as given to ``--provider`` (followed by ``_gap`` for ``--gap``'s file),
+    and the period ``[start, end)`` in UTC, in the ISO 8601 basic format (no colons).
     """
     def instant(value: datetime.datetime) -> str:
         return value.astimezone(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
 
-    return (f"{_analysis(algorithm, defaults, suffix)}_{provider}_{instant(start)}_"
-            f"{instant(end)}.csv")
+    return (f"{_analysis(algorithm, defaults, suffix)}_{provider}_{'gap_' if gap else ''}"
+            f"{instant(start)}_{instant(end)}.csv")
 
 
 def periods_csv_filename(provider: str, periods: Path, algorithm: str = DEFAULT_ALGORITHM,
-                         defaults: bool = False) -> str:
+                         defaults: bool = False, gap: bool = False) -> str:
     """``time_distance_galanaki_FMI_fmi_2018.csv``: as :func:`csv_filename`, with the
     episodes file's name (without its extension) in place of the period."""
-    return f"{_analysis(algorithm, defaults)}_{provider}_{periods.stem}.csv"
+    return f"{_analysis(algorithm, defaults)}_{provider}_{'gap_' if gap else ''}{periods.stem}.csv"
 
 
 #: The statistics, as the CSV file's columns (see the module's docstring).
 STATISTIC_COLUMNS = ["thunderstorms", "flashes_discarded_error", "flashes_clustered",
                      "flashes_isolated", "isolated_pct", "density_median_per_100km2",
                      "diameter_median_km", "diameter_p90_km", "duration_median_min"]
+
+#: ``--gap``'s file's columns before the parameters (after the episode's, with
+#: ``--periods``): ``real`` or ``shuffled``, the shuffle's seed (empty on a real
+#: row), the period's zone flashes, and the stored experiment (on a real row only).
+GAP_COLUMNS = ["run", "seed", "flashes", "experiment_id"]
 
 #: The time statistics, as the time analysis' summary file's columns.
 TIME_COLUMNS = ["iterations",
@@ -777,6 +1006,11 @@ def _write(path: Path, columns: list[str], rows: list[list[Any]]) -> None:
         writer = csv.writer(file)
         writer.writerow(columns)
         writer.writerows(rows)
+
+
+def _append(path: Path, rows: list[list[Any]]) -> None:
+    with path.open("a", newline="", encoding="utf-8") as file:
+        csv.writer(file).writerows(rows)
 
 
 def _experiment_rows(experiments: dict[Any, int], results: dict[Any, dict[str, Any]],
@@ -901,8 +1135,16 @@ def main(argv: list[str] | None = None) -> int:
                         args.start.isoformat(), args.end.isoformat())
         if args.time:
             return time_analysis(engine, data_provider_id, args, grid, logger)
+        gap_columns = [*GAP_COLUMNS, *GRIDS[args.algorithm], *STATISTIC_COLUMNS]
+        gap_written = 0
         try:
             if periods:
+                if args.gap:
+                    # Written episode by episode: a grid's shuffled rows are too many to keep.
+                    gap_path = args.output_dir / periods_csv_filename(
+                        args.provider, args.periods, algorithm=args.algorithm,
+                        defaults=args.defaults, gap=True)
+                    _write(gap_path, ["episode", "start", "end", *gap_columns], [])
                 collected = []
                 unfinished = False
                 for number, period in enumerate(periods, start=1):
@@ -916,6 +1158,13 @@ def main(argv: list[str] | None = None) -> int:
                         episode=f"episode {number} of {len(periods)}")
                     collected.append((period, complete, results))
                     unfinished = unfinished or incomplete
+                    if args.gap:
+                        rows = gap_rows(engine, data_provider_id, args, grid, period.run_start,
+                                        period.run_end, complete, results, logger,
+                                        episode=f"episode {number} of {len(periods)}")
+                        _append(gap_path, [[period.episode, period.start.isoformat(),
+                                            period.end.isoformat(), *row] for row in rows])
+                        gap_written += len(rows)
                 path = args.output_dir / periods_csv_filename(args.provider, args.periods,
                                                               algorithm=args.algorithm,
                                                               defaults=args.defaults)
@@ -929,6 +1178,14 @@ def main(argv: list[str] | None = None) -> int:
                                                       defaults=args.defaults)
                 write_csv(path, complete, results, algorithm=args.algorithm)
                 written = len(complete)
+                if args.gap:
+                    gap_path = args.output_dir / csv_filename(
+                        args.provider, args.start, args.end, algorithm=args.algorithm,
+                        defaults=args.defaults, gap=True)
+                    rows = gap_rows(engine, data_provider_id, args, grid, args.start, args.end,
+                                    complete, results, logger)
+                    _write(gap_path, gap_columns, rows)
+                    gap_written = len(rows)
         except RuntimeError as error:
             logger.error("%s", error)
             return 1
@@ -936,6 +1193,9 @@ def main(argv: list[str] | None = None) -> int:
             logger.error("Cannot write %s: %s", error.filename, error)
             return 1
         logger.info("Wrote %s (%d experiments)", path, written)
+        if args.gap:
+            logger.info("Wrote %s (%d rows: real runs and %d shuffle(s) of each period)",
+                        gap_path, gap_written, args.shuffles)
     finally:
         engine.dispose()
     return 1 if unfinished else 0

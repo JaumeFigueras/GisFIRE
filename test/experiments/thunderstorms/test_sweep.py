@@ -18,18 +18,23 @@ import math
 from pathlib import Path
 from types import SimpleNamespace
 
+import numpy as np
 import pytest
 
 from sqlalchemy import create_engine
 from sqlalchemy import text
 
 from gisfire_algorithms.thunderstorm import CellsearchParameters
+from gisfire_algorithms.thunderstorm import Strokes
 from gisfire_algorithms.thunderstorm import TimeDistanceParameters
+from gisfire_algorithms.thunderstorm import strokes_to_flashes
 from gisfire_experiments.thunderstorms import sweep
 from gisfire_experiments.thunderstorms.sweep import FlashCounts
 from gisfire_experiments.thunderstorms.sweep import Storm
 from src.apps.thunderstorms.build_thunderstorms import ALGORITHMS
 from src.apps.thunderstorms.build_thunderstorms import build_thunderstorms
+from src.apps.thunderstorms.zones import in_zone
+from src.apps.thunderstorms.zones import read_region
 from src.data_model import Base
 from src.providers import catalonia_meteocat
 
@@ -721,15 +726,10 @@ def test_the_defaults_run_once_per_episode_into_their_own_file(database, tmp_pat
 
 # --- rule 2: the statistics of a storm half in the zone ------------------------------
 
-@pytest.mark.parametrize("parameters", [CellsearchParameters(min_flashes=3),
-                                        TimeDistanceParameters(min_flashes=3)],
-                         ids=[CELLSEARCH, TIME_DISTANCE])
-def test_a_storms_statistics_come_from_its_zone_flashes_and_its_time_from_all(database,
-                                                                              parameters):
+def store_half_zone_storm(engine) -> datetime.datetime:
     """Three days after the fixture's storm, 6 flashes, 4 min apart, moving east: the
-    first three in the zone (x 467-469 km), the last three out of it (471-473 km)."""
-    engine, _ = database
-    logger = logging.getLogger("test")
+    first three in the zone (x 467-469 km), the last three out of it (471-473 km).
+    Returns their day."""
     day = DAY + datetime.timedelta(days=3)
     xs = [467_000.0, 468_000.0, 469_000.0, 471_000.0, 472_000.0, 473_000.0]
     ys = [4_600_000.0, 4_602_000.0] * 3
@@ -740,6 +740,21 @@ def test_a_storms_statistics_come_from_its_zone_flashes_and_its_time_from_all(da
             connection.execute(text(INSERT_STROKE_SQL), {
                 "provider_id": provider_id, "flash": 301 + k,
                 "at": day + datetime.timedelta(hours=14, minutes=4 * k), "x": x, "y": y})
+    return day
+
+
+@pytest.mark.parametrize("parameters", [CellsearchParameters(min_flashes=3),
+                                        TimeDistanceParameters(min_flashes=3)],
+                         ids=[CELLSEARCH, TIME_DISTANCE])
+def test_a_storms_statistics_come_from_its_zone_flashes_and_its_time_from_all(database,
+                                                                              parameters):
+    """The storm of :func:`store_half_zone_storm`."""
+    engine, _ = database
+    logger = logging.getLogger("test")
+    day = store_half_zone_storm(engine)
+    with engine.connect() as connection:
+        provider_id = connection.execute(text(
+            "SELECT id FROM data_provider WHERE name = 'MeteoCat'")).scalar_one()
     algorithm = next(key for key, entry in ALGORITHMS.items()
                      if isinstance(parameters, entry.parameters))
     build_thunderstorms(engine, "MeteoCat", algorithm, parameters, day,
@@ -756,3 +771,310 @@ def test_a_storms_statistics_come_from_its_zone_flashes_and_its_time_from_all(da
     area = 2.0
     assert result["density_median_per_100km2"] == pytest.approx(100.0 * 3 / area, rel=1e-6)
     assert result["diameter_median_km"] == pytest.approx(2.0 * math.sqrt(area / math.pi), rel=1e-6)
+
+
+# --- the time shuffle: the generator and the permutation ------------------------------
+
+def test_the_generator_is_park_and_millers_minimal_standard():
+    """Park & Miller (1988)'s check: from 1, the 10,000th value is 1,043,618,065."""
+    seed = 1
+    for _ in range(10_000):
+        seed = sweep.next_seed(seed)
+    assert seed == 1_043_618_065
+
+
+def test_the_permutation_of_four_flashes():
+    """A, B, C, D and the seed 24061117: A takes D's time, B C's, C A's and D B's, and
+    the chain stops at 135629465."""
+    order, seed = sweep.permutation(4, 24_061_117)
+    assert order.tolist() == [3, 2, 0, 1]
+    assert seed == 135_629_465
+
+
+def test_a_permutation_draws_one_number_per_flash_but_the_first():
+    _, seed = sweep.permutation(5, 1)
+    expected = 1
+    for _ in range(4):
+        expected = sweep.next_seed(expected)
+    assert seed == expected
+
+
+def test_a_permutation_holds_every_flash_once_and_repeats_with_its_seed():
+    order, seed = sweep.permutation(1_000, 24_061_117)
+    assert sorted(order.tolist()) == list(range(1_000))
+    again, seed_again = sweep.permutation(1_000, 24_061_117)
+    assert again.tolist() == order.tolist() and seed_again == seed
+    # The next shuffle starts where this one stopped, and is another one.
+    following, _ = sweep.permutation(1_000, seed)
+    assert following.tolist() != order.tolist()
+
+
+@pytest.mark.parametrize("n", [0, 1])
+def test_nothing_to_shuffle_draws_nothing(n):
+    order, seed = sweep.permutation(n, 24_061_117)
+    assert order.tolist() == list(range(n))
+    assert seed == 24_061_117
+
+
+# --- the time shuffle: a run's strokes ----------------------------------------------------
+
+def four_flashes() -> Strokes:
+    """Six strokes in four flashes, in the builder's flash order 10, 20, 30, 40 (at 0,
+    60, 120.2 and 600 s). Flash 10 is represented by its first stroke (the more
+    accurate), its second 0.5 s later; flash 30 by its second, its first 0.2 s before."""
+    return Strokes(ids=np.array([1, 2, 3, 4, 5, 6]), flash_keys=np.array([10, 10, 20, 30, 30, 40]),
+                   t=np.array([0.0, 0.5, 60.0, 120.0, 120.2, 600.0]),
+                   x=np.array([0.0, 10.0, 1_000.0, 2_000.0, 2_010.0, 5_000.0]),
+                   y=np.array([0.0, 5.0, 1_000.0, 3_000.0, 3_005.0, 7_000.0]),
+                   error=np.array([100.0, 200.0, 100.0, 300.0, 150.0, 100.0]))
+
+
+def by_id(strokes: Strokes, name: str) -> dict[int, float]:
+    return dict(zip(strokes.ids.tolist(), getattr(strokes, name).tolist()))
+
+
+def test_a_shuffle_gives_each_flash_another_flash_s_time_and_moves_its_strokes_with_it():
+    """The seed 24061117 orders four places [3, 2, 0, 1]: flash 10 takes flash 40's time,
+    20 takes 30's, 30 takes 10's and 40 takes 20's."""
+    shuffled, seed = sweep.shuffle_times(four_flashes(), 24_061_117)
+    assert by_id(shuffled, "t") == pytest.approx({1: 600.0, 2: 600.5, 3: 120.2, 4: -0.2,
+                                                  5: 0.0, 6: 60.0})
+    assert seed == sweep.permutation(4, 24_061_117)[1]
+
+
+def test_a_shuffle_keeps_every_stroke_s_place_error_and_flash():
+    strokes = four_flashes()
+    shuffled, _ = sweep.shuffle_times(strokes, 24_061_117)
+    for name in ("flash_keys", "x", "y", "error"):
+        assert by_id(shuffled, name) == by_id(strokes, name)
+
+
+def test_the_shuffled_strokes_are_in_time_order_then_by_id():
+    shuffled, _ = sweep.shuffle_times(four_flashes(), 24_061_117)
+    assert np.lexsort((shuffled.ids, shuffled.t)).tolist() == list(range(len(shuffled)))
+
+
+def test_a_shuffle_keeps_the_flashes_and_permutes_their_times_exactly():
+    strokes = four_flashes()
+    shuffled, _ = sweep.shuffle_times(strokes, 24_061_117)
+    before, after = strokes_to_flashes(strokes), strokes_to_flashes(shuffled)
+    assert sorted(after.representative_id.tolist()) == sorted(before.representative_id.tolist())
+    assert sorted(after.t.tolist()) == sorted(before.t.tolist())
+
+
+def test_the_same_seed_repeats_a_shuffle_and_the_next_one_differs():
+    rng = np.random.default_rng(0)
+    n = 300
+    strokes = Strokes(ids=np.arange(1, n + 1), flash_keys=np.arange(n) // 2,
+                      t=np.sort(rng.uniform(0.0, 3_600.0, n)), x=rng.uniform(0.0, 1e5, n),
+                      y=rng.uniform(0.0, 1e5, n), error=rng.uniform(0.0, 500.0, n))
+    first, seed = sweep.shuffle_times(strokes, 24_061_117)
+    again, seed_again = sweep.shuffle_times(strokes, 24_061_117)
+    assert first.ids.tolist() == again.ids.tolist() and first.t.tolist() == again.t.tolist()
+    assert seed_again == seed
+    following, _ = sweep.shuffle_times(strokes, seed)
+    assert by_id(following, "t") != by_id(first, "t")
+
+
+# --- a run's statistics in memory -------------------------------------------------------
+
+@pytest.mark.parametrize("algorithm_parameters", [CellsearchParameters, TimeDistanceParameters],
+                         ids=[CELLSEARCH, TIME_DISTANCE])
+@pytest.mark.parametrize(("storms", "min_flashes", "thunderstorms", "isolated_pct"), [
+    ("fixture", 3, 1, 0.0),
+    ("fixture", 7, 0, 100.0),
+    ("half_zone", 3, 1, 0.0),
+    ("two_episodes", 3, 2, 0.0),
+    ("mixed", 7, 2, 100.0 * 6 / 21),
+])
+def test_a_run_s_statistics_in_memory_equal_those_of_its_stored_run(
+        database, tmp_path, algorithm_parameters, storms, min_flashes, thunderstorms,
+        isolated_pct):
+    """With the real times: the fixture's storm (6 flashes of two strokes 1 s apart, on a
+    line in EPSG:25831, a sliver once read back from the database), alone or too small
+    for N_min 7 (every flash isolated); :func:`store_half_zone_storm`'s;
+    :func:`store_two_episodes`'s two storms of 12 flashes; and all three together over
+    three days with N_min 7, so 6 of the 21 zone flashes are isolated."""
+    engine, _ = database
+    logger = logging.getLogger("test")
+    parameters = algorithm_parameters(min_flashes=min_flashes)
+    day = DAY
+    end = day + datetime.timedelta(days=1)
+    if storms == "half_zone":
+        day = store_half_zone_storm(engine)
+        end = day + datetime.timedelta(days=1)
+    elif storms in ("two_episodes", "mixed"):
+        store_two_episodes(engine, tmp_path)
+        day = EPISODES_DAY if storms == "two_episodes" else DAY
+        end = EPISODES_DAY + datetime.timedelta(days=1)
+    algorithm = next(key for key, entry in ALGORITHMS.items()
+                     if isinstance(parameters, entry.parameters))
+    build_thunderstorms(engine, "MeteoCat", algorithm, parameters, day, end, logger)
+    with engine.connect() as connection:
+        provider_id = connection.execute(text(
+            "SELECT id FROM data_provider WHERE name = 'MeteoCat'")).scalar_one()
+        experiment_id = connection.execute(text("SELECT id FROM thunderstorm_experiment")).scalar_one()
+        region = read_region(connection, "MeteoCat")
+    stored = sweep.experiment_statistics(engine, provider_id, "MeteoCat", {parameters: experiment_id},
+                                         day, end, logger)[parameters]
+    strokes = sweep.read_strokes(engine, provider_id, "MeteoCat", day, end)
+    zone_ids = strokes.ids[in_zone(region, strokes.x, strokes.y)]
+    in_memory = sweep.thunderstorm_statistics(*sweep.memory_storms(strokes, zone_ids, parameters))
+    assert (stored["thunderstorms"], stored["isolated_pct"]) == (thunderstorms,
+                                                                pytest.approx(isolated_pct))
+    assert in_memory.keys() == stored.keys()
+    for name, value in stored.items():
+        assert in_memory[name] == (None if value is None else pytest.approx(value, rel=1e-9)), name
+
+
+# --- the shuffled runs' options and file ----------------------------------------------
+
+def test_the_gap_option_shuffles_thirty_times_from_24061117_unless_told():
+    args = sweep.parse_arguments(["--sensitivity", "--gap", *PERIOD])
+    assert args.gap and (args.shuffles, args.seed) == (sweep.SHUFFLES, sweep.SEED) == \
+        (30, 24_061_117)
+    args = sweep.parse_arguments(["--sensitivity", "--gap", "--shuffles", "2", "--seed", "1",
+                                  *PERIOD])
+    assert (args.shuffles, args.seed) == (2, 1)
+    args = sweep.parse_arguments(["--sensitivity", *PERIOD])
+    assert not args.gap and (args.shuffles, args.seed) == (None, None)
+
+
+def test_the_largest_seed_is_two_to_the_31_minus_2():
+    args = sweep.parse_arguments(["--sensitivity", "--gap", "--seed", str(2**31 - 2), *PERIOD])
+    assert args.seed == 2**31 - 2
+
+
+@pytest.mark.parametrize("argv", [["--time", "--gap"],
+                                  ["--sensitivity", "--shuffles", "5"],
+                                  ["--sensitivity", "--seed", "5"],
+                                  ["--sensitivity", "--gap", "--shuffles", "0"],
+                                  ["--sensitivity", "--gap", "--seed", "0"],
+                                  ["--sensitivity", "--gap", "--seed", str(2**31 - 1)]],
+                         ids=["gap-with-time", "shuffles-without-gap", "seed-without-gap",
+                              "no-shuffles", "seed-0", "seed-modulus"])
+def test_a_wrong_gap_option_is_refused(argv):
+    with pytest.raises(SystemExit):
+        sweep.parse_arguments([*argv, *PERIOD])
+
+
+def test_the_gap_file_is_named_as_the_sensitivity_one_with_gap_after_the_provider():
+    episodes = Path("fmi_q1.csv")
+    assert sweep.periods_csv_filename("MeteoCat", episodes, algorithm=TIME_DISTANCE, gap=True) == \
+        "time_distance_galanaki_MeteoCat_gap_fmi_q1.csv"
+    assert sweep.periods_csv_filename("MeteoCat", episodes, algorithm=TIME_DISTANCE,
+                                      defaults=True, gap=True) == \
+        "time_distance_galanaki_defaults_MeteoCat_gap_fmi_q1.csv"
+    start = datetime.datetime(2018, 7, 3, tzinfo=UTC)
+    assert sweep.csv_filename("FMI", start, start + datetime.timedelta(days=1),
+                              algorithm=TIME_DISTANCE, gap=True) == \
+        "time_distance_galanaki_FMI_gap_20180703T000000Z_20180704T000000Z.csv"
+
+
+# --- the shuffled runs against a database ----------------------------------------------
+
+def two_combinations(monkeypatch) -> None:
+    """Time-distance's grid cut to D 10 and 20 km, T 16 min."""
+    monkeypatch.setitem(sweep.GRIDS, TIME_DISTANCE, {"max_distance_km": ("D", "km", [10, 20]),
+                                                     "max_time_difference_min": ("T", "min", [16])})
+
+
+def test_the_gap_option_adds_its_file_and_changes_nothing_else(database, tmp_path, monkeypatch):
+    """The two episodes of :func:`store_two_episodes`, two combinations, two shuffles: run
+    without --gap, then with it (the experiments are stored by then), then with it again."""
+    engine, arguments = database
+    two_combinations(monkeypatch)
+    episodes_path = store_two_episodes(engine, tmp_path)
+    argv = ["--sensitivity", "--algorithm", TIME_DISTANCE, "--provider", "MeteoCat",
+            "--periods", str(episodes_path), *arguments]
+    assert sweep.main([*argv, "--output-dir", str(tmp_path / "plain")]) == 0
+    before = row_counts(engine)
+    assert sweep.main([*argv, "--gap", "--shuffles", "2", "--output-dir",
+                       str(tmp_path / "gap")]) == 0
+    assert row_counts(engine) == before
+    name = sweep.periods_csv_filename("MeteoCat", episodes_path, algorithm=TIME_DISTANCE)
+    assert (tmp_path / "gap" / name).read_bytes() == (tmp_path / "plain" / name).read_bytes()
+    assert not (tmp_path / "plain" / sweep.periods_csv_filename(
+        "MeteoCat", episodes_path, algorithm=TIME_DISTANCE, gap=True)).exists()
+    gap_path = tmp_path / "gap" / sweep.periods_csv_filename("MeteoCat", episodes_path,
+                                                             algorithm=TIME_DISTANCE, gap=True)
+    with gap_path.open() as file:
+        reader = csv.DictReader(file)
+        assert reader.fieldnames == ["episode", "start", "end", "run", "seed", "flashes",
+                                     "experiment_id", "max_distance_km",
+                                     "max_time_difference_min", *sweep.STATISTIC_COLUMNS]
+        records = list(reader)
+    sensitivity = list(csv.DictReader((tmp_path / "plain" / name).open()))
+    episodes = list(csv.DictReader(episodes_path.open()))
+    with engine.connect() as connection:
+        provider_id = connection.execute(text(
+            "SELECT id FROM data_provider WHERE name = 'MeteoCat'")).scalar_one()
+    # Per episode: its 2 real rows, then shuffle 1 and shuffle 2 of both combinations.
+    assert [(record["episode"], record["run"], record["max_distance_km"]) for record in records] == [
+        (episode, run, d) for episode in ("1", "2")
+        for run in ("real", "shuffled", "shuffled") for d in ("10", "20")]
+    for number, episode in enumerate(episodes):
+        rows = records[6 * number:6 * (number + 1)]
+        assert {record["flashes"] for record in rows} == {episode["flashes"]}
+        # The real rows are the sensitivity file's.
+        for record, row in zip(rows[:2], sensitivity[2 * number:2 * (number + 1)]):
+            assert record["seed"] == ""
+            assert {key: record[key] for key in row} == row
+        # Every episode starts again from the seed; each shuffle, made once, serves both
+        # combinations; the second starts where the first stopped.
+        strokes = sweep.read_strokes(engine, provider_id, "MeteoCat",
+                                     datetime.datetime.fromisoformat(episode["start"])
+                                     - sweep.PERIOD_MARGIN,
+                                     datetime.datetime.fromisoformat(episode["end"])
+                                     + sweep.PERIOD_MARGIN)
+        second = sweep.permutation(len(strokes_to_flashes(strokes)), sweep.SEED)[1]
+        assert [(record["seed"], record["experiment_id"]) for record in rows[2:]] == [
+            (str(sweep.SEED), ""), (str(sweep.SEED), ""), (str(second), ""), (str(second), "")]
+    assert sweep.main([*argv, "--gap", "--shuffles", "2", "--output-dir",
+                       str(tmp_path / "again")]) == 0
+    assert (tmp_path / "again" / gap_path.name).read_bytes() == gap_path.read_bytes()
+
+
+def test_the_gap_file_of_a_period_has_no_episode_columns(database, tmp_path, monkeypatch, caplog):
+    engine, arguments = database
+    two_combinations(monkeypatch)
+    argv = ["--sensitivity", "--gap", "--shuffles", "3", "--seed", "7", "--algorithm",
+            TIME_DISTANCE, "--provider", "MeteoCat", "--from", DAY.isoformat(), "--to",
+            NEXT_DAY.isoformat(), "--output-dir", str(tmp_path), *arguments]
+    with caplog.at_level(logging.INFO):
+        assert sweep.main(argv) == 0
+    gap_path = tmp_path / sweep.csv_filename("MeteoCat", DAY, NEXT_DAY, algorithm=TIME_DISTANCE,
+                                             gap=True)
+    with gap_path.open() as file:
+        reader = csv.DictReader(file)
+        assert reader.fieldnames[:4] == ["run", "seed", "flashes", "experiment_id"]
+        records = list(reader)
+    assert [record["run"] for record in records] == ["real"] * 2 + ["shuffled"] * 6
+    assert {record["flashes"] for record in records} == {"6"}
+    assert records[2]["seed"] == records[3]["seed"] == "7"
+    assert [record.getMessage() for record in caplog.records
+            if record.getMessage().startswith("Shuffle ")] == [
+        "Shuffle 1 of 3", "Shuffle 2 of 3", "Shuffle 3 of 3"]
+
+
+def test_shuffling_the_times_breaks_the_storms_up(database, tmp_path, monkeypatch):
+    """Three days, three storms (the fixture's and :func:`store_two_episodes`'): their
+    30 flashes' times spread over the three days, few stay within T of a neighbour."""
+    engine, arguments = database
+    monkeypatch.setitem(sweep.GRIDS, TIME_DISTANCE, {"max_distance_km": ("D", "km", [10]),
+                                                     "max_time_difference_min": ("T", "min", [16])})
+    store_two_episodes(engine, tmp_path)
+    end = EPISODES_DAY + datetime.timedelta(days=1)
+    argv = ["--sensitivity", "--gap", "--shuffles", "3", "--algorithm", TIME_DISTANCE,
+            "--provider", "MeteoCat", "--from", DAY.isoformat(), "--to", end.isoformat(),
+            "--output-dir", str(tmp_path), *arguments]
+    assert sweep.main(argv) == 0
+    path = tmp_path / sweep.csv_filename("MeteoCat", DAY, end, algorithm=TIME_DISTANCE, gap=True)
+    records = list(csv.DictReader(path.open()))
+    real, shuffled = records[0], records[1:]
+    # N_min 10: storms A and B are kept, the fixture's 6 flashes are isolated.
+    assert (real["thunderstorms"], real["flashes_isolated"], real["flashes"]) == ("2", "6", "21")
+    assert len(shuffled) == 3
+    for record in shuffled:
+        assert record["flashes_clustered"] == "21"
+        assert float(record["isolated_pct"]) > float(real["isolated_pct"])
