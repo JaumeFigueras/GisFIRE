@@ -74,7 +74,7 @@ test-qgis-full:
 	cd qgis_plugins && $(QGIS_ENV) $(QGIS_VENV)/bin/python -m pytest -x -v --cov-report=html:./test/coverage_reports --cov=gisfire_thunderstorm --cov=gisfire_minimum_geometric_cover --cov=gisfire_helicopter_routes ./test -s -vv
 
 docs:
-	$(MAKE) -C docs html
+	$(MAKE) -C docs html SPHINXOPTS="-W --keep-going -E"
 
 # --- Database migrations (Alembic) -----------------------------------------
 # All of these read GISFIRE_DB_* from .env via src/settings.py, so they act on

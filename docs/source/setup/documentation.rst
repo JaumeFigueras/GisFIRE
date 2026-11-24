@@ -21,7 +21,9 @@ From the project virtual environment::
    make docs
 
 This runs ``sphinx-build`` and writes the HTML output to ``docs/build/html``; open
-``docs/build/html/index.html`` to view it.
+``docs/build/html/index.html`` to view it. It rereads every page (``-E``) and treats
+warnings as errors (``-W --keep-going``), as the GitHub workflow does, so a warning fails
+here before it fails there.
 
 Configuration
 -------------

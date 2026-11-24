@@ -433,7 +433,7 @@ def counts_query(year: int, family: str = DEFAULT_FAMILY, region: Region | None 
         The campaign to count.
     family : str
         One of :data:`CAUSE_FAMILIES`.
-    region : Region, optional
+    region : ~src.apps.statistics.wildfires.spain_egif.wildfire_statistics.Region, optional
         Count only the fires filed in this *comunidad autónoma*. ``None``, the
         default, counts the whole country.
 
