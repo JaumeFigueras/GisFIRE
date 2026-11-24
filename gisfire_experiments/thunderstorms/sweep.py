@@ -118,11 +118,10 @@ flashes, and everything else from its zone flashes only.
   thunderstorm (in cells smaller than N_min), and their share of
   ``flashes_clustered``.
 * ``density_median_per_100km2``: the median over the thunderstorms of
-  ``100 · zone flashes / area``, the area being that of the zone flashes, the
-  algorithm's way: for Cellsearch its article's (``12·√det Σ``), for the
-  time-distance clustering the concave hull's (with the builder's hull
-  settings). It is not the stored ``thunderstorm.area``, which is the whole
-  storm's.
+  ``100 · zone flashes / area``, the area being that of the zone flashes'
+  concave hull (with the builder's hull settings), for both algorithms. It is
+  not the stored ``thunderstorm.area``, which is the whole storm's (for
+  Cellsearch its article's ``12·√det Σ``).
 * ``diameter_median_km``, ``diameter_p90_km``: the median and the 90th
   percentile over the thunderstorms of the diameter of the circle of the same
   area, ``2·√(area / π)``. The percentile is Hyndman & Fan's (1996) type 8,
@@ -203,7 +202,6 @@ import src.settings  # noqa: F401  (imported for the side effect of loading .env
 from gisfire_algorithms.thunderstorm import CellsearchParameters
 from gisfire_algorithms.thunderstorm import Flashes
 from gisfire_algorithms.thunderstorm import Strokes
-from gisfire_algorithms.thunderstorm import cell_area_km2
 from gisfire_algorithms.thunderstorm import cellsearch
 from gisfire_algorithms.thunderstorm import discard_by_error
 from gisfire_algorithms.thunderstorm import strokes_to_flashes
@@ -487,9 +485,7 @@ class Storm:
     flashes : int
         Its zone flashes; a thunderstorm with none does not count.
     area_km2 : float or None
-        The area of its zone flashes, the algorithm's way (Cellsearch:
-        ``12·√det Σ``; the time-distance clustering: the concave hull's);
-        ``None`` when undefined.
+        The area of its zone flashes' concave hull; ``None`` when undefined.
     duration_min : float
         From its first flash to its last, all of them, in minutes.
     """
@@ -508,23 +504,19 @@ class FlashCounts:
 
 
 #: Every stored thunderstorm of an experiment: its zone flashes, its duration from
-#: all its flashes, and the zone flashes' points and concave hull (if ``:hull``).
+#: all its flashes, and the zone flashes' concave hull.
 #: Its flashes are its linked strokes that represent one, staged with their zone
 #: flag and their coordinates in ``representative_stroke``.
 STORMS_SQL = """
-SELECT s.zone_flashes, s.duration_min, s.zone_x, s.zone_y,
+SELECT s.zone_flashes, s.duration_min,
        CASE WHEN GeometryType(s.hull) = 'POLYGON' THEN ST_Area(s.hull) / 1e6 END AS hull_area_km2
 FROM (
     SELECT t.id,
            count(*) FILTER (WHERE r.zone) AS zone_flashes,
            EXTRACT(EPOCH FROM max(l.date_time) - min(l.date_time)) / 60.0 AS duration_min,
-           array_agg(r.x ORDER BY r.id) FILTER (WHERE r.zone) AS zone_x,
-           array_agg(r.y ORDER BY r.id) FILTER (WHERE r.zone) AS zone_y,
-           CASE WHEN :hull
-                THEN ST_ConcaveHull(ST_Collect(ST_SetSRID(ST_MakePoint(r.x, r.y), :srid)
-                                               ORDER BY r.id) FILTER (WHERE r.zone),
-                                    :ratio, :allow_holes)
-           END AS hull
+           ST_ConcaveHull(ST_Collect(ST_SetSRID(ST_MakePoint(r.x, r.y), :srid)
+                                     ORDER BY r.id) FILTER (WHERE r.zone),
+                          :ratio, :allow_holes) AS hull
     FROM thunderstorm AS t
     JOIN thunderstorm_lightning AS link ON link.thunderstorm_id = t.id
     JOIN representative_stroke AS r ON r.id = link.lightning_id
@@ -536,25 +528,18 @@ ORDER BY s.id
 """
 
 
-def stored_storms(connection: Connection, experiment_id: int, hull: bool, srid: int) -> list[Storm]:
+def stored_storms(connection: Connection, experiment_id: int, srid: int) -> list[Storm]:
     """The experiment's thunderstorms; their zone flashes' area is the concave hull's
-    (with the builder's hull settings, in ``srid``, the staged points' CRS) if ``hull``,
-    the article's ``12·√det Σ`` otherwise."""
+    (with the builder's hull settings, in ``srid``, the staged points' CRS), for every
+    algorithm."""
     rows = connection.execute(text(STORMS_SQL), {
-        "experiment_id": experiment_id, "hull": hull, "srid": srid,
+        "experiment_id": experiment_id, "srid": srid,
         "ratio": float(DEFAULT_HULL_PARAMETERS["ratio"]),
         "allow_holes": bool(DEFAULT_HULL_PARAMETERS["allow_holes"])})
-    storms = []
-    for row in rows:
-        if not row.zone_flashes:
-            area = None
-        elif hull:
-            area = None if row.hull_area_km2 is None else float(row.hull_area_km2)
-        else:
-            area = cell_area_km2(np.asarray(row.zone_x) / 1000.0, np.asarray(row.zone_y) / 1000.0)
-        storms.append(Storm(flashes=row.zone_flashes, area_km2=area,
-                            duration_min=float(row.duration_min)))
-    return storms
+    return [Storm(flashes=row.zone_flashes,
+                  area_km2=None if row.hull_area_km2 is None else float(row.hull_area_km2),
+                  duration_min=float(row.duration_min))
+            for row in rows]
 
 
 def zone_flash_counts(flashes: Flashes, zone: np.ndarray, max_error_km: float | None) -> FlashCounts:
@@ -621,8 +606,7 @@ def experiment_statistics(engine: Engine, data_provider_id: int, provider: str,
             error_km = getattr(parameters, "max_location_error_km", None)
             if error_km not in counts:
                 counts[error_km] = zone_flash_counts(flashes, zone, error_km)
-            storms = stored_storms(connection, experiment_id,
-                                   ALGORITHMS[algorithm_of(parameters)].hull_area, parameters.srid)
+            storms = stored_storms(connection, experiment_id, parameters.srid)
             results[parameters] = thunderstorm_statistics(storms, counts[error_km])
         connection.rollback()
     logger.info("Statistics of %d experiment(s) computed", len(results))

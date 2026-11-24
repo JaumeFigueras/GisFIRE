@@ -211,9 +211,6 @@ class Algorithm:
         ``write_specific(connection, experiment_id, piece.specific, srid)``.
     flag_help : dict
         Help text for each parameter's flag.
-    hull_area : bool
-        Whether a thunderstorm's area is its concave hull's (``run`` gives the
-        cells no area, and the writer computes it); otherwise ``run`` gives it.
     """
 
     name: str
@@ -223,7 +220,6 @@ class Algorithm:
     active: Callable[[Strokes, Any], bool]
     write_specific: Callable[[Connection, int, Any, int], None] | None = None
     flag_help: dict[str, str] = dataclasses.field(default_factory=dict)
-    hull_area: bool = False
 
 
 # --------------------------------------------------------------------------
@@ -365,7 +361,6 @@ ALGORITHMS: dict[str, Algorithm] = {
             "min_flashes": "N_min: clusters with fewer flashes are not stored",
             "srid": "EPSG code of the projected CRS (metres) the algorithm works in",
         },
-        hull_area=True,
     ),
 }
 

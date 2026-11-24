@@ -25,7 +25,6 @@ from sqlalchemy import text
 
 from gisfire_algorithms.thunderstorm import CellsearchParameters
 from gisfire_algorithms.thunderstorm import TimeDistanceParameters
-from gisfire_algorithms.thunderstorm import cell_area_km2
 from gisfire_experiments.thunderstorms import sweep
 from gisfire_experiments.thunderstorms.sweep import FlashCounts
 from gisfire_experiments.thunderstorms.sweep import Storm
@@ -752,9 +751,8 @@ def test_a_storms_statistics_come_from_its_zone_flashes_and_its_time_from_all(da
     assert (result["thunderstorms"], result["flashes_clustered"], result["flashes_isolated"],
             result["flashes_discarded_error"]) == (1, 3, 0, 0)
     assert result["duration_median_min"] == pytest.approx(20.0)
-    # The area of the three zone flashes: the concave hull's (a triangle of 2 km²) or the
-    # article's 12·√det Σ.
-    area = 2.0 if algorithm == TIME_DISTANCE else cell_area_km2([467.0, 468.0, 469.0],
-                                                                [4600.0, 4602.0, 4600.0])
+    # The area of the three zone flashes, their concave hull's for both algorithms: a
+    # triangle of 2 km².
+    area = 2.0
     assert result["density_median_per_100km2"] == pytest.approx(100.0 * 3 / area, rel=1e-6)
     assert result["diameter_median_km"] == pytest.approx(2.0 * math.sqrt(area / math.pi), rel=1e-6)
