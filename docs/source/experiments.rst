@@ -63,6 +63,11 @@ thunderstorms (see :doc:`algorithms`), run over a grid of their parameters.
     16 cm wide at 600 dpi, in English or Catalan, with a Word table of the medians
     (q1–q3).
 
+:doc:`experiments/sobol_convergence`
+    Whether there are episodes enough for those medians: a panel per KPI, the running
+    median of each parameter's total index as the episodes add up, with a band at its
+    last value ± 0.025; a PNG, 16 cm wide at 600 dpi, in English or Catalan.
+
 .. toctree::
    :maxdepth: 1
    :hidden:
@@ -70,3 +75,4 @@ thunderstorms (see :doc:`algorithms`), run over a grid of their parameters.
    experiments/sweep
    experiments/sobol_indices
    experiments/sobol_chart
+   experiments/sobol_convergence
