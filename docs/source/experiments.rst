@@ -68,6 +68,13 @@ thunderstorms (see :doc:`algorithms`), run over a grid of their parameters.
     median of each parameter's total index as the episodes add up, with a band at its
     last value ± 0.025; a PNG, 16 cm wide at 600 dpi, in English or Catalan.
 
+:doc:`experiments/gap_statistic`
+    The gap statistic of the sweep's share of isolated flashes, per episode: for each
+    combination, the shuffled copies' mean minus the real share, in percentage points;
+    its summary over the episodes, where each episode's largest gap falls, and a
+    bootstrap of the episodes for the largest median gap. Reads the sweep's gap files
+    only.
+
 .. toctree::
    :maxdepth: 1
    :hidden:
@@ -76,3 +83,4 @@ thunderstorms (see :doc:`algorithms`), run over a grid of their parameters.
    experiments/sobol_indices
    experiments/sobol_chart
    experiments/sobol_convergence
+   experiments/gap_statistic

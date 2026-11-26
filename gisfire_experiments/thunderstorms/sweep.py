@@ -240,7 +240,8 @@ is copied, and only what it lacks is run. This is how values added to the grid
   file takes its name. With the same grid and some combinations more, the new
   file is the one a run of them all from scratch would write.
 
-The gap itself is not computed here.
+The gap itself is not computed here, but by
+:mod:`gisfire_experiments.thunderstorms.gap_statistic`.
 
 Time analysis
 -------------
